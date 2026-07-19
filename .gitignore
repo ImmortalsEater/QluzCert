@@ -15,6 +15,7 @@ tmp.html
 copias_offline/
 *.xlsx
 scripts/latest_dashboard.html
+media/
 
 # IDE and editor files
 .vscode/

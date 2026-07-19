@@ -4,6 +4,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 import pandas as pd
+from django.conf import settings
 from .models import Colaborador
 
 def sincronizar_processar_e_salvar_copias(file_id):
@@ -278,3 +279,36 @@ def importar_planilha_do_drive(file_id_or_url):
     if not file_id:
         raise ValueError('ID do arquivo do Google Drive inválido')
     return sincronizar_processar_e_salvar_copias(file_id)
+
+
+def _get_mp_sdk():
+    token = getattr(settings, 'MERCADO_PAGO_ACCESS_TOKEN', '')
+    if not token:
+        raise RuntimeError('MERCADO_PAGO_ACCESS_TOKEN não configurado no ambiente.')
+    try:
+        import mercadopago
+    except ImportError as exc:
+        raise RuntimeError('SDK mercadopago não instalado. Rode pip install mercadopago.') from exc
+    return mercadopago.SDK(token)
+
+
+def gerar_pagamento_mercado_pago(valor, email_cliente, descricao_produto, metodo='pix'):
+    sdk = _get_mp_sdk()
+    payment_data = {
+        'transaction_amount': float(valor),
+        'description': descricao_produto,
+        'payment_method_id': metodo,
+        'payer': {
+            'email': email_cliente,
+        },
+    }
+    result = sdk.payment().create(payment_data)
+    response = result.get('response', {}) if isinstance(result, dict) else {}
+    return response
+
+
+def consultar_pagamento_mercado_pago(payment_id):
+    sdk = _get_mp_sdk()
+    result = sdk.payment().get(payment_id)
+    response = result.get('response', {}) if isinstance(result, dict) else {}
+    return response

@@ -447,6 +447,7 @@ function openModal(type, extraId){
   if(type==='parceiro')renderParceiroModal(box);
   if(type==='preco')renderPrecoModal(box);
   if(type==='contato')renderContatoModal(box,extraId||editingId);
+  if(type==='pagamento')renderPagamentoModal(box,extraId||editingId);
 }
 function closeModal(e){if(e.target===document.getElementById('modal-overlay')||e===true){document.getElementById('modal-overlay').classList.remove('open');editingId=null}}
 
@@ -670,6 +671,97 @@ function saveContato(cid){
   save();closeModal(true);renderClientes();renderRenovacoes();renderKanban();
 }
 
+function renderPagamentoModal(box,cid){
+  const c=clientes.find(x=>x.id===cid);
+  if(!c){
+    box.innerHTML='<div class="modal-body"><p>Cliente não encontrado.</p></div>';
+    return;
+  }
+  const valorInicial = Number(c.valorCobrado||0).toFixed(2);
+  const descricaoInicial = c.tipoCert ? `Certificado ${c.tipoCert}` : 'Certificado Digital';
+  const pagamento = c.pagamentoAtual || {};
+  const qrImg = pagamento.qr_code_base64 ? `<img alt="QR Code Pix" src="data:image/png;base64,${pagamento.qr_code_base64}" style="max-width:220px;border:1px solid var(--border);border-radius:8px;padding:8px;background:#fff">` : '<p style="font-size:12px;color:var(--muted)">Gere um pagamento para visualizar o QR Code.</p>';
+  box.innerHTML=`
+  <div class="modal-head"><h2>Pagamento Pix — ${c.nome}</h2><button class="btn btn-sm" onclick="closeModal(true)"><i class="ti ti-x"></i></button></div>
+  <div class="modal-body">
+    <div class="form-grid">
+      <div class="field"><label>Valor (R$)</label><input id="pg-valor" type="number" step="0.01" min="0.01" value="${valorInicial}"></div>
+      <div class="field"><label>E-mail do cliente</label><input id="pg-email" type="email" value="${c.email||''}" placeholder="cliente@email.com"></div>
+      <div class="field form-full"><label>Descrição</label><input id="pg-descricao" type="text" value="${descricaoInicial}"></div>
+      <div class="field form-full"><label>QR Code</label><div id="pg-qr-wrap" style="display:flex;justify-content:center;padding:8px 0">${qrImg}</div></div>
+      <div class="field form-full"><label>Copia e Cola</label><textarea id="pg-copia" rows="3" readonly>${pagamento.qr_code_copia_cola||''}</textarea></div>
+      <div class="field form-full" id="pg-status" style="font-size:12px;color:var(--muted)">${pagamento.status ? `Status atual: ${pagamento.status}` : ''}</div>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn" onclick="closeModal(true)">Fechar</button>
+    <button class="btn btn-primary" onclick="gerarPixCliente('${cid}')"><i class="ti ti-qrcode"></i> Gerar Pix</button>
+  </div>`;
+}
+
+async function gerarPixCliente(cid){
+  const c=clientes.find(x=>x.id===cid);
+  if(!c) return;
+  const valor=parseFloat(document.getElementById('pg-valor')?.value||'0');
+  const email=(document.getElementById('pg-email')?.value||'').trim();
+  const descricao=(document.getElementById('pg-descricao')?.value||'').trim() || 'Certificado Digital';
+  const statusEl=document.getElementById('pg-status');
+  if(!Number.isFinite(valor) || valor<=0){
+    showToast('Informe um valor válido para o Pix','error');
+    return;
+  }
+  if(!email){
+    showToast('Informe o e-mail do cliente para gerar o Pix','error');
+    return;
+  }
+
+  try{
+    if(statusEl) statusEl.textContent='Gerando cobrança Pix...';
+    const response = await fetch('/pagamentos/pix/', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        cliente_ref:c.id,
+        nome_cliente:c.nome,
+        email_cliente:email,
+        descricao_produto:descricao,
+        valor:valor,
+      })
+    });
+    const data = await response.json();
+    if(!response.ok){
+      throw new Error(data.error || 'Falha ao gerar Pix');
+    }
+
+    c.email = email;
+    c.valorCobrado = valor;
+    c.formaPag = 'Pix';
+    c.pagamentoAtual = {
+      pagamento_id:data.pagamento_id,
+      gateway_payment_id:data.gateway_payment_id,
+      status:data.status,
+      qr_code_base64:data.qr_code_base64,
+      qr_code_copia_cola:data.qr_code_copia_cola,
+    };
+    save();
+
+    const qrWrap=document.getElementById('pg-qr-wrap');
+    const copia=document.getElementById('pg-copia');
+    if(qrWrap && data.qr_code_base64){
+      qrWrap.innerHTML = `<img alt="QR Code Pix" src="data:image/png;base64,${data.qr_code_base64}" style="max-width:220px;border:1px solid var(--border);border-radius:8px;padding:8px;background:#fff">`;
+    }
+    if(copia) copia.value = data.qr_code_copia_cola || '';
+    if(statusEl) statusEl.textContent = `Status atual: ${data.status || 'pending'}`;
+    showToast('Cobrança Pix gerada com sucesso','success');
+    renderDashboard();
+    renderClientes();
+  }catch(err){
+    console.error(err);
+    if(statusEl) statusEl.textContent = `Erro: ${err.message || 'Falha ao gerar cobrança'}`;
+    showToast('Erro ao gerar Pix','error');
+  }
+}
+
 // ==================== DETAIL ====================
 function openDetail(id){
   const c=clientes.find(x=>x.id===id);
@@ -715,6 +807,7 @@ function openDetail(id){
           <div class="detail-row"><span class="lbl">Valor</span><span class="val" style="font-weight:700;color:var(--success)">${c.valorCobrado?fmtMoney(c.valorCobrado):'—'}</span></div>
           <div class="detail-row"><span class="lbl">Forma</span><span class="val">${c.formaPag||'—'}</span></div>
           <div class="detail-row"><span class="lbl">Status pagto</span><span class="val"><span style="color:${c.pago?'var(--success)':'var(--danger)'}">${c.pago?'✓ Confirmado':'Pendente'}</span></span></div>
+          <button class="btn btn-sm btn-primary" style="margin-top:8px" onclick="openModal('pagamento','${c.id}');closeDetail(true)"><i class="ti ti-qrcode"></i> Gerar Pix</button>
         </div>
         <div class="detail-section">
           <h4>Triagem / Características</h4>

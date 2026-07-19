@@ -4,11 +4,12 @@ from django.contrib import messages
 from django.db import transaction
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
 import json
 from core.app.services import importar_planilha_do_drive
-from .services import save_state_to_drive
+from .services import save_state_to_drive, gerar_pagamento_mercado_pago, consultar_pagamento_mercado_pago
 from core.app.services import salvar_no_drive_desde_db
-from .models import Colaborador, AppState
+from .models import Colaborador, AppState, DocumentoCliente, PagamentoCliente
 from core.app.models import PlanilhaRegistro
 import io
 import pandas as pd
@@ -292,6 +293,175 @@ def app_state_download(request):
         return resp
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+
+
+def upload_documento(request):
+    if request.method == 'POST':
+        arquivo = request.FILES.get('arquivo')
+        if not arquivo:
+            messages.error(request, 'Selecione um arquivo para envio.')
+            return redirect('upload_documento')
+
+        cliente_ref = request.POST.get('cliente_ref', '').strip()
+        nome_cliente = request.POST.get('nome_cliente', '').strip()
+        observacao = request.POST.get('observacao', '').strip()
+
+        DocumentoCliente.objects.create(
+            cliente_ref=cliente_ref,
+            nome_cliente=nome_cliente,
+            observacao=observacao,
+            arquivo=arquivo,
+        )
+        messages.success(request, 'Documento enviado com sucesso.')
+        return redirect('upload_documento')
+
+    documentos = DocumentoCliente.objects.order_by('-data_envio')[:20]
+    return render(request, 'upload_documento.html', {'documentos': documentos})
+
+
+@csrf_exempt
+def criar_pagamento_pix(request):
+    if request.method != 'POST':
+        return HttpResponseBadRequest('Método não permitido')
+
+    is_json = 'application/json' in (request.content_type or '')
+    try:
+        payload = json.loads(request.body.decode('utf-8')) if is_json else request.POST
+    except Exception:
+        return HttpResponseBadRequest('JSON inválido')
+
+    try:
+        valor = float(payload.get('valor') or 0)
+    except Exception:
+        valor = 0
+
+    email_cliente = (payload.get('email_cliente') or '').strip()
+    descricao = (payload.get('descricao_produto') or payload.get('descricao') or 'Certificado Digital').strip()
+    cliente_ref = (payload.get('cliente_ref') or '').strip()
+    nome_cliente = (payload.get('nome_cliente') or '').strip()
+
+    if valor <= 0:
+        return JsonResponse({'error': 'Valor inválido.'}, status=400)
+    if not email_cliente:
+        return JsonResponse({'error': 'email_cliente é obrigatório.'}, status=400)
+
+    try:
+        payment = gerar_pagamento_mercado_pago(
+            valor=valor,
+            email_cliente=email_cliente,
+            descricao_produto=descricao,
+            metodo='pix',
+        )
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+    gateway_payment_id = str(payment.get('id', ''))
+    status = payment.get('status', PagamentoCliente.STATUS_PENDING)
+    transaction_data = ((payment.get('point_of_interaction') or {}).get('transaction_data') or {})
+
+    registro = PagamentoCliente.objects.create(
+        cliente_ref=cliente_ref,
+        nome_cliente=nome_cliente,
+        email_cliente=email_cliente,
+        metodo=PagamentoCliente.METODO_PIX,
+        valor=valor,
+        descricao=descricao,
+        gateway_payment_id=gateway_payment_id or None,
+        status=status if status in dict(PagamentoCliente.STATUS_CHOICES) else PagamentoCliente.STATUS_PENDING,
+        qr_code_base64=transaction_data.get('qr_code_base64', ''),
+        qr_code_copia_cola=transaction_data.get('qr_code', ''),
+        raw_payload=payment,
+    )
+
+    return JsonResponse({
+        'pagamento_id': registro.id,
+        'gateway_payment_id': registro.gateway_payment_id,
+        'status': registro.status,
+        'qr_code_base64': registro.qr_code_base64,
+        'qr_code_copia_cola': registro.qr_code_copia_cola,
+    })
+
+
+def _extrair_planilha_pk(cliente_ref):
+    # Exemplo esperado: planilha-123
+    if not cliente_ref or not cliente_ref.startswith('planilha-'):
+        return None
+    try:
+        return int(cliente_ref.split('-', 1)[1])
+    except Exception:
+        return None
+
+
+def _marcar_pagamento_aprovado(pagamento):
+    # Atualiza estado JSON usado no dashboard
+    state = AppState.objects.filter(key='main').first()
+    if state and isinstance(state.data, dict):
+        data = state.data
+        clientes = data.get('clientes', []) or []
+        alterado = False
+        for cliente in clientes:
+            if str(cliente.get('id', '')).strip() == str(pagamento.cliente_ref).strip():
+                cliente['pago'] = True
+                alterado = True
+                break
+        if alterado:
+            data['clientes'] = clientes
+            state.data = data
+            state.save()
+
+    # Atualiza registro da planilha quando o id estiver vinculado ao registro importado
+    planilha_pk = _extrair_planilha_pk(pagamento.cliente_ref)
+    if planilha_pk:
+        registro = PlanilhaRegistro.objects.filter(pk=planilha_pk).first()
+        if registro:
+            registro.pago_venda = True
+            registro.save(update_fields=['pago_venda'])
+            spreadsheet_id = '1L-MX27Y6iwCOyd0e4FqLxZJyRFCpHIP6arYYeFIHLME'
+            try:
+                salvar_no_drive_desde_db(spreadsheet_id)
+            except Exception:
+                # Não interrompe o webhook caso o Drive esteja indisponível.
+                pass
+
+
+@csrf_exempt
+def webhook_mercado_pago(request):
+    if request.method != 'POST':
+        return JsonResponse({'status': 'invalid method'}, status=405)
+
+    try:
+        topic = request.GET.get('topic') or request.GET.get('type')
+        payment_id = request.GET.get('id')
+
+        payload = {}
+        if request.body:
+            try:
+                payload = json.loads(request.body.decode('utf-8'))
+            except Exception:
+                payload = {}
+
+        if not payment_id:
+            if payload.get('type') == 'payment' or payload.get('action') == 'payment.updated':
+                payment_id = str((payload.get('data') or {}).get('id') or '')
+                topic = topic or 'payment'
+
+        if topic != 'payment' or not payment_id:
+            return JsonResponse({'status': 'ignored'}, status=200)
+
+        payment_info = consultar_pagamento_mercado_pago(payment_id)
+        status = payment_info.get('status', '')
+
+        pagamento = PagamentoCliente.objects.filter(gateway_payment_id=str(payment_id)).first()
+        if pagamento:
+            pagamento.status = status if status in dict(PagamentoCliente.STATUS_CHOICES) else pagamento.status
+            pagamento.raw_payload = payment_info
+            pagamento.save(update_fields=['status', 'raw_payload', 'data_atualizacao'])
+            if pagamento.status == PagamentoCliente.STATUS_APPROVED:
+                _marcar_pagamento_aprovado(pagamento)
+
+        return JsonResponse({'status': 'success'}, status=200)
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
 
 
 class ParceirosView(TemplateView):

@@ -16,8 +16,10 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
+from django.conf import settings
+from django.conf.urls.static import static
 
-from core.app_Gestor.views import DashboardView, sincronizar_drive, editar_google_row, ParceirosView, app_state, app_state_drive, app_state_download
+from core.app_Gestor.views import DashboardView, sincronizar_drive, editar_google_row, ParceirosView, app_state, app_state_drive, app_state_download, upload_documento, criar_pagamento_pix, webhook_mercado_pago
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -28,4 +30,7 @@ urlpatterns = [
     path('app_state/', app_state, name='app_state'),
     path('app_state_drive/', app_state_drive, name='app_state_drive'),
     path('app_state_download/', app_state_download, name='app_state_download'),
-]
+    path('documentos/upload/', upload_documento, name='upload_documento'),
+    path('pagamentos/pix/', criar_pagamento_pix, name='criar_pagamento_pix'),
+    path('webhook/mercadopago/', webhook_mercado_pago, name='webhook_mercado_pago'),
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
