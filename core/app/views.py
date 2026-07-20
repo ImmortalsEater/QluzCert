@@ -3,7 +3,75 @@ from django.views.generic import TemplateView
 from django.contrib import messages
 from django.db import transaction
 from .services import importar_planilha_do_drive, salvar_no_drive_desde_db
+from core.app_Gestor.models import AppState
 from .models import Colaborador, PlanilhaRegistro
+
+
+DEFAULT_GOOGLE_COLUMNS = [
+    {'label':'Data da Venda','field':'data_venda','class':'col-data-venda'},
+    {'label':'Contador/Parceiro','field':'contador_parceiro','class':'col-contador-parceiro'},
+    {'label':'Contador/Contabilidade','field':'contador_contabilidade','class':'col-contador-contabilidade'},
+    {'label':'Telefone','field':'telefone1','class':'col-telefone1'},
+    {'label':'Cliente','field':'cliente','class':'col-cliente'},
+    {'label':'CPF/CNPJ','field':'cpf_cnpj','class':'col-cpf-cnpj'},
+    {'label':'email','field':'email','class':'col-email'},
+    {'label':'Telefone2','field':'telefone2','class':'col-telefone2'},
+    {'label':'Tipo de Certificado','field':'tipo_certificado','class':'col-tipo-certificado'},
+    {'label':'Valor da Venda (R$)','field':'valor_venda','class':'col-valor-venda'},
+    {'label':'Percentual de Comissão (%)','field':'percentual_comissao','class':'col-percentual'},
+    {'label':'Valor da Comissão (R$)','field':'valor_comissao','class':'col-valor-comissao'},
+    {'label':'Pago_Comissao','field':'pago_comissao','class':'col-pago-comissao'},
+    {'label':'Chave PIX','field':'chave_pix','class':'col-chave-pix'},
+    {'label':'Data de Vencimento','field':'data_vencimento','class':'col-data-vencimento'},
+    {'label':'Pago_Venda','field':'pago_venda','class':'col-pago-venda'},
+    {'label':'Forma de pagamento','field':'forma_pagamento','class':'col-forma-pagamento'},
+    {'label':'Banco','field':'banco','class':'col-banco'},
+    {'label':'Certfificado Feito','field':'certificado_feito','class':'col-cert-feito'},
+    {'label':'Venda','field':'venda','class':'col-venda'},
+    {'label':'Custo do Certificado','field':'custo_certificado','class':'col-custo-cert'},
+    {'label':'Valor Liquido','field':'valor_liquido','class':'col-valor-liquido'},
+    {'label':'Importado em','field':'data_registro','class':'col-data-registro'},
+]
+
+
+def _load_sheet_snapshot():
+    state = AppState.objects.filter(key='sheet_sync').first()
+    if not state or not isinstance(state.data, dict):
+        return None
+    columns = state.data.get('columns') or []
+    rows = state.data.get('rows') or []
+    if not columns or not rows:
+        return None
+    return {'columns': columns, 'rows': rows}
+
+
+def _format_google_cell_value(val):
+    from datetime import date, datetime
+
+    if isinstance(val, float) or hasattr(val, 'quantize'):
+        try:
+            return f"{float(val):.2f}".replace('.', ',')
+        except Exception:
+            return val
+    if isinstance(val, (date, datetime)):
+        try:
+            return val.strftime('%d/%m/%Y')
+        except Exception:
+            return val
+    if isinstance(val, bool):
+        return 'Sim' if val else 'Não'
+    return val
+
+
+def _build_dashboard_from_db():
+    rows = []
+    for r in PlanilhaRegistro.objects.order_by('-data_registro'):
+        cells = []
+        for col in DEFAULT_GOOGLE_COLUMNS:
+            val = getattr(r, col['field'], '')
+            cells.append({'class': col['class'], 'value': _format_google_cell_value(val)})
+        rows.append({'id': r.id, 'cells': cells, 'data_registro': r.data_registro})
+    return DEFAULT_GOOGLE_COLUMNS, rows
 
 
 def sincronizar_drive(request):
@@ -28,60 +96,12 @@ class DashboardView(TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['google_columns'] = [
-            {'label':'Data da Venda','field':'data_venda','class':'col-data-venda'},
-            {'label':'Contador/Parceiro','field':'contador_parceiro','class':'col-contador-parceiro'},
-            {'label':'Contador/Contabilidade','field':'contador_contabilidade','class':'col-contador-contabilidade'},
-            {'label':'Telefone','field':'telefone1','class':'col-telefone1'},
-            {'label':'Cliente','field':'cliente','class':'col-cliente'},
-            {'label':'CPF/CNPJ','field':'cpf_cnpj','class':'col-cpf-cnpj'},
-            {'label':'email','field':'email','class':'col-email'},
-            {'label':'Telefone2','field':'telefone2','class':'col-telefone2'},
-            {'label':'Tipo de Certificado','field':'tipo_certificado','class':'col-tipo-certificado'},
-            {'label':'Valor da Venda (R$)','field':'valor_venda','class':'col-valor-venda'},
-            {'label':'Percentual de Comissão (%)','field':'percentual_comissao','class':'col-percentual'},
-            {'label':'Valor da Comissão (R$)','field':'valor_comissao','class':'col-valor-comissao'},
-            {'label':'Pago_Comissao','field':'pago_comissao','class':'col-pago-comissao'},
-            {'label':'Chave PIX','field':'chave_pix','class':'col-chave-pix'},
-            {'label':'Data de Vencimento','field':'data_vencimento','class':'col-data-vencimento'},
-            {'label':'Pago_Venda','field':'pago_venda','class':'col-pago-venda'},
-            {'label':'Forma de pagamento','field':'forma_pagamento','class':'col-forma-pagamento'},
-            {'label':'Banco','field':'banco','class':'col-banco'},
-            {'label':'Certfificado Feito','field':'certificado_feito','class':'col-cert-feito'},
-            {'label':'Venda','field':'venda','class':'col-venda'},
-            {'label':'Custo do Certificado','field':'custo_certificado','class':'col-custo-cert'},
-            {'label':'Valor Liquido','field':'valor_liquido','class':'col-valor-liquido'},
-            {'label':'Importado em','field':'data_registro','class':'col-data-registro'},
-        ]
-        # Monta linhas com lista de células seguindo a ordem de google_columns
-        cols = context['google_columns']
-        rows = []
-        for r in PlanilhaRegistro.objects.order_by('-data_registro'):
-            cells = []
-            for col in cols:
-                field = col['field']
-                val = getattr(r, field, '')
-                # formata decimais
-                if isinstance(val, float) or (hasattr(val, 'quantize')):
-                    try:
-                        val = f"{float(val):.2f}".replace('.', ',')
-                    except Exception:
-                        pass
-                # formata datas
-                from datetime import date, datetime
-                if isinstance(val, (date, datetime)):
-                    try:
-                        val = val.strftime('%d/%m/%Y')
-                    except Exception:
-                        pass
-                # booleanos para 'Sim'/'Não'
-                if isinstance(val, bool):
-                    val = 'Sim' if val else 'Não'
-                cells.append({'class': col['class'], 'value': val})
-
-            rows.append({'id': r.id, 'cells': cells, 'data_registro': r.data_registro})
-
-        context['google_rows'] = rows
+        snapshot = _load_sheet_snapshot()
+        if snapshot:
+            context['google_columns'] = snapshot['columns']
+            context['google_rows'] = snapshot['rows']
+        else:
+            context['google_columns'], context['google_rows'] = _build_dashboard_from_db()
         return context
 
 

@@ -1,0 +1,70 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload de Documentos</title>
+    <link rel="stylesheet" href="{% static 'css/cert_manager.css' %}">
+</head>
+<body>
+<div style="max-width:920px;margin:30px auto;padding:0 16px;">
+    <h1 style="font-size:22px;margin-bottom:16px;">Upload de Documentação</h1>
+
+    {% if messages %}
+      <div style="margin-bottom:14px;">
+      {% for message in messages %}
+        <div style="padding:10px;border:1px solid #dcdcdc;border-radius:8px;margin-bottom:8px;">{{ message }}</div>
+      {% endfor %}
+      </div>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data" style="border:1px solid #ddd;border-radius:10px;padding:16px;background:#fff;">
+        {% csrf_token %}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div>
+                <label for="cliente_ref">Referência do cliente</label>
+                <input id="cliente_ref" name="cliente_ref" type="text" placeholder="Ex: planilha-123" style="width:100%;padding:10px;">
+            </div>
+            <div>
+                <label for="nome_cliente">Nome do cliente</label>
+                <input id="nome_cliente" name="nome_cliente" type="text" placeholder="Nome" style="width:100%;padding:10px;">
+            </div>
+            <div style="grid-column:1 / -1;">
+                <label for="observacao">Observação</label>
+                <textarea id="observacao" name="observacao" rows="3" style="width:100%;padding:10px;"></textarea>
+            </div>
+            <div style="grid-column:1 / -1;">
+                <label for="arquivo">Arquivo (PDF ou imagem)</label>
+                <input id="arquivo" name="arquivo" type="file" accept=".pdf,image/*" required>
+            </div>
+        </div>
+        <button class="btn btn-primary" type="submit" style="margin-top:12px;">Enviar documento</button>
+    </form>
+
+    <div style="margin-top:20px;border:1px solid #ddd;border-radius:10px;padding:16px;background:#fff;">
+        <h2 style="font-size:17px;margin-bottom:10px;">Últimos envios</h2>
+        <table style="width:100%;border-collapse:collapse;">
+            <thead>
+              <tr>
+                <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Cliente</th>
+                <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Arquivo</th>
+                <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Data</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for doc in documentos %}
+              <tr>
+                <td style="padding:8px;border-bottom:1px solid #f3f3f3;">{{ doc.nome_cliente|default:doc.cliente_ref|default:'-' }}</td>
+                <td style="padding:8px;border-bottom:1px solid #f3f3f3;"><a href="{{ doc.arquivo.url }}" target="_blank">Abrir</a></td>
+                <td style="padding:8px;border-bottom:1px solid #f3f3f3;">{{ doc.data_envio|date:'d/m/Y H:i' }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="3" style="padding:8px;">Nenhum documento enviado.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+</body>
+</html>

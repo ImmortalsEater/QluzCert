@@ -1,11 +1,17 @@
+from datetime import date
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.generic import TemplateView
 from django.contrib import messages
 from django.db import transaction
-from django.http import JsonResponse, HttpResponseBadRequest
+from django.utils.decorators import method_decorator
+from django.http import JsonResponse, HttpResponseBadRequest, FileResponse, Http404
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.http import require_POST
 from django.conf import settings
 import json
+import os
 from core.app.services import importar_planilha_do_drive
 from .services import save_state_to_drive, gerar_pagamento_mercado_pago, consultar_pagamento_mercado_pago
 from core.app.services import salvar_no_drive_desde_db
@@ -14,6 +20,237 @@ from core.app.models import PlanilhaRegistro
 import io
 import pandas as pd
 from django.http import HttpResponse
+
+
+DEFAULT_GOOGLE_COLUMNS = [
+    {'label':'Data da Venda','field':'data_venda','class':'col-data-venda'},
+    {'label':'Contador/Parceiro','field':'contador_parceiro','class':'col-contador-parceiro'},
+    {'label':'Contador/Contabilidade','field':'contador_contabilidade','class':'col-contador-contabilidade'},
+    {'label':'Telefone','field':'telefone1','class':'col-telefone1'},
+    {'label':'Cliente','field':'cliente','class':'col-cliente'},
+    {'label':'CPF/CNPJ','field':'cpf_cnpj','class':'col-cpf-cnpj'},
+    {'label':'email','field':'email','class':'col-email'},
+    {'label':'Telefone2','field':'telefone2','class':'col-telefone2'},
+    {'label':'Tipo de Certificado','field':'tipo_certificado','class':'col-tipo-certificado'},
+    {'label':'Valor da Venda (R$)','field':'valor_venda','class':'col-valor-venda'},
+    {'label':'Percentual de Comissão (%)','field':'percentual_comissao','class':'col-percentual'},
+    {'label':'Valor da Comissão (R$)','field':'valor_comissao','class':'col-valor-comissao'},
+    {'label':'Pago_Comissao','field':'pago_comissao','class':'col-pago-comissao'},
+    {'label':'Chave PIX','field':'chave_pix','class':'col-chave-pix'},
+    {'label':'Data de Vencimento','field':'data_vencimento','class':'col-data-vencimento'},
+    {'label':'Pago_Venda','field':'pago_venda','class':'col-pago-venda'},
+    {'label':'Forma de pagamento','field':'forma_pagamento','class':'col-forma-pagamento'},
+    {'label':'Banco','field':'banco','class':'col-banco'},
+    {'label':'Certfificado Feito','field':'certificado_feito','class':'col-cert-feito'},
+    {'label':'Venda','field':'venda','class':'col-venda'},
+    {'label':'Custo do Certificado','field':'custo_certificado','class':'col-custo-cert'},
+    {'label':'Valor Liquido','field':'valor_liquido','class':'col-valor-liquido'},
+    {'label':'Importado em','field':'data_registro','class':'col-data-registro'},
+]
+
+
+def _format_google_cell_value(val):
+    from datetime import date, datetime
+
+    if isinstance(val, float) or hasattr(val, 'quantize'):
+        try:
+            return f"{float(val):.2f}".replace('.', ',')
+        except Exception:
+            return val
+    if isinstance(val, (date, datetime)):
+        try:
+            return val.strftime('%d/%m/%Y')
+        except Exception:
+            return val
+    if isinstance(val, bool):
+        return 'Sim' if val else 'Não'
+    return val
+
+
+def _load_sheet_snapshot():
+    state = AppState.objects.filter(key='sheet_sync').first()
+    if not state or not isinstance(state.data, dict):
+        return None
+    columns = state.data.get('columns') or []
+    rows = state.data.get('rows') or []
+    if not columns or not rows:
+        return None
+    return {'columns': columns, 'rows': rows}
+
+
+def _build_dashboard_from_db():
+    cols = DEFAULT_GOOGLE_COLUMNS
+    rows = []
+    for r in PlanilhaRegistro.objects.order_by('-data_registro'):
+        cells = []
+        for col in cols:
+            val = getattr(r, col['field'], '')
+            cells.append({'class': col['class'], 'value': _format_google_cell_value(val)})
+        rows.append({'id': r.id, 'cells': cells, 'data_registro': r.data_registro})
+    return cols, rows
+
+
+def _build_dashboard_from_snapshot(snapshot):
+    return snapshot['columns'], snapshot['rows']
+
+
+def _build_alert_payload():
+    hoje = date.today()
+    renovacoes_urgentes = []
+    renovacoes_normais = []
+    pagamentos_urgentes = []
+    pagamentos_normais = []
+
+    def _base_payload(registro, dias_restantes):
+        return {
+            'id': f'planilha-{registro.pk}',
+            'planilha_pk': registro.pk,
+            'nome': registro.cliente or registro.contador_parceiro or registro.email or f'Registro {registro.pk}',
+            'email': registro.email or '',
+            'telefone': registro.telefone1 or registro.telefone2 or '',
+            'parceiro': registro.contador_parceiro or '',
+            'tipoCert': registro.tipo_certificado or '',
+            'dataVencimento': registro.data_vencimento.isoformat() if registro.data_vencimento else '',
+            'dias': dias_restantes,
+            'valorCobrado': float(registro.valor_venda) if registro.valor_venda is not None else 0,
+            'pago': bool(registro.pago_venda or registro.pago_comissao),
+        }
+
+    for registro in PlanilhaRegistro.objects.order_by('-data_registro'):
+        if not registro.data_vencimento:
+            continue
+
+        dias_restantes = (registro.data_vencimento - hoje).days
+        base = _base_payload(registro, dias_restantes)
+        base['statusLabel'] = f"Vencido há {abs(dias_restantes)} dias" if dias_restantes < 0 else f"Vence em {dias_restantes} dias"
+
+        if dias_restantes <= 30:
+            renovacoes_urgentes.append({**base, 'categoria': 'renovacao'})
+        elif dias_restantes <= 90:
+            renovacoes_normais.append({**base, 'categoria': 'renovacao'})
+
+        if not registro.pago_venda:
+            pagamento_base = {**base, 'categoria': 'pagamento', 'tipoPagamento': 'Venda'}
+            if dias_restantes <= 0:
+                pagamentos_urgentes.append(pagamento_base)
+            elif dias_restantes <= 30:
+                pagamentos_normais.append(pagamento_base)
+
+        if not registro.pago_comissao:
+            pagamento_base = {**base, 'categoria': 'pagamento', 'tipoPagamento': 'Comissão'}
+            if dias_restantes <= 0:
+                pagamentos_urgentes.append(pagamento_base)
+            elif dias_restantes <= 30:
+                pagamentos_normais.append(pagamento_base)
+
+    counts = {
+        'total_registros': PlanilhaRegistro.objects.count(),
+        'renovacoes_urgentes': len(renovacoes_urgentes),
+        'renovacoes_normais': len(renovacoes_normais),
+        'pagamentos_urgentes': len(pagamentos_urgentes),
+        'pagamentos_normais': len(pagamentos_normais),
+    }
+    counts['alertas_totais'] = (
+        counts['renovacoes_urgentes']
+        + counts['renovacoes_normais']
+        + counts['pagamentos_urgentes']
+        + counts['pagamentos_normais']
+    )
+
+    return {
+        'counts': counts,
+        'renovacoes': {'urgentes': renovacoes_urgentes, 'normais': renovacoes_normais},
+        'pagamentos': {'urgentes': pagamentos_urgentes, 'normais': pagamentos_normais},
+    }
+
+
+def _build_parceiros_from_source():
+    parceiros_dict = {}
+
+    for r in PlanilhaRegistro.objects.filter(contador_parceiro__gt=''):
+        key = (r.contador_parceiro or '').strip()
+        if not key or key in parceiros_dict:
+            continue
+        parceiros_dict[key] = {
+            'id': key,
+            'nome': r.contador_parceiro,
+            'tipo': 'Parceiro',
+            'comissao': float(r.percentual_comissao) if r.percentual_comissao is not None else None,
+            'contato': r.telefone1 or '',
+            'email': r.email or '',
+        }
+
+    if parceiros_dict:
+        return list(parceiros_dict.values())
+
+    snapshot = _load_sheet_snapshot()
+    if not snapshot:
+        return []
+
+    columns = snapshot.get('columns') or []
+    rows = snapshot.get('rows') or []
+
+    def _match_partner_column(label, field):
+        text = f"{label} {field}".lower()
+        return any(token in text for token in ['contador', 'parceiro', 'escritorio', 'escritório'])
+
+    partner_index = None
+    name_index = None
+    email_index = None
+    phone_index = None
+    cpf_index = None
+    commission_index = None
+
+    for index, col in enumerate(columns):
+        label = str(col.get('label', ''))
+        field = str(col.get('field', ''))
+        text = f"{label} {field}".lower()
+        if partner_index is None and _match_partner_column(label, field):
+            partner_index = index
+        if name_index is None and any(token in text for token in ['cliente', 'nome']):
+            name_index = index
+        if email_index is None and 'email' in text:
+            email_index = index
+        if phone_index is None and any(token in text for token in ['telefone', 'celular', 'whatsapp']):
+            phone_index = index
+        if cpf_index is None and any(token in text for token in ['cpf', 'cnpj']):
+            cpf_index = index
+        if commission_index is None and 'comissao' in text:
+            commission_index = index
+
+    for row in rows:
+        cells = row.get('cells') or []
+        if partner_index is None or partner_index >= len(cells):
+            continue
+        nome = str(cells[partner_index].get('value', '')).strip()
+        if not nome:
+            continue
+        if nome in parceiros_dict:
+            continue
+
+        parceiros_dict[nome] = {
+            'id': nome,
+            'nome': nome,
+            'tipo': 'Parceiro',
+            'comissao': None,
+            'contato': str(cells[phone_index].get('value', '')).strip() if phone_index is not None and phone_index < len(cells) else '',
+            'email': str(cells[email_index].get('value', '')).strip() if email_index is not None and email_index < len(cells) else '',
+        }
+
+        if commission_index is not None and commission_index < len(cells):
+            commission_value = cells[commission_index].get('value', '')
+            try:
+                parceiros_dict[nome]['comissao'] = float(str(commission_value).replace('.', '').replace(',', '.'))
+            except Exception:
+                parceiros_dict[nome]['comissao'] = None
+
+        if name_index is not None and name_index < len(cells) and not parceiros_dict[nome]['contato']:
+            parceiros_dict[nome]['contato'] = str(cells[name_index].get('value', '')).strip()
+
+        if cpf_index is not None and cpf_index < len(cells):
+            parceiros_dict[nome]['cpf_cnpj'] = str(cells[cpf_index].get('value', '')).strip()
+
+    return list(parceiros_dict.values())
 
 
 def sincronizar_drive(request):
@@ -34,65 +271,21 @@ def sincronizar_drive(request):
     return redirect('dashboard')
 
 
+def alertas_dashboard(request):
+    return JsonResponse(_build_alert_payload())
+
+
+@method_decorator(ensure_csrf_cookie, name='dispatch')
 class DashboardView(TemplateView):
     template_name = 'dashboard.html'  # Certifique-se de que o caminho está correto conforme seus TEMPLATES
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['google_columns'] = [
-            {'label':'Data da Venda','field':'data_venda','class':'col-data-venda'},
-            {'label':'Contador/Parceiro','field':'contador_parceiro','class':'col-contador-parceiro'},
-            {'label':'Contador/Contabilidade','field':'contador_contabilidade','class':'col-contador-contabilidade'},
-            {'label':'Telefone','field':'telefone1','class':'col-telefone1'},
-            {'label':'Cliente','field':'cliente','class':'col-cliente'},
-            {'label':'CPF/CNPJ','field':'cpf_cnpj','class':'col-cpf-cnpj'},
-            {'label':'email','field':'email','class':'col-email'},
-            {'label':'Telefone2','field':'telefone2','class':'col-telefone2'},
-            {'label':'Tipo de Certificado','field':'tipo_certificado','class':'col-tipo-certificado'},
-            {'label':'Valor da Venda (R$)','field':'valor_venda','class':'col-valor-venda'},
-            {'label':'Percentual de Comissão (%)','field':'percentual_comissao','class':'col-percentual'},
-            {'label':'Valor da Comissão (R$)','field':'valor_comissao','class':'col-valor-comissao'},
-            {'label':'Pago_Comissao','field':'pago_comissao','class':'col-pago-comissao'},
-            {'label':'Chave PIX','field':'chave_pix','class':'col-chave-pix'},
-            {'label':'Data de Vencimento','field':'data_vencimento','class':'col-data-vencimento'},
-            {'label':'Pago_Venda','field':'pago_venda','class':'col-pago-venda'},
-            {'label':'Forma de pagamento','field':'forma_pagamento','class':'col-forma-pagamento'},
-            {'label':'Banco','field':'banco','class':'col-banco'},
-            {'label':'Certfificado Feito','field':'certificado_feito','class':'col-cert-feito'},
-            {'label':'Venda','field':'venda','class':'col-venda'},
-            {'label':'Custo do Certificado','field':'custo_certificado','class':'col-custo-cert'},
-            {'label':'Valor Liquido','field':'valor_liquido','class':'col-valor-liquido'},
-            {'label':'Importado em','field':'data_registro','class':'col-data-registro'},
-        ]
-        # Monta linhas com lista de células seguindo a ordem de google_columns
-        cols = context['google_columns']
-        rows = []
-        for r in PlanilhaRegistro.objects.order_by('-data_registro'):
-            cells = []
-            for col in cols:
-                field = col['field']
-                val = getattr(r, field, '')
-                # formata decimais
-                if isinstance(val, float) or (hasattr(val, 'quantize')):
-                    try:
-                        val = f"{float(val):.2f}".replace('.', ',')
-                    except Exception:
-                        pass
-                # formata datas
-                from datetime import date, datetime
-                if isinstance(val, (date, datetime)):
-                    try:
-                        val = val.strftime('%d/%m/%Y')
-                    except Exception:
-                        pass
-                # booleanos para 'Sim'/'Não'
-                if isinstance(val, bool):
-                    val = 'Sim' if val else 'Não'
-                cells.append({'class': col['class'], 'value': val})
-
-            rows.append({'id': r.id, 'cells': cells, 'data_registro': r.data_registro})
-
-        context['google_rows'] = rows
+        snapshot = _load_sheet_snapshot()
+        if snapshot:
+            context['google_columns'], context['google_rows'] = _build_dashboard_from_snapshot(snapshot)
+        else:
+            context['google_columns'], context['google_rows'] = _build_dashboard_from_db()
         # Fornece clientes iniciais a partir da planilha importada; se não houver dados,
         # mantém o estado salvo localmente.
         try:
@@ -139,23 +332,11 @@ class DashboardView(TemplateView):
                 initial_clientes = []
 
         try:
-            parceiros_dict = {}
-            for r in PlanilhaRegistro.objects.filter(contador_parceiro__gt=''):
-                key = (r.contador_parceiro or '').strip()
-                if not key:
-                    continue
-                if key not in parceiros_dict:
-                    parceiros_dict[key] = {
-                        'id': key,
-                        'nome': r.contador_parceiro,
-                        'tipo': 'Parceiro',
-                        'comissao': float(r.percentual_comissao) if r.percentual_comissao is not None else None,
-                        'contato': r.telefone1 or '',
-                        'email': r.email or '',
-                    }
-            initial_parceiros = list(parceiros_dict.values())
+            initial_parceiros = _build_parceiros_from_source()
         except Exception:
             initial_parceiros = []
+
+        alertas = _build_alert_payload()
 
         import json
         try:
@@ -166,6 +347,14 @@ class DashboardView(TemplateView):
             context['initial_parceiros_json'] = json.dumps(initial_parceiros, default=str)
         except Exception:
             context['initial_parceiros_json'] = '[]'
+        try:
+            context['initial_alerts_json'] = json.dumps(alertas, default=str)
+        except Exception:
+            context['initial_alerts_json'] = '{}'
+        try:
+            context['alert_counts_json'] = json.dumps(alertas.get('counts', {}), default=str)
+        except Exception:
+            context['alert_counts_json'] = '{}'
         return context
 
 
@@ -311,12 +500,100 @@ def upload_documento(request):
             nome_cliente=nome_cliente,
             observacao=observacao,
             arquivo=arquivo,
+            nome_original=arquivo.name,
+            tamanho_bytes=arquivo.size,
         )
         messages.success(request, 'Documento enviado com sucesso.')
         return redirect('upload_documento')
 
     documentos = DocumentoCliente.objects.order_by('-data_envio')[:20]
     return render(request, 'upload_documento.html', {'documentos': documentos})
+
+
+def documentos_cliente(request, pk):
+    registro = get_object_or_404(PlanilhaRegistro, pk=pk)
+
+    if request.method == 'GET' and request.GET.get('format') == 'json':
+        documentos = registro.documentos.order_by('-data_envio')
+        return JsonResponse({
+            'registro': {
+                'id': registro.id,
+                'cliente': registro.cliente,
+                'email': registro.email,
+                'cpf_cnpj': registro.cpf_cnpj,
+                'tipo_certificado': registro.tipo_certificado,
+            },
+            'documentos': [
+                {
+                    'id': doc.id,
+                    'nome_original': doc.nome_original or os.path.basename(doc.arquivo.name),
+                    'tipo_documento': doc.tipo_documento,
+                    'tipo_documento_display': doc.get_tipo_documento_display(),
+                    'data_envio': doc.data_envio.isoformat() if doc.data_envio else '',
+                    'tamanho_bytes': doc.tamanho_bytes,
+                    'download_url': f'/documentos/{doc.id}/download/',
+                    'delete_url': f'/documentos/{doc.id}/excluir/',
+                }
+                for doc in documentos
+            ],
+        })
+
+    if request.method == 'POST':
+        arquivo = request.FILES.get('arquivo')
+        tipo_documento = request.POST.get('tipo_documento', 'outro')
+
+        if not arquivo:
+            messages.error(request, 'Selecione um arquivo antes de enviar.')
+            return redirect('documentos_cliente', pk=pk)
+
+        extensoes_permitidas = getattr(settings, 'UPLOAD_DOCUMENTO_EXTENSOES_PERMITIDAS', ['.pdf', '.jpg', '.jpeg', '.png'])
+        tamanho_maximo_mb = getattr(settings, 'UPLOAD_DOCUMENTO_TAMANHO_MAXIMO_MB', 10)
+        tamanho_maximo_bytes = tamanho_maximo_mb * 1024 * 1024
+        ext = os.path.splitext(arquivo.name)[1].lower()
+
+        if ext not in extensoes_permitidas:
+            messages.error(request, f'Tipo de arquivo não permitido ("{ext}"). Use: {", ".join(extensoes_permitidas)}.')
+            return redirect('documentos_cliente', pk=pk)
+
+        if arquivo.size > tamanho_maximo_bytes:
+            messages.error(request, f'Arquivo muito grande. O limite é {tamanho_maximo_mb}MB.')
+            return redirect('documentos_cliente', pk=pk)
+
+        DocumentoCliente.objects.create(
+            registro=registro,
+            arquivo=arquivo,
+            nome_original=arquivo.name,
+            tipo_documento=tipo_documento,
+            tamanho_bytes=arquivo.size,
+        )
+        messages.success(request, f'Documento "{arquivo.name}" enviado com sucesso.')
+        return redirect('documentos_cliente', pk=pk)
+
+    documentos = registro.documentos.all()
+    return render(request, 'documentos_cliente.html', {
+        'registro': registro,
+        'documentos': documentos,
+        'tipos_documento': DocumentoCliente.TIPO_CHOICES,
+    })
+
+
+def download_documento(request, doc_id):
+    documento = get_object_or_404(DocumentoCliente, pk=doc_id)
+    try:
+        arquivo = documento.arquivo.open('rb')
+    except FileNotFoundError:
+        raise Http404('Arquivo não encontrado no armazenamento.')
+    return FileResponse(arquivo, as_attachment=True, filename=documento.nome_original or os.path.basename(documento.arquivo.name))
+
+
+@require_POST
+def excluir_documento(request, doc_id):
+    documento = get_object_or_404(DocumentoCliente, pk=doc_id)
+    pk = documento.registro_id
+    documento.arquivo.delete(save=False)
+    documento.delete()
+    messages.success(request, 'Documento removido.')
+    return redirect('documentos_cliente', pk=pk)
 
 
 @csrf_exempt
@@ -470,24 +747,20 @@ class ParceirosView(TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         from datetime import date, datetime
-        
-        # Extrai parceiros únicos da tabela PlanilhaRegistro
-        registros = PlanilhaRegistro.objects.filter(contador_parceiro__gt='').distinct('contador_parceiro').values(
-            'contador_parceiro', 'cpf_cnpj', 'percentual_comissao', 'telefone1', 'email'
-        ).order_by('contador_parceiro')
-        
-        # Se distinct não funcionar (SQLite não suporta), fazemos manualmente
+
+        parceiros_source = _build_parceiros_from_source()
         parceiros_dict = {}
-        for r in PlanilhaRegistro.objects.filter(contador_parceiro__gt=''):
-            key = r.contador_parceiro
-            if key not in parceiros_dict:
-                parceiros_dict[key] = {
-                    'contador_parceiro': r.contador_parceiro,
-                    'cpf_cnpj': r.cpf_cnpj,
-                    'percentual_comissao': r.percentual_comissao,
-                    'telefone1': r.telefone1,
-                    'email': r.email,
-                }
+        for parceiro in parceiros_source:
+            key = parceiro.get('nome') or parceiro.get('contador_parceiro')
+            if not key or key in parceiros_dict:
+                continue
+            parceiros_dict[key] = {
+                'contador_parceiro': parceiro.get('nome') or parceiro.get('contador_parceiro') or '',
+                'cpf_cnpj': parceiro.get('cpf_cnpj', ''),
+                'percentual_comissao': parceiro.get('comissao', None),
+                'telefone1': parceiro.get('contato', ''),
+                'email': parceiro.get('email', ''),
+            }
         
         # Monta estrutura de colunas e linhas
         context['columns'] = [

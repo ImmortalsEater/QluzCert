@@ -1,0 +1,84 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Documentos do cliente</title>
+  <link rel="stylesheet" href="{% static 'css/cert_manager.css' %}">
+</head>
+<body>
+  <div style="max-width:900px;margin:40px auto;padding:20px;background:#fff;border:1px solid #ddd;border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,.05);">
+    <h1 style="margin-bottom:4px;font-size:22px;">Documentos de {{ registro.cliente|default:"cliente sem nome" }}</h1>
+    <p style="margin-top:0;color:#666;font-size:14px;">
+      CPF/CNPJ: {{ registro.cpf_cnpj|default:"-" }} &nbsp;·&nbsp;
+      E-mail: {{ registro.email|default:"-" }} &nbsp;·&nbsp;
+      Certificado: {{ registro.tipo_certificado|default:"-" }}
+    </p>
+
+    {% if messages %}
+      {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+
+    <h2 style="font-size:16px;margin:24px 0 12px;">Enviar novo documento</h2>
+    <form method="post" enctype="multipart/form-data" style="display:grid;gap:14px;background:#fafafa;padding:16px;border-radius:8px;border:1px solid #eee;">
+      {% csrf_token %}
+      <label style="display:block;font-size:14px;">
+        Tipo de documento<br>
+        <select name="tipo_documento" style="width:100%;padding:10px;border:1px solid #ccd;border-radius:8px">
+          {% for value, label in tipos_documento %}
+            <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label style="display:block;font-size:14px;">
+        Arquivo (PDF, JPG ou PNG, até 10MB)<br>
+        <input type="file" name="arquivo" accept=".pdf,.jpg,.jpeg,.png" required style="width:100%;padding:10px;border:1px solid #ccd;border-radius:8px;background:#fff">
+      </label>
+      <div>
+        <button type="submit" class="btn btn-primary">Enviar documento</button>
+      </div>
+    </form>
+
+    <h2 style="font-size:16px;margin:24px 0 12px;">Documentos enviados ({{ documentos|length }})</h2>
+    {% if documentos %}
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="text-align:left;border-bottom:2px solid #eee;">
+            <th style="padding:8px 4px;">Arquivo</th>
+            <th style="padding:8px 4px;">Tipo</th>
+            <th style="padding:8px 4px;">Enviado em</th>
+            <th style="padding:8px 4px;">Tamanho</th>
+            <th style="padding:8px 4px;">Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for doc in documentos %}
+            <tr style="border-bottom:1px solid #f0f0f0;">
+              <td style="padding:8px 4px;">{{ doc.nome_original|default:doc.arquivo.name }}</td>
+              <td style="padding:8px 4px;">{{ doc.get_tipo_documento_display }}</td>
+              <td style="padding:8px 4px;">{{ doc.data_envio|date:"d/m/Y H:i" }}</td>
+              <td style="padding:8px 4px;">{{ doc.tamanho_bytes|filesizeformat }}</td>
+              <td style="padding:8px 4px;display:flex;gap:8px;">
+                <a class="btn btn-sm" href="{% url 'download_documento' doc.id %}">Baixar</a>
+                <form method="post" action="{% url 'excluir_documento' doc.id %}" onsubmit="return confirm('Remover este documento?');">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-sm" style="background:#fdecea;color:#c0392b;border-color:#f5c6cb;">Excluir</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p style="color:var(--muted, #888);">Nenhum documento enviado para este cliente ainda.</p>
+    {% endif %}
+
+    <div style="margin-top:24px;">
+      <a href="{% url 'dashboard' %}" class="btn" style="text-decoration:none;">Voltar ao painel</a>
+    </div>
+  </div>
+</body>
+</html>

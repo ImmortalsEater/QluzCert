@@ -38,6 +38,7 @@
     <div class="nav-item" onclick="nav('funil')"><i class="ti ti-layout-kanban"></i>Funil de Atendimento</div>
     <div class="nav-section">Operacional</div>
     <div class="nav-item" onclick="nav('renovacoes')"><i class="ti ti-bell"></i>Renovações <span class="nav-badge" id="ren-badge">0</span></div>
+    <div class="nav-item" onclick="nav('pagamentos')"><i class="ti ti-cash"></i>Pagamentos <span class="nav-badge" id="pag-badge">0</span></div>
     <div class="nav-item" onclick="location.href='{% url 'parceiros' %}'"><i class="ti ti-building"></i>Parceiros</div>
     <div class="nav-section">Configurações</div>
     <div class="nav-item" onclick="nav('tabela')"><i class="ti ti-currency-dollar"></i>Tabela de Preços</div>
@@ -66,7 +67,7 @@
         <div class="metrics" id="dashboard-metrics"></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
           <div class="table-wrap">
-            <div class="table-header"><h3><i class="ti ti-bell" style="color:var(--danger);margin-right:6px"></i>Alertas de Vencimento</h3></div>
+            <div class="table-header"><h3><i class="ti ti-bell" style="color:var(--danger);margin-right:6px"></i>Alertas de Vencimento e Pagamento</h3></div>
             <div style="padding:12px" id="dashboard-alerts"></div>
           </div>
           <div class="table-wrap">
@@ -107,11 +108,14 @@
                     {% for cell in row.cells %}
                       <td class="{{ cell.class }}">{{ cell.value }}</td>
                     {% endfor %}
-                    <td><a class="btn btn-sm" href="{% url 'editar_google_row' row.id %}">Editar</a></td>
+                    <td>
+                      <a class="btn btn-sm" href="{% url 'editar_google_row' row.id %}">Editar</a>
+                      <a class="btn btn-sm" href="{% url 'documentos_cliente' row.id %}">Documentos</a>
+                    </td>
                   </tr>
                 {% endfor %}
               {% else %}
-                  <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:16px">Nenhuma planilha importada ainda. Use "Sincronizar com o Google Drive".</td></tr>
+                  <tr><td colspan="{{ google_columns|length|add:"1" }}" style="text-align:center;color:var(--muted);padding:16px">Nenhuma planilha importada ainda. Use "Sincronizar com o Google Drive".</td></tr>
               {% endif %}
             </tbody>
           </table>
@@ -145,6 +149,20 @@
           <div>
             <h3 style="font-size:13px;font-weight:700;margin-bottom:12px;color:var(--warn)"><i class="ti ti-clock"></i> Vencendo em 30–90 dias</h3>
             <div class="alert-list" id="ren-normal"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAGAMENTOS -->
+      <div id="view-pagamentos" class="view">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div>
+            <h3 style="font-size:13px;font-weight:700;margin-bottom:12px;color:var(--danger)"><i class="ti ti-alert-circle"></i> Pagamentos Vencidos</h3>
+            <div class="alert-list" id="pag-urgente"></div>
+          </div>
+          <div>
+            <h3 style="font-size:13px;font-weight:700;margin-bottom:12px;color:var(--warn)"><i class="ti ti-clock"></i> Pagamentos a Vencer</h3>
+            <div class="alert-list" id="pag-normal"></div>
           </div>
         </div>
       </div>
@@ -214,6 +232,7 @@
 <script>
   window.INITIAL_CLIENTES = {{ initial_clientes_json|default:'[]'|safe }};
   window.INITIAL_PARCEIROS = {{ initial_parceiros_json|default:'[]'|safe }};
+  window.INITIAL_ALERTS = {{ initial_alerts_json|default:'{}'|safe }};
 </script>
 <script src="{% static 'js/cert_manager.js' %}"></script>
 <script>

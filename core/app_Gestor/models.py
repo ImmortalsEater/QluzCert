@@ -1,4 +1,14 @@
+import os
+import uuid
+
 from django.db import models
+
+
+def caminho_documento_cliente(instance, filename):
+    ext = os.path.splitext(filename)[1].lower()
+    nome_unico = f"{uuid.uuid4().hex}{ext}"
+    registro_part = instance.registro_id or 'sem-registro'
+    return os.path.join('documentos_clientes', str(registro_part), nome_unico)
 
 
 class Colaborador(models.Model):
@@ -22,14 +32,26 @@ class AppState(models.Model):
 
 
 class DocumentoCliente(models.Model):
+    TIPO_CHOICES = [
+        ('rg_cnh', 'RG/CNH'),
+        ('contrato_social', 'Contrato Social'),
+        ('comprovante_residencia', 'Comprovante de Residência'),
+        ('foto_selfie', 'Foto/Selfie'),
+        ('outro', 'Outro'),
+    ]
+
     cliente_ref = models.CharField(max_length=128, blank=True, db_index=True)
     nome_cliente = models.CharField(max_length=255, blank=True)
-    arquivo = models.FileField(upload_to='documentos/%Y/%m/%d/')
+    registro = models.ForeignKey('app.PlanilhaRegistro', null=True, blank=True, on_delete=models.CASCADE, related_name='documentos')
+    arquivo = models.FileField(upload_to=caminho_documento_cliente)
+    nome_original = models.CharField(max_length=255, blank=True, default='')
+    tipo_documento = models.CharField(max_length=32, choices=TIPO_CHOICES, blank=True, default='outro')
+    tamanho_bytes = models.PositiveIntegerField(default=0)
     observacao = models.TextField(blank=True)
     data_envio = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        base = self.nome_cliente or self.cliente_ref or 'Sem cliente'
+        base = self.nome_original or self.nome_cliente or self.cliente_ref or 'Sem cliente'
         return f"Documento({base})"
 
 

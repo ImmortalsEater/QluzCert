@@ -122,6 +122,9 @@ STATIC_URL = 'static/'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
+UPLOAD_DOCUMENTO_EXTENSOES_PERMITIDAS = ['.pdf', '.jpg', '.jpeg', '.png']
+UPLOAD_DOCUMENTO_TAMANHO_MAXIMO_MB = 10
+
 # Credencial do Mercado Pago via ambiente.
 MERCADO_PAGO_ACCESS_TOKEN = os.getenv('MERCADO_PAGO_ACCESS_TOKEN', '')
 

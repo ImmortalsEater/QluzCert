@@ -1,10 +1,12 @@
 import io
 import os
+from datetime import datetime
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 import pandas as pd
 from .models import Colaborador, PlanilhaRegistro
+from core.app_Gestor.models import AppState
 
 def sincronizar_processar_e_salvar_copias(file_id):
     """
@@ -83,6 +85,78 @@ def sincronizar_processar_e_salvar_copias(file_id):
     emails_possiveis = ['email', 'e-mail', 'enderecoemail', 'emailaddress']
 
     all_sheets = pd.read_excel(fh, sheet_name=None, header=None)
+
+    def parse_validade_offset(valor_validade):
+        if valor_validade is None or pd.isna(valor_validade):
+            return None
+
+        texto = str(valor_validade).strip().lower()
+        match = re.search(r'(\d+)', texto)
+        if not match:
+            return None
+
+        quantidade = int(match.group(1))
+        if 'ano' in texto:
+            return pd.DateOffset(years=quantidade)
+        if 'mes' in texto:
+            return pd.DateOffset(months=quantidade)
+        if 'dia' in texto:
+            return pd.DateOffset(days=quantidade)
+        return None
+
+    def aplicar_offset(base_date, offset):
+        if base_date is None or offset is None:
+            return None
+        try:
+            return (pd.Timestamp(base_date) + offset).date()
+        except Exception:
+            return None
+
+    validade_por_tipo = {}
+    precos_sheet = None
+    for sheet_name, sheet_df in all_sheets.items():
+        if normalize_header(sheet_name) == 'precos':
+            precos_sheet = sheet_df
+            break
+
+    if precos_sheet is not None and not precos_sheet.empty:
+        precos_headers = precos_sheet.iloc[0].tolist()
+        precos_df = precos_sheet.iloc[1:].reset_index(drop=True)
+        precos_df.columns = make_unique_headers(precos_headers)
+
+        for _, linha_preco in precos_df.iterrows():
+            row_preco = {normalize_header(str(k)): (v if pd.notna(v) else None) for k, v in linha_preco.items()}
+
+            def get_preco(keys, default=None):
+                normalized_keys = [normalize_header(key) for key in keys]
+                for key in normalized_keys:
+                    if key in row_preco and row_preco[key] is not None:
+                        return row_preco[key]
+                for header, value in row_preco.items():
+                    if value is None:
+                        continue
+                    normalized_header = normalize_header(header)
+                    if any(key in normalized_header for key in normalized_keys):
+                        return value
+                return default
+
+            tipo_preco = get_preco(['Tipo de Certificado', 'Tipo', 'Certificado'], None)
+            validade_preco = get_preco(['Validade', 'Vigencia', 'Vigência', 'Prazo'], None)
+            offset_validade = parse_validade_offset(validade_preco)
+            if tipo_preco and offset_validade is not None:
+                validade_por_tipo[normalize_header(tipo_preco)] = offset_validade
+
+    def resolver_validade(tipo_certificado):
+        tipo_normalizado = normalize_header(tipo_certificado)
+        if not tipo_normalizado:
+            return None
+        if tipo_normalizado in validade_por_tipo:
+            return validade_por_tipo[tipo_normalizado]
+        for tipo_base, offset in validade_por_tipo.items():
+            if tipo_base in tipo_normalizado or tipo_normalizado in tipo_base:
+                return offset
+        return None
+
     df_cru = None
     idx_cabecalho = None
     for sheet_name, sheet_df in all_sheets.items():
@@ -107,6 +181,17 @@ def sincronizar_processar_e_salvar_copias(file_id):
     df = df_cru.iloc[idx_cabecalho + 1:].reset_index(drop=True)
     df.columns = normalized_headers
 
+    display_columns = []
+    for raw_label, field_name in zip(headers, normalized_headers):
+        label = str(raw_label).strip() if raw_label is not None else field_name
+        if not label:
+            label = field_name
+        display_columns.append({
+            'label': label,
+            'field': field_name,
+            'class': f'col-{field_name}',
+        })
+
     # --- TRATAMENTO DE COLUNAS DUPLICADAS ---
     novas_colunas = []
     ja_viu_pago = False
@@ -126,6 +211,7 @@ def sincronizar_processar_e_salvar_copias(file_id):
     # --- PARTE 3: ATUALIZAR O BANCO DE DADOS DJANGO (PlanilhaRegistro) ---
     contagem_novos = 0
     contagem_registros = 0
+    snapshot_rows = []
     for _, linha in df.iterrows():
         # Cria um dicionário com os valores das colunas normalizadas
         row = {normalize_header(str(k)): (v if pd.notna(v) else None) for k, v in linha.items()}
@@ -158,7 +244,15 @@ def sincronizar_processar_e_salvar_copias(file_id):
         valor_comissao_raw = get(['Valor da Comissão (R$)', 'Valor da Comissao', 'Valor Comissão', 'Comissao'], None)
         pago_raw = get(['Pago_Comissao', 'Pago', 'Paga', 'Pago Comissão', 'Pago_Comissao '], None)
         chave_pix = get(['Chave PIX', 'Pix', 'Chave'], '')
-        data_vencimento_raw = get(['Data de Vencimento', 'Data Vencimento', 'Vencimento'], None)
+        data_vencimento_raw = get([
+            'Data de Vencimento',
+            'Data Vencimento',
+            'Vencimento',
+            'DataVencimento',
+            'dataVencimento',
+            'Vencimento do Certificado',
+            'Validade',
+        ], None)
         pago_venda_raw = get(['Pago_Venda', 'Pago Venda', 'Pago_venda', 'Pagamento'], None)
         forma_pagamento = get(['Forma de pagamento', 'Forma de Pagamento', 'Meio de Pagamento'], '')
         banco = get(['Banco', 'Conta', 'Banco/Conta'], '')
@@ -193,6 +287,8 @@ def sincronizar_processar_e_salvar_copias(file_id):
 
         data_venda = parse_date(data_venda_raw)
         data_vencimento = parse_date(data_vencimento_raw)
+        if data_vencimento is None:
+            data_vencimento = aplicar_offset(data_venda, resolver_validade(tipo_certificado))
         valor_venda = parse_decimal(valor_venda_raw)
         percentual_comissao = parse_decimal(percentual_raw)
         valor_comissao = parse_decimal(valor_comissao_raw)
@@ -213,7 +309,7 @@ def sincronizar_processar_e_salvar_copias(file_id):
             # ignora linhas sem identificador útil
             continue
 
-        PlanilhaRegistro.objects.create(
+        registro = PlanilhaRegistro.objects.create(
             data_venda=data_venda,
             contador_parceiro=str(contador_parceiro).strip() if contador_parceiro else '',
             contador_contabilidade=str(contador_contabilidade).strip() if contador_contabilidade else '',
@@ -238,6 +334,32 @@ def sincronizar_processar_e_salvar_copias(file_id):
             valor_liquido=valor_liquido,
         )
         contagem_registros += 1
+
+        row_cells = []
+        for col in display_columns:
+            value = linha.get(col['field'], None)
+
+            if pd.isna(value):
+                value = ''
+            elif isinstance(value, (pd.Timestamp, datetime)):
+                value = value.strftime('%d/%m/%Y')
+            elif isinstance(value, bool):
+                value = 'Sim' if value else 'Não'
+            elif hasattr(value, 'quantize') or isinstance(value, float):
+                try:
+                    value = f"{float(value):.2f}".replace('.', ',')
+                except Exception:
+                    value = str(value)
+            elif value is None:
+                value = ''
+
+            row_cells.append({'class': col['class'], 'value': value})
+
+        snapshot_rows.append({
+            'id': registro.id,
+            'cells': row_cells,
+            'data_registro': registro.data_registro.isoformat() if registro.data_registro else '',
+        })
 
     # --- PARTE 4: GERAR COPIA ATUALIZADA (OFFLINE) ---
     # --- PARTE 4: GERAR COPIA ATUALIZADA (OFFLINE) ---
@@ -286,6 +408,17 @@ def sincronizar_processar_e_salvar_copias(file_id):
             resumable=True
         )
         service.files().update(fileId=file_id, media_body=media).execute()
+
+    AppState.objects.update_or_create(
+        key='sheet_sync',
+        defaults={
+            'data': {
+                'columns': display_columns,
+                'rows': snapshot_rows,
+                'updated_at': pd.Timestamp.utcnow().isoformat(),
+            }
+        }
+    )
 
     return contagem_registros or contagem_novos
 
