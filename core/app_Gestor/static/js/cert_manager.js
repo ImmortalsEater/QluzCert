@@ -839,6 +839,18 @@ function switchTab(el,tabId){
   document.querySelectorAll('.tab-pane').forEach(p=>p.style.display='none');
   document.getElementById(tabId).style.display='';
 }
+// Adicione isto no cert_manager.js caso as funções não existam mais
+
+function renderTriagemFields(clienteData) {
+    // TODO: Restaurar preenchimento dos inputs da aba Triagem no modal de edição
+    console.log("Renderizando campos de triagem para edição do cliente:", clienteData);
+}
+
+function getTriagemSummary() {
+    // TODO: Coletar os dados da aba Triagem antes de enviar o formulário do modal
+    console.log("Coletando dados da aba de triagem");
+    return {}; 
+}
 
 function saveCliente(){
   const nome=document.getElementById('f-nome').value.trim();
