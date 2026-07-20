@@ -97,36 +97,40 @@
               {% endfor %}
             </div>
           </div>
-          <table class="google-drive-table">
-            <thead><tr>
-              {% for col in google_columns %}<th class="{{ col.class }}">{{ col.label }}</th>{% endfor %}
-              <th>Ações</th>
-            </tr></thead>
-            <tbody>
-              {% if google_rows %}
-                {% for row in google_rows %}
-                  <tr>
-                    {% for cell in row.cells %}
-                      <td class="{{ cell.class }}">{{ cell.value }}</td>
-                    {% endfor %}
-                    <td>
-                      <a class="btn btn-sm" href="{% url 'editar_google_row' row.id %}">Editar</a>
-                      <a class="btn btn-sm" href="{% url 'documentos_cliente' row.id %}">Documentos</a>
-                    </td>
-                  </tr>
-                {% endfor %}
-              {% else %}
-                  <tr><td colspan="{{ google_columns|length|add:"1" }}" style="text-align:center;color:var(--muted);padding:16px">Nenhuma planilha importada ainda. Use "Sincronizar com o Google Drive".</td></tr>
-              {% endif %}
-            </tbody>
-          </table>
+          <div class="table-scroll">
+            <table class="google-drive-table">
+              <thead><tr>
+                {% for col in google_columns %}<th class="{{ col.class }}">{{ col.label }}</th>{% endfor %}
+                <th>Ações</th>
+              </tr></thead>
+              <tbody>
+                {% if google_rows %}
+                  {% for row in google_rows %}
+                    <tr>
+                      {% for cell in row.cells %}
+                        <td class="{{ cell.class }}">{{ cell.value }}</td>
+                      {% endfor %}
+                      <td>
+                        <a class="btn btn-sm" href="{% url 'editar_google_row' row.id %}">Editar</a>
+                        <a class="btn btn-sm" href="{% url 'documentos_cliente' row.id %}">Documentos</a>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                {% else %}
+                    <tr><td colspan="{{ google_columns|length|add:"1" }}" style="text-align:center;color:var(--muted);padding:16px">Nenhuma planilha importada ainda. Use "Sincronizar com o Google Drive".</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
         </div>
         <div class="table-wrap">
-          <table>
-            <thead><tr>
-              <th>Cliente</th><th>CPF/CNPJ</th><th>Tipo Cert.</th><th>Status</th><th>Parceiro</th><th>Vencimento</th><th>Ações</th></tr></thead>
-            <tbody id="clientes-tbody"></tbody>
-          </table>
+          <div class="table-scroll">
+            <table>
+              <thead><tr>
+                <th>Cliente</th><th>CPF/CNPJ</th><th>Tipo Cert.</th><th>Status</th><th>Parceiro</th><th>Vencimento</th><th>Ações</th></tr></thead>
+              <tbody id="clientes-tbody"></tbody>
+            </table>
+          </div>
           <div id="clientes-empty" class="empty-state" style="display:none"><i class="ti ti-users"></i><p>Nenhum cliente encontrado.</p></div>
         </div>
       </div>
@@ -180,10 +184,12 @@
           <button class="btn btn-primary" onclick="openModal('parceiro')"><i class="ti ti-plus"></i>Novo Parceiro</button>
         </div>
         <div class="table-wrap">
-          <table>
-            <thead><tr><th>Nome / Escritório</th><th>Tipo</th><th>Comissão</th><th>Contato</th><th>Clientes Indicados</th><th>Ações</th></tr></thead>
-            <tbody id="parceiros-tbody"></tbody>
-          </table>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Nome / Escritório</th><th>Tipo</th><th>Comissão</th><th>Contato</th><th>Clientes Indicados</th><th>Ações</th></tr></thead>
+              <tbody id="parceiros-tbody"></tbody>
+            </table>
+          </div>
           <div id="parceiros-empty" class="empty-state" style="display:none"><i class="ti ti-building"></i><p>Nenhum parceiro cadastrado.</p></div>
         </div>
       </div>
@@ -194,10 +200,12 @@
           <button class="btn btn-primary" onclick="openModal('preco')"><i class="ti ti-plus"></i>Novo Item</button>
         </div>
         <div class="table-wrap">
-          <table>
-            <thead><tr><th>Tipo de Certificado</th><th>Validade</th><th>Preço</th><th>Ações</th></tr></thead>
-            <tbody id="tabela-tbody"></tbody>
-          </table>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Tipo de Certificado</th><th>Validade</th><th>Preço</th><th>Ações</th></tr></thead>
+              <tbody id="tabela-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
