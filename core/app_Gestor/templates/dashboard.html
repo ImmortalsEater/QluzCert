@@ -111,7 +111,7 @@
                         <td class="{{ cell.class }}">{{ cell.value }}</td>
                       {% endfor %}
                       <td>
-                        <a class="btn btn-sm" href="{% url 'editar_google_row' row.id %}">Editar</a>
+                        <a class="btn btn-sm btn-edit" href="{% url 'editar_google_row' row.id %}"><i class="ti ti-pencil"></i>Editar</a>
                         <a class="btn btn-sm" href="{% url 'documentos_cliente' row.id %}">Documentos</a>
                       </td>
                     </tr>
