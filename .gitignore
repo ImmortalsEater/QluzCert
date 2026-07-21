@@ -4,8 +4,6 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Django local settings
-db.sqlite3
 
 # Google credentials
 credentials.json
