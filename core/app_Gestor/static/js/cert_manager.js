@@ -84,17 +84,34 @@ function _ensureToastContainer(){
   if(!c){ c = document.createElement('div'); c.className='toast-container'; document.body.appendChild(c); }
   return c;
 }
+const TOAST_ICONS = {success:'ti-circle-check', error:'ti-alert-circle', warning:'ti-alert-triangle', info:'ti-info-circle'};
 function showToast(message, type='info', timeout=3500){
   try{
     const container = _ensureToastContainer();
     const t = document.createElement('div');
     t.className = 'toast '+(type||'info');
-    t.textContent = message;
+    const icon = document.createElement('i');
+    icon.className = 'toast-icon ti '+(TOAST_ICONS[type]||TOAST_ICONS.info);
+    const text = document.createElement('span');
+    text.className = 'toast-text';
+    text.textContent = message;
+    t.appendChild(icon);
+    t.appendChild(text);
     container.appendChild(t);
     requestAnimationFrame(()=>requestAnimationFrame(()=>t.classList.add('toast-visible')));
     setTimeout(()=>{t.classList.remove('toast-visible');}, timeout-200);
     setTimeout(()=>{try{container.removeChild(t)}catch(e){}}, timeout);
   }catch(e){console.warn('Toast failed',e)}
+}
+
+function showDjangoMessages(){
+  const items = Array.isArray(window.DJANGO_MESSAGES) ? window.DJANGO_MESSAGES : [];
+  const TAG_TO_TYPE = {success:'success', error:'error', warning:'warning', info:'info', debug:'info'};
+  const TAG_TO_TIMEOUT = {success:4200, error:6500, warning:5500, info:4200};
+  items.forEach(function(item, i){
+    const type = TAG_TO_TYPE[item.tags] || 'info';
+    setTimeout(()=>showToast(item.text, type, TAG_TO_TIMEOUT[type]), i*250);
+  });
 }
 
 // Inicializa o menu de salvar (botão único com opções)
