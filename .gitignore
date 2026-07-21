@@ -18,3 +18,5 @@ scripts/latest_dashboard.html
 .vscode/
 .idea/
 *.swp
+
+.slopcode
