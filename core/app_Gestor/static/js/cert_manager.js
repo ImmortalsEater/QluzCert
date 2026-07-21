@@ -21,8 +21,6 @@ let precos = DB.get('precos')||[
   {id:5,tipo:'NF-e',validade:'1 ano',preco:120},
 ];
 let editingId = null;
-let triagemStep = 0;
-let triagemData = {};
 let backendAlertData = (typeof window !== 'undefined' && window.INITIAL_ALERTS) ? window.INITIAL_ALERTS : null;
 
 const STATUS_LIST = ['Novo Lead','Documentação Pendente','Aguardando Pagamento','Agendado para Vídeo','Emitido'];
@@ -316,7 +314,6 @@ const PAGE_CONFIG = {
   clientes:{title:'Clientes', render:renderClientes},
   funil:{title:'Funil de Atendimento', render:renderKanban},
   renovacoes:{title:'Alertas de Renovação', render:renderRenovacoes},
-  triagem:{title:'Triagem de Validação', render:startTriagem},
   pagamentos:{title:'Alertas de Pagamento', render:renderInadimplencia},
   parceiros:{title:'Parceiros Comerciais', render:renderParceiros},
   tabela:{title:'Tabela de Preços', render:renderTabela},
@@ -442,11 +439,11 @@ function renderDashboard(){
     .sort((a,b)=>(a.dias??9999)-(b.dias??9999))
     .slice(0,5);
   const al=document.getElementById('dashboard-alerts');
-  if(!urgentes.length){al.innerHTML='<p style="font-size:13px;color:var(--muted);text-align:center;padding:20px">Nenhum alerta no momento ✓</p>';return}
-  al.innerHTML=urgentes.map(c=>{
+  if(!urgentes.length){al.innerHTML='<p style="font-size:13px;color:var(--muted);text-align:center;padding:20px">Nenhum alerta no momento ✓</p>';}
+  else { al.innerHTML=urgentes.map(c=>{
     const kind = c.categoria === 'pagamento' ? 'pagamento' : 'renovacao';
     return renderAlertCard(c, kind);
-  }).join('');
+  }).join(''); }
   const recent=clientes.slice().sort((a,b)=>new Date(b.criadoEm||0)-new Date(a.criadoEm||0)).slice(0,6);
   document.getElementById('dashboard-recent').innerHTML=`<table style="width:100%;border-collapse:collapse">${recent.map(c=>`
     <tr onclick="openDetail('${c.id}')" style="cursor:pointer;border-bottom:1px solid var(--border)">
@@ -454,6 +451,16 @@ function renderDashboard(){
       <td style="padding:10px 16px"><span class="badge ${STATUS_CLASSES[STATUS_LIST.indexOf(c.status)]||'badge-novo'}">${c.status||'Novo Lead'}</span></td>
       <td style="padding:10px 16px;color:var(--muted);font-size:12px">${fmtDate(c.criadoEm)}</td>
     </tr>`).join('')}</table>`;
+  const notificados=clientes.filter(c=>Array.isArray(c.notificacoes)&&c.notificacoes.length).sort((a,b)=>(b.notificacoes?.length||0)-(a.notificacoes?.length||0)).slice(0,6);
+  const panel=document.getElementById('dashboard-notificados');
+  if(panel){
+    panel.innerHTML = notificados.length ? `<table style="width:100%;border-collapse:collapse">${notificados.map(c=>`
+      <tr onclick="openDetail('${c.id}')" style="cursor:pointer;border-bottom:1px solid var(--border)">
+        <td style="padding:10px 16px;font-size:13px"><strong>${c.nome}</strong></td>
+        <td style="padding:10px 16px;color:var(--muted);font-size:12px">${(c.notificacoes||[]).length} aviso(s)</td>
+        <td style="padding:10px 16px;color:var(--muted);font-size:12px">${fmtDate((c.notificacoes||[])[0]?.data||c.criadoEm)}</td>
+      </tr>`).join('')}</table>` : '<p style="font-size:13px;color:var(--muted);text-align:center;padding:20px">Nenhum cliente notificado ainda.</p>';
+  }
 }
 
 // ==================== CLIENTES ====================
@@ -524,40 +531,36 @@ function renderInadimplencia(){
   document.getElementById('pag-normal').innerHTML=normais.length?normais.map(c=>renderAlertCard(c,'pagamento')).join(''):'<p style="font-size:13px;color:var(--muted)">Nenhum pagamento a vencer ✓</p>';
 }
 
-// ==================== TRIAGEM ====================
-function startTriagem(){
-  triagemStep=0;triagemData={};renderTriagem();
-}
-const triagem=[
-  {q:'O cliente possui CNH (Carteira Nacional de Habilitação)?',opts:['Sim, possui CNH','Não possui CNH']},
-  {q:'O cliente já teve certificado digital anteriormente?',opts:['Sim, já teve certificado','Não, é a primeira vez']},
-  {q:'Verificar no Portal Soluti: existe biometria cadastrada para este cliente?',opts:['Sim, biometria encontrada','Não encontrada']},
-];
-function renderTriagem(){
-  const el=document.getElementById('triagem-content');
-  let html='<div style="margin-bottom:14px;font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Triagem de Validação</div>';
-  if(triagemStep===0){
-    html+=`<div class="triagem-q">${triagem[0].q}</div><div class="triagem-opts">${triagem[0].opts.map((o,i)=>`<div class="triagem-opt" onclick="triagemAnswer(0,${i})">${o}</div>`).join('')}</div>`;
-  } else if(triagemStep===1){
-    if(triagemData[0]===0){html+=`<div class="triagem-result"><i class="ti ti-video" style="margin-right:6px"></i>Validação por Videoconferência — cliente possui CNH.</div>`;html+=`<button class="btn" style="margin-top:12px" onclick="startTriagem()"><i class="ti ti-refresh"></i> Nova triagem</button>`;
-    } else {html+=`<div class="triagem-q">${triagem[1].q}</div><div class="triagem-opts">${triagem[1].opts.map((o,i)=>`<div class="triagem-opt" onclick="triagemAnswer(1,${i})">${o}</div>`).join('')}</div>`;}
-  } else if(triagemStep===2){
-    if(triagemData[1]===1){html+=`<div class="triagem-result warn"><i class="ti ti-map-pin" style="margin-right:6px"></i>Validação Presencial obrigatória — sem CNH e sem certificado anterior.</div>`;html+=`<button class="btn" style="margin-top:12px" onclick="startTriagem()"><i class="ti ti-refresh"></i> Nova triagem</button>`;
-    } else {html+=`<div class="triagem-q">${triagem[2].q}</div><div class="triagem-opts">${triagem[2].opts.map((o,i)=>`<div class="triagem-opt" onclick="triagemAnswer(2,${i})">${o}</div>`).join('')}</div>`;}
-  } else if(triagemStep===3){
-    if(triagemData[2]===0){html+=`<div class="triagem-result"><i class="ti ti-video" style="margin-right:6px"></i>Validação por Videoconferência — biometria encontrada no Portal Soluti.</div>`;}
-    else{html+=`<div class="triagem-result warn"><i class="ti ti-map-pin" style="margin-right:6px"></i>Validação Presencial obrigatória — sem biometria cadastrada.</div>`;}
-    html+=`<button class="btn" style="margin-top:12px" onclick="startTriagem()"><i class="ti ti-refresh"></i> Nova triagem</button>`;
-  }
-  el.innerHTML=html;
-}
-function triagemAnswer(q,ans){triagemData[q]=ans;triagemStep++;renderTriagem()}
-
 function getPlanilhaPkFromClientId(clientId){
-  if(!clientId || !String(clientId).startsWith('planilha-')) return null;
-  const raw = String(clientId).split('-', 2)[1];
-  const pk = parseInt(raw, 10);
-  return Number.isFinite(pk) ? pk : null;
+  if(clientId === null || clientId === undefined || clientId === '') return null;
+  const raw = String(clientId).trim();
+  if(!raw) return null;
+  const match = raw.match(/^(?:planilha[-_]?|)(\d+)$/i);
+  if(match) return parseInt(match[1], 10);
+  if(raw.startsWith('planilha-')){
+    const fallback = raw.split('-', 2)[1];
+    const pk = parseInt(fallback, 10);
+    return Number.isFinite(pk) ? pk : null;
+  }
+  return null;
+}
+
+function resolveClienteById(clientId){
+  const raw = String(clientId || '').trim();
+  if(!raw) return null;
+  const direct = clientes.find(c => String(c.id) === raw || String(c.id) === raw.replace(/^planilha[-_]?/i, ''));
+  if(direct) return direct;
+  const planilhaPk = getPlanilhaPkFromClientId(raw);
+  if(planilhaPk !== null){
+    const byPlanilha = clientes.find(c => Number(getPlanilhaPkFromClientId(c.id)) === planilhaPk || Number(c.planilhaPk) === planilhaPk || Number(c.planilha_id) === planilhaPk || Number(c.planilhaId) === planilhaPk);
+    if(byPlanilha) return byPlanilha;
+  }
+  const simplified = raw.replace(/^planilha[-_]?/i, '');
+  if(simplified !== raw){
+    const bySimplified = clientes.find(c => String(c.id) === simplified || String(c.planilhaPk) === simplified || String(c.planilha_id) === simplified || String(c.planilhaId) === simplified);
+    if(bySimplified) return bySimplified;
+  }
+  return null;
 }
 
 function openDocumentosCliente(clientId){
@@ -712,7 +715,8 @@ function deletePreco(id){if(confirm('Remover?')){precos=precos.filter(p=>p.id!==
 
 // ==================== MODAIS ====================
 function openModal(type, extraId){
-  editingId=editingId||extraId||null;
+  const matched = resolveClienteById(extraId || editingId);
+  editingId = matched ? matched.id : (extraId || editingId || null);
   const overlay=document.getElementById('modal-overlay');
   const box=document.getElementById('modal-box');
   overlay.classList.add('open');
@@ -720,11 +724,12 @@ function openModal(type, extraId){
   if(type==='parceiro')renderParceiroModal(box);
   if(type==='preco')renderPrecoModal(box);
   if(type==='contato')renderContatoModal(box,extraId||editingId);
+  if(type==='pagamento')renderPagamentoModal(box,extraId||editingId);
 }
 function closeModal(e){if(e.target===document.getElementById('modal-overlay')||e===true){document.getElementById('modal-overlay').classList.remove('open');editingId=null}}
 
 function renderClienteModal(box){
-  const c=editingId?clientes.find(x=>x.id===editingId):{};
+  const c=resolveClienteById(editingId) || {};
   const pOpts=parceiros.map(p=>`<option value="${p.id}"${c.parceiroId===p.id?' selected':''}>${p.nome}</option>`).join('');
   const tOpts=precos.map(p=>`<option value="${p.tipo}"${c.tipoCert===p.tipo?' selected':''}>${p.tipo} — ${fmtMoney(p.preco)}</option>`).join('');
   const hasPlanilhaId = !!String(c.id || editingId || '').startsWith('planilha-');
@@ -744,7 +749,6 @@ function renderClienteModal(box){
     <div class="tabs">
       <div class="tab active" onclick="switchTab(this,'tab-dados')">Dados Pessoais</div>
       <div class="tab" onclick="switchTab(this,'tab-cert')">Certificado & Pagamento</div>
-      <div class="tab" onclick="switchTab(this,'tab-triagem')">Triagem</div>
       ${hasPlanilhaId?`<div class="tab" onclick="switchTab(this,'tab-documentos')">Documentos</div>`:''}
       <div class="tab" onclick="switchTab(this,'tab-soluti')">Kit Soluti</div>
     </div>
@@ -771,11 +775,6 @@ function renderClienteModal(box){
         <div class="field"><label>Pagamento Confirmado?</label><select id="f-pago"><option value="false"${!c.pago?' selected':''}>Não confirmado</option><option value="true"${c.pago?' selected':''}>✓ Pago / Confirmado</option></select></div>
         <div class="field"><label>Tipo de Validação</label><select id="f-valid"><option${c.tipoValidacao==='Videoconferência'?' selected':''}>Videoconferência</option><option${c.tipoValidacao==='Presencial'?' selected':''}>Presencial</option></select></div>
         <div class="field"><label>Data da Videoconferência</label><input id="f-videodata" type="datetime-local" value="${c.dataVideo||''}"></div>
-      </div>
-    </div>
-    <div id="tab-triagem" class="tab-pane" style="display:none">
-      <div class="form-grid">
-        ${renderTriagemFields(c)}
       </div>
     </div>
     ${hasPlanilhaId?`
@@ -815,19 +814,6 @@ function renderClienteModal(box){
   document.getElementById('f-emissao').addEventListener('change',function(){
     if(this.value){document.getElementById('f-venc').value=addDays(this.value,365)}
   });
-  document.querySelectorAll('#tab-triagem select').forEach(function(select){
-    select.addEventListener('change', function(){
-      const resumo = document.getElementById('triagem-resumo');
-      if(resumo){
-        const preview = {
-          temCnh: Number(document.getElementById('triagem-temCnh')?.value ?? 0),
-          jaTeveCertificado: Number(document.getElementById('triagem-jaTeveCertificado')?.value ?? 0),
-          temBiometria: Number(document.getElementById('triagem-temBiometria')?.value ?? 0),
-        };
-        resumo.value = getTriagemSummary(preview);
-      }
-    });
-  });
   if(hasPlanilhaId){
     loadDocumentosCliente(c.id || editingId);
   }
@@ -841,21 +827,10 @@ function switchTab(el,tabId){
 }
 // Adicione isto no cert_manager.js caso as funções não existam mais
 
-function renderTriagemFields(clienteData) {
-    // TODO: Restaurar preenchimento dos inputs da aba Triagem no modal de edição
-    console.log("Renderizando campos de triagem para edição do cliente:", clienteData);
-}
-
-function getTriagemSummary() {
-    // TODO: Coletar os dados da aba Triagem antes de enviar o formulário do modal
-    console.log("Coletando dados da aba de triagem");
-    return {}; 
-}
-
 function saveCliente(){
   const nome=document.getElementById('f-nome').value.trim();
   if(!nome){alert('Nome obrigatório');return}
-  const c=editingId?clientes.find(x=>x.id===editingId):{id:uid(),criadoEm:new Date().toISOString().split('T')[0],historico:[]};
+  const c=resolveClienteById(editingId) || {id:(editingId || uid()),criadoEm:new Date().toISOString().split('T')[0],historico:[],notificacoes:[]};
   c.nome=nome;
   c.cpfCnpj=document.getElementById('f-cpfcnpj').value;
   c.dataNasc=document.getElementById('f-nasc').value;
@@ -951,8 +926,64 @@ function savePreco(){
   save();closeModal(true);renderTabela();editingId=null;
 }
 
+function renderPagamentoModal(box,cid){
+  const c=resolveClienteById(cid || editingId) || {};
+  if(!c.id){
+    box.innerHTML='<div class="modal-head"><h2>Pagamento</h2><button class="btn btn-sm" onclick="closeModal(true)"><i class="ti ti-x"></i></button></div><div class="modal-body"><p style="font-size:13px;color:var(--muted)">Selecione um cliente antes de registrar um pagamento.</p></div>';
+    return;
+  }
+  box.innerHTML=`
+  <div class="modal-head"><h2>Pagamento — ${c.nome||'Cliente'}</h2><button class="btn btn-sm" onclick="closeModal(true)"><i class="ti ti-x"></i></button></div>
+  <div class="modal-body">
+    <div class="form-grid">
+      <div class="field"><label>Valor (R$)</label><input id="pg-valor" type="number" step="0.01" value="${c.valorCobrado||''}" placeholder="0,00"></div>
+      <div class="field"><label>Status</label><select id="pg-status"><option value="Pendente"${!c.pago?' selected':''}>Pendente</option><option value="Pago"${c.pago?' selected':''}>Pago</option></select></div>
+      <div class="field"><label>Forma</label><select id="pg-forma"><option${(c.formaPag||'Pix')==='Pix'?' selected':''}>Pix</option><option${(c.formaPag||'Boleto')==='Boleto'?' selected':''}>Boleto</option><option${(c.formaPag||'Cartão')==='Cartão'?' selected':''}>Cartão</option><option${(c.formaPag||'Dinheiro')==='Dinheiro'?' selected':''}>Dinheiro</option></select></div>
+      <div class="field"><label>Data</label><input id="pg-data" type="date" value="${c.dataPagamento||new Date().toISOString().split('T')[0]}"></div>
+      <div class="field form-full"><label>Observação</label><textarea id="pg-obs" placeholder="Ex: Pagamento confirmado via PIX no valor integral.">${c.obs||''}</textarea></div>
+      <div class="field form-full"><label><input id="pg-notificar" type="checkbox" checked> Enviar notificação ao cliente</label></div>
+      <div class="field form-full"><label>Mensagem da notificação</label><textarea id="pg-notificacao" placeholder="Ex: Seu pagamento foi confirmado, obrigado."></textarea></div>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn" onclick="closeModal(true)">Cancelar</button>
+    <button class="btn btn-primary" onclick="savePagamento('${c.id}')">Salvar Pagamento</button>
+  </div>`;
+}
+
+function savePagamento(cid){
+  const c=resolveClienteById(cid || editingId);
+  if(!c)return;
+  const valor=parseFloat(document.getElementById('pg-valor').value)||0;
+  const status=document.getElementById('pg-status').value;
+  const forma=document.getElementById('pg-forma').value;
+  const data=document.getElementById('pg-data').value || new Date().toISOString().split('T')[0];
+  const obs=document.getElementById('pg-obs').value.trim();
+  c.valorCobrado=valor;
+  c.formaPag=forma;
+  c.pago=status==='Pago';
+  c.dataPagamento=data;
+  if(obs){ c.obs = [c.obs, obs].filter(Boolean).join('\n'); }
+  if(!c.historico)c.historico=[];
+  c.historico.push({data, canal:'Pagamento', obs:`${status} · ${forma}${valor?` · ${fmtMoney(valor)}`:''}`, dt:new Date().toISOString()});
+  const notify = document.getElementById('pg-notificar')?.checked;
+  if(notify){
+    if(!Array.isArray(c.notificacoes)) c.notificacoes=[];
+    c.notificacoes.unshift({
+      id:uid(),
+      data,
+      tipo:'pagamento',
+      titulo:'Pagamento registrado',
+      texto: document.getElementById('pg-notificacao').value.trim() || `Pagamento ${status.toLowerCase()} para ${c.nome||'o cliente'}.`,
+      status:c.pago?'enviado':'pendente',
+      origem:'pagamento',
+    });
+  }
+  save();closeModal(true);renderClientes();renderDashboard();renderKanban();renderRenovacoes();renderInadimplencia();
+}
+
 function renderContatoModal(box,cid){
-  const c=clientes.find(x=>x.id===cid);
+  const c=resolveClienteById(cid);
   if(!c)return;
   box.innerHTML=`
   <div class="modal-head"><h2>Registrar Contato — ${c.nome}</h2><button class="btn btn-sm" onclick="closeModal(true)"><i class="ti ti-x"></i></button></div>
@@ -971,22 +1002,23 @@ function renderContatoModal(box,cid){
 }
 
 function saveContato(cid){
-  const c=clientes.find(x=>x.id===cid);
+  const c=resolveClienteById(cid);
   if(!c)return;
   if(!c.historico)c.historico=[];
   c.historico.push({data:document.getElementById('ct-data').value,canal:document.getElementById('ct-canal').value,obs:document.getElementById('ct-obs').value,dt:new Date().toISOString()});
   c.status=document.getElementById('ct-status').value;
-  save();closeModal(true);renderClientes();renderRenovacoes();renderKanban();
+  save();closeModal(true);renderClientes();renderDashboard();renderRenovacoes();renderKanban();
 }
 
 // ==================== DETAIL ====================
 function openDetail(id){
-  const c=clientes.find(x=>x.id===id);
+  const c=resolveClienteById(id);
   if(!c)return;
   const parc=parceiros.find(p=>p.id===c.parceiroId);
   const si=STATUS_LIST.indexOf(c.status);
   const steps=STATUS_LIST.map((s,i)=>`<div class="step${i<si?' done':i===si?' current':''}">${s}</div>`).join('');
   const hist=(c.historico||[]).slice().reverse().map(h=>`<div class="contact-entry"><span class="dt">${fmtDate(h.data)}<br><small>${h.canal}</small></span><span>${h.obs||'—'}</span></div>`).join('')||'<p style="font-size:12px;color:var(--muted)">Nenhum contato registrado</p>';
+  const notificacoes=(c.notificacoes||[]).slice().reverse().map(n=>`<div class="contact-entry"><span class="dt">${fmtDate(n.data)}<br><small>${n.titulo||'Notificação'}</small></span><span>${n.texto||'—'}</span></div>`).join('')||'<p style="font-size:12px;color:var(--muted)">Nenhuma notificação registrada</p>';
   const kit=c.solutiLink||c.solutiChave?`<div class="kit-box"><div class="kit-label"><i class="ti ti-key"></i> Kit de Instalação Soluti</div><div class="kit-row"><strong>Link:</strong> <a href="${c.solutiLink}" style="color:var(--accent)" target="_blank">${c.solutiLink}</a></div><div class="kit-row"><strong>Chave:</strong> <code>${c.solutiChave}</code></div><div class="kit-row"><strong>Destinatário:</strong> ${c.kitDestinatario||'—'} <span style="color:${c.kitEnviado?'var(--success)':'var(--danger)'}">${c.kitEnviado?'✓ Enviado':'Não enviado'}</span></div></div>`:'<p style="font-size:12px;color:var(--muted)">Kit Soluti ainda não registrado</p>';
   document.getElementById('detail-box').innerHTML=`
   <div class="modal-head">
@@ -1037,6 +1069,10 @@ function openDetail(id){
           <h4>Histórico de Contatos</h4>
           <button class="btn btn-sm" style="margin-bottom:8px" onclick="openModal('contato','${c.id}');closeDetail(true)"><i class="ti ti-plus"></i> Registrar Contato</button>
           <div class="contact-log">${hist}</div>
+        </div>
+        <div class="detail-section">
+          <h4>Notificações</h4>
+          <div class="contact-log">${notificacoes}</div>
         </div>
         ${c.obs?`<div class="detail-section"><h4>Observações</h4><p style="font-size:13px;color:var(--muted)">${c.obs}</p></div>`:''}
       </div>

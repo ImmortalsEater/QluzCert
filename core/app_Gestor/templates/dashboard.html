@@ -38,7 +38,6 @@
     <div class="nav-item" onclick="nav('funil')"><i class="ti ti-layout-kanban"></i>Funil de Atendimento</div>
     <div class="nav-section">Operacional</div>
     <div class="nav-item" onclick="nav('renovacoes')"><i class="ti ti-bell"></i>Renovações <span class="nav-badge" id="ren-badge">0</span></div>
-    <div class="nav-item" onclick="nav('triagem')"><i class="ti ti-route"></i>Triagem de Validação</div>
     <div class="nav-item" onclick="nav('pagamentos')"><i class="ti ti-cash"></i>Pagamentos <span class="nav-badge" id="pag-badge">0</span></div>
     <div class="nav-item" onclick="location.href='{% url 'parceiros' %}'"><i class="ti ti-building"></i>Parceiros</div>
     <div class="nav-section">Configurações</div>
@@ -75,6 +74,10 @@
             <div class="table-header"><h3><i class="ti ti-clock" style="color:var(--accent);margin-right:6px"></i>Últimos Atendimentos</h3></div>
             <div style="padding:0" id="dashboard-recent"></div>
           </div>
+        </div>
+        <div style="margin-top:16px" class="table-wrap">
+          <div class="table-header"><h3><i class="ti ti-bell-ringing" style="color:var(--accent);margin-right:6px"></i>Clientes Notificados</h3></div>
+          <div style="padding:0" id="dashboard-notificados"></div>
         </div>
       </div>
 
@@ -154,12 +157,6 @@
         </div>
       </div>
 
-      <!-- TRIAGEM -->
-      <div id="view-triagem" class="view">
-        <div style="max-width:520px">
-          <p style="font-size:13px;color:var(--muted);margin-bottom:16px">Use este guia para determinar o tipo de validação adequado para o cliente.</p>
-          <div class="triagem-card">
-            <div id="triagem-content"></div>
       <!-- PAGAMENTOS -->
       <div id="view-pagamentos" class="view">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
