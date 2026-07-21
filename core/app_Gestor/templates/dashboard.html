@@ -237,6 +237,8 @@
   window.INITIAL_CLIENTES = {{ initial_clientes_json|default:'[]'|safe }};
   window.INITIAL_PARCEIROS = {{ initial_parceiros_json|default:'[]'|safe }};
   window.INITIAL_ALERTS = {{ initial_alerts_json|default:'{}'|safe }};
+  // Nova linha que puxa o faturamento exato da tabela
+  window.INITIAL_FATURAMENTO = {{ faturamento_recebido_json|default:'0'|safe }};
 </script>
 <script src="{% static 'js/cert_manager.js' %}"></script>
 <script>
