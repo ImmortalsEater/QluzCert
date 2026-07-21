@@ -90,7 +90,7 @@
   .badge-vencendo{background:var(--danger-bg);color:var(--danger)}
   
   /* BUTTONS */
-  .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px;font-weight:500;cursor:pointer;text-decoration:none;transition:background-color 150ms ease,border-color 150ms ease,transform 120ms ease-out}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:7px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;text-decoration:none;transition:background-color 150ms ease,border-color 150ms ease,transform 120ms ease-out}
   .btn:hover{background:var(--bg);border-color:#ccc}
   .btn:active{transform:scale(0.96)}
   .btn:has(>i:first-child){padding-left:12px}
