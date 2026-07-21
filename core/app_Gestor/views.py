@@ -1,5 +1,5 @@
 from datetime import date
-
+from .models import DocumentoCliente
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.generic import TemplateView
 from django.contrib import messages
@@ -621,6 +621,15 @@ def criar_pagamento_pix(request):
         'qr_code_copia_cola': registro.qr_code_copia_cola,
     })
 
+# core/app_Gestor/views.py
+
+def criar_pagamento_pix(request):
+    # TODO: Requer instalação do SDK do Mercado Pago e implementação da função base
+    raise NotImplementedError("A integração PIX com Mercado Pago ainda não foi implementada.")
+
+def webhook_mercado_pago(request):
+    # TODO: Requer implementação da consultar_pagamento_mercado_pago
+    raise NotImplementedError("Webhook do Mercado Pago está inativo no momento.")
 
 def _extrair_planilha_pk(cliente_ref):
     # Exemplo esperado: planilha-123
