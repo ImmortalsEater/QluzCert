@@ -97,26 +97,29 @@
           <button class="btn btn-primary" onclick="openModal('novoCliente', null, this)"><i class="ti ti-plus" aria-hidden="true"></i>Novo Cliente</button>
         </div>
         <div class="table-wrap">
-          <div class="table-header">
+          <div class="table-header" style="position:relative">
             <h3><i class="ti ti-table"></i>Planilha Importada do Google Drive</h3>
             <span id="planilha-count" class="result-count" aria-live="polite"></span>
-            <div class="column-selector" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px">
-              {% for col in google_columns %}
-                <label class="column-toggle-label"><input type="checkbox" class="column-toggle" data-col="{{ col.class }}" checked> {{ col.label }}</label>
-              {% endfor %}
+            <div class="column-selector-dropdown" style="margin-left:auto;position:relative">
+              <button type="button" class="btn btn-sm" id="column-selector-toggle"><i class="ti ti-columns"></i>Colunas <i class="ti ti-chevron-down" style="margin-left:4px;font-size:11px"></i></button>
+              <div class="column-selector-panel" id="column-selector-panel">
+                {% for col in google_columns %}
+                  <label class="column-toggle-label"><input type="checkbox" class="column-toggle" data-col="{{ col.class }}" {% if col.default_visible %}checked{% endif %}> {{ col.label }}</label>
+                {% endfor %}
+              </div>
             </div>
           </div>
           <div class="table-scroll">
             <table class="google-drive-table" id="planilha-table"{% if not google_rows %} style="display:none"{% endif %}>
               <thead><tr>
-                {% for col in google_columns %}<th class="{{ col.class }}">{{ col.label }}</th>{% endfor %}
+                {% for col in google_columns %}<th class="{{ col.class }}"{% if not col.default_visible %} style="display:none"{% endif %}>{{ col.label }}</th>{% endfor %}
                 <th>Ações</th>
               </tr></thead>
               <tbody id="planilha-tbody">
                 {% for row in google_rows %}
                   <tr>
                     {% for cell in row.cells %}
-                      <td class="{{ cell.class }}">{{ cell.value }}</td>
+                      <td class="{{ cell.class }}"{% if not cell.default_visible %} style="display:none"{% endif %}>{{ cell.value }}</td>
                     {% endfor %}
                     <td>
 
@@ -273,6 +276,21 @@
         });
       });
     });
+
+    var columnPanel = document.getElementById('column-selector-panel');
+    var columnToggleBtn = document.getElementById('column-selector-toggle');
+    if (columnToggleBtn && columnPanel) {
+      columnToggleBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        columnPanel.classList.toggle('open');
+      });
+      document.addEventListener('click', function(e) {
+        if (!columnPanel.contains(e.target) && e.target !== columnToggleBtn) {
+          columnPanel.classList.remove('open');
+        }
+      });
+    }
+
     showDjangoMessages();
 
     var searchInput = document.getElementById('search-cliente');

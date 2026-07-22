@@ -195,7 +195,7 @@ function updateResultCount(elId, shown, total){
 function statusIndex(status){return STATUS_LIST.indexOf(status)>=0?STATUS_LIST.indexOf(status):0}
 function statusBadge(status){const i=statusIndex(status); return `<span class="badge ${STATUS_CLASSES[i]}">${status||'Novo Lead'}</span>`}
 function parceiroBadge(id){const p=parceiros.find(x=>x.id===id); return p?`<span class="parceiro-tag">${p.nome}</span>`:'—'}
-function formatVencimento(c){const d=c.dataVencimento?daysUntil(c.dataVencimento):null; return d!==null&&d<=60?`<span class="badge badge-vencendo">${d<0?'Vencido':d+' dias'}</span>`:(c.dataVencimento?`<span style="font-size:12px;color:var(--muted)">${fmtDate(c.dataVencimento)}</span>`:'—')}
+function formatVencimento(c){const d=c.dataVencimento?daysUntil(c.dataVencimento):null; return d!==null&&d<=60?`<span class="badge ${d<0?'badge-vencido':'badge-vencendo'}">${d<0?'Vencido':d+' dias'}</span>`:(c.dataVencimento?`<span style="font-size:12px;color:var(--muted)">${fmtDate(c.dataVencimento)}</span>`:'—')}
 function tableRows(rows){return rows.join('')}
 function uid(){return Date.now()+Math.random().toString(36).slice(2)}
 function fmtDate(d){if(!d)return'—';const dt=new Date(d);return dt.toLocaleDateString('pt-BR')}
@@ -1536,7 +1536,7 @@ function openDetail(id){
           <h4>Certificado</h4>
           <div class="detail-row"><span class="lbl">Tipo</span><span class="val">${c.tipoCert||'—'}</span></div>
           <div class="detail-row"><span class="lbl">Emissão</span><span class="val">${fmtDate(c.dataEmissao)}</span></div>
-          <div class="detail-row"><span class="lbl">Vencimento</span><span class="val">${c.dataVencimento?`<span class="badge ${daysUntil(c.dataVencimento)<60?'badge-vencendo':'badge-emitido'}">${fmtDate(c.dataVencimento)}</span>`:'—'}</span></div>
+          <div class="detail-row"><span class="lbl">Vencimento</span><span class="val">${c.dataVencimento?`<span class="badge ${daysUntil(c.dataVencimento)<0?'badge-vencido':daysUntil(c.dataVencimento)<60?'badge-vencendo':'badge-emitido'}">${fmtDate(c.dataVencimento)}</span>`:'—'}</span></div>
           <div class="detail-row"><span class="lbl">Validação</span><span class="val">${c.tipoValidacao||'—'}</span></div>
           <div class="detail-row"><span class="lbl">Videoconferência</span><span class="val">${c.dataVideo?fmtDate(c.dataVideo):'—'}</span></div>
         </div>

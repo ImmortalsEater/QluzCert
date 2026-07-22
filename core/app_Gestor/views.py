@@ -13,6 +13,7 @@ from django.views.decorators.http import require_POST
 from django.conf import settings
 import json
 import os
+import re
 from core.app.services import importar_planilha_do_drive
 from .services import save_state_to_drive
 from core.app.services import salvar_no_drive_desde_db
@@ -22,6 +23,80 @@ import io
 import pandas as pd
 from django.http import HttpResponse
 from django.db.models import Sum, Q
+
+# Traduz nomes técnicos de coluna (vindos direto do cabeçalho da planilha do
+# Google Drive) para rótulos legíveis. Chave = nome do campo normalizado
+# (minúsculo, sem acentos/pontuação).
+FRIENDLY_COLUMN_LABELS = {
+    'id': 'ID',
+    'criadoem': 'Criado em',
+    'historico': 'Histórico',
+    'nome': 'Cliente',
+    'cpfcnpj': 'CPF/CNPJ',
+    'datanasc': 'Data de Nascimento',
+    'telefone': 'Telefone',
+    'email': 'E-mail',
+    'parceiroid': 'Parceiro',
+    'origem': 'Origem',
+    'status': 'Status',
+    'obs': 'Observações',
+    'tipocert': 'Tipo de Certificado',
+    'dataemissao': 'Data de Emissão',
+    'datavencimento': 'Data de Vencimento',
+    'valorcobrado': 'Valor Cobrado',
+    'formapag': 'Forma de Pagamento',
+    'pago': 'Pago',
+    'tipovalidacao': 'Tipo de Validação',
+    'datavideo': 'Data do Vídeo',
+    'solutilink': 'Link Soluti',
+    'solutichave': 'Chave Soluti',
+    'kitdestinatario': 'Destinatário do Kit',
+    'kitenviado': 'Kit Enviado',
+    'triagem': 'Triagem',
+}
+
+# Colunas que aparecem marcadas por padrão no seletor "Colunas" — as demais
+# ficam disponíveis mas ocultas até o usuário optar por exibi-las.
+DEFAULT_VISIBLE_FIELD_KEYS = {
+    'cliente', 'nome',
+    'cpfcnpj',
+    'tipocertificado', 'tipocert',
+    'contadorparceiro', 'parceiroid',
+    'datavencimento',
+    'status', 'pagovenda',
+}
+
+
+def _normalize_field_key(field_name):
+    return re.sub(r'[^a-z0-9]', '', str(field_name or '').lower())
+
+
+def _annotate_columns(cols):
+    annotated = []
+    for col in cols:
+        key = _normalize_field_key(col.get('field'))
+        annotated.append({
+            **col,
+            'label': FRIENDLY_COLUMN_LABELS.get(key, col.get('label')),
+            'default_visible': key in DEFAULT_VISIBLE_FIELD_KEYS,
+        })
+    return annotated
+
+
+_ISO_DATETIME_RE = re.compile(r'^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}:\d{2})?')
+
+
+def _format_snapshot_cell_value(val):
+    if val is None or val == '':
+        return '—'
+    if isinstance(val, str) and _ISO_DATETIME_RE.match(val):
+        try:
+            from datetime import datetime
+            return datetime.fromisoformat(val.replace('Z', '+00:00')).strftime('%d/%m/%Y')
+        except Exception:
+            return val
+    return val
+
 
 DEFAULT_GOOGLE_COLUMNS = [
     {'label':'Data da Venda','field':'data_venda','class':'col-data-venda'},
@@ -53,6 +128,8 @@ DEFAULT_GOOGLE_COLUMNS = [
 def _format_google_cell_value(val):
     from datetime import date, datetime
 
+    if val is None or val == '':
+        return '—'
     if isinstance(val, float) or hasattr(val, 'quantize'):
         try:
             return f"{float(val):.2f}".replace('.', ',')
@@ -80,19 +157,32 @@ def _load_sheet_snapshot():
 
 
 def _build_dashboard_from_db():
-    cols = DEFAULT_GOOGLE_COLUMNS
+    cols = _annotate_columns(DEFAULT_GOOGLE_COLUMNS)
     rows = []
     for r in PlanilhaRegistro.objects.order_by('-data_registro'):
         cells = []
         for col in cols:
             val = getattr(r, col['field'], '')
-            cells.append({'class': col['class'], 'value': _format_google_cell_value(val)})
+            cells.append({'class': col['class'], 'value': _format_google_cell_value(val), 'default_visible': col['default_visible']})
         rows.append({'id': r.id, 'cells': cells, 'data_registro': r.data_registro})
     return cols, rows
 
 
 def _build_dashboard_from_snapshot(snapshot):
-    return snapshot['columns'], snapshot['rows']
+    cols = _annotate_columns(snapshot['columns'])
+    visible_by_class = {col['class']: col['default_visible'] for col in cols}
+    rows = []
+    for row in snapshot['rows']:
+        cells = [
+            {
+                **cell,
+                'value': _format_snapshot_cell_value(cell.get('value')),
+                'default_visible': visible_by_class.get(cell.get('class'), True),
+            }
+            for cell in row.get('cells', [])
+        ]
+        rows.append({**row, 'cells': cells})
+    return cols, rows
 
 
 def _build_alert_payload():
