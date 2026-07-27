@@ -4,12 +4,15 @@ import pandas as pd
 
 
 def parse_date(val):
-    if val is None:
+    if val is None or val == '':
         return None
     if isinstance(val, (pd.Timestamp, datetime)):
         return val.date()
     try:
-        return pd.to_datetime(val).date()
+        parsed = pd.to_datetime(val)
+        if pd.isna(parsed):
+            return None
+        return parsed.date()
     except Exception:
         return None
 

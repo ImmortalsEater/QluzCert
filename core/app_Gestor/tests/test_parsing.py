@@ -11,6 +11,9 @@ class ParseDateTests(SimpleTestCase):
     def test_none_returns_none(self):
         self.assertIsNone(parse_date(None))
 
+    def test_empty_string_returns_none(self):
+        self.assertIsNone(parse_date(''))
+
     def test_datetime_instance_returns_its_date(self):
         self.assertEqual(parse_date(datetime(2024, 3, 15, 10, 30)), date(2024, 3, 15))
 
@@ -25,6 +28,9 @@ class ParseDateTests(SimpleTestCase):
 
     def test_unparseable_string_returns_none(self):
         self.assertIsNone(parse_date('não é uma data'))
+
+    def test_nat_literal_string_returns_none(self):
+        self.assertIsNone(parse_date('NaT'))
 
 
 class ParseDecimalTests(SimpleTestCase):
