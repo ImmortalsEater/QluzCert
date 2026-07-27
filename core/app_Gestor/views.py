@@ -37,7 +37,6 @@ FRIENDLY_COLUMN_LABELS = {
     'telefone': 'Telefone',
     'email': 'E-mail',
     'parceiroid': 'Parceiro',
-    'origem': 'Origem',
     'status': 'Status',
     'obs': 'Observações',
     'tipocert': 'Tipo de Certificado',
@@ -46,13 +45,6 @@ FRIENDLY_COLUMN_LABELS = {
     'valorcobrado': 'Valor Cobrado',
     'formapag': 'Forma de Pagamento',
     'pago': 'Pago',
-    'tipovalidacao': 'Tipo de Validação',
-    'datavideo': 'Data do Vídeo',
-    'solutilink': 'Link Soluti',
-    'solutichave': 'Chave Soluti',
-    'kitdestinatario': 'Destinatário do Kit',
-    'kitenviado': 'Kit Enviado',
-    'triagem': 'Triagem',
 }
 
 def _normalize_field_key(field_name):

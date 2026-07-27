@@ -889,7 +889,7 @@ function renderClienteModal(box){
   <div class="modal-head">
     <div>
       <h2 id="modal-dialog-title">${editingId?'Editar Cliente':'Novo Cliente'}</h2>
-      <div style="font-size:12px;color:var(--muted);margin-top:3px">Cadastro, triagem, documentos e pagamento no mesmo fluxo</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:3px">Cadastro, documentos e pagamento no mesmo fluxo</div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       ${hasPlanilhaId?`<button class="btn btn-sm" onclick="openDocumentosCliente('${c.id || editingId}')"><i class="ti ti-folder"></i> Documentos</button>`:''}
@@ -902,7 +902,6 @@ function renderClienteModal(box){
       <div class="tab active" onclick="switchTab(this,'tab-dados')">Dados Pessoais</div>
       <div class="tab" onclick="switchTab(this,'tab-cert')">Certificado & Pagamento</div>
       ${hasPlanilhaId?`<div class="tab" onclick="switchTab(this,'tab-documentos')">Documentos</div>`:''}
-      <div class="tab" onclick="switchTab(this,'tab-soluti')">Kit Soluti</div>
     </div>
     <div id="tab-dados" class="tab-pane">
       <div class="form-grid">
@@ -912,7 +911,6 @@ function renderClienteModal(box){
         <div class="field"><label>Telefone / WhatsApp</label><input id="f-tel" value="${c.telefone||''}" placeholder="(00) 00000-0000"></div>
         <div class="field"><label>E-mail</label><input id="f-email" value="${c.email||''}" placeholder="email@exemplo.com"></div>
         <div class="field form-full"><label>Parceiro / Indicação</label><select id="f-parceiro"><option value="">Nenhum (direto)</option>${pOpts}</select></div>
-        <div class="field"><label>Origem do Lead</label><select id="f-origem"><option${c.origem==='Indicação'?' selected':''}>Indicação</option><option${c.origem==='Google Ads'?' selected':''}>Google Ads</option><option${c.origem==='Instagram'?' selected':''}>Instagram</option><option${c.origem==='Site'?' selected':''}>Site</option><option${c.origem==='Direto'?' selected':''}>Direto</option></select></div>
         <div class="field"><label>Status do Atendimento</label><select id="f-status">${STATUS_LIST.map(s=>`<option${c.status===s?' selected':''}>${s}</option>`).join('')}</select></div>
         <div class="field form-full"><label>Observações</label><textarea id="f-obs">${c.obs||''}</textarea></div>
       </div>
@@ -925,8 +923,6 @@ function renderClienteModal(box){
         <div class="field"><label>Valor Cobrado (R$)</label><input id="f-valor" type="number" step="0.01" value="${c.valorCobrado||''}" placeholder="0,00"></div>
         <div class="field"><label>Forma de Pagamento</label><select id="f-pagform"><option${c.formaPag==='Pix'?' selected':''}>Pix</option><option${c.formaPag==='Boleto'?' selected':''}>Boleto</option><option${c.formaPag==='Cartão'?' selected':''}>Cartão</option><option${c.formaPag==='Dinheiro'?' selected':''}>Dinheiro</option></select></div>
         <div class="field"><label>Pagamento Confirmado?</label><select id="f-pago"><option value="false"${!c.pago?' selected':''}>Não confirmado</option><option value="true"${c.pago?' selected':''}>✓ Pago / Confirmado</option></select></div>
-        <div class="field"><label>Tipo de Validação</label><select id="f-valid"><option${c.tipoValidacao==='Videoconferência'?' selected':''}>Videoconferência</option><option${c.tipoValidacao==='Presencial'?' selected':''}>Presencial</option></select></div>
-        <div class="field"><label>Data da Videoconferência</label><input id="f-videodata" type="datetime-local" value="${c.dataVideo||''}"></div>
       </div>
     </div>
     ${hasPlanilhaId?`
@@ -946,15 +942,6 @@ function renderClienteModal(box){
       <div id="documentos-list"></div>
     </div>
     `:''}
-    <div id="tab-soluti" class="tab-pane" style="display:none">
-      <p style="font-size:12px;color:var(--muted);margin-bottom:14px">Dados gerados após a videoconferência no Portal Soluti.</p>
-      <div class="form-grid">
-        <div class="field form-full"><label>Link de Instalação Soluti</label><input id="f-link" value="${c.solutiLink||''}" placeholder="https://..."></div>
-        <div class="field form-full"><label>Chave de Acesso</label><input id="f-chave" value="${c.solutiChave||''}" placeholder="XXXX-XXXX-XXXX-XXXX"></div>
-        <div class="field form-full"><label>Destinatário do Kit (contador, cliente, etc.)</label><input id="f-dest" value="${c.kitDestinatario||''}" placeholder="Nome ou e-mail do destinatário"></div>
-        <div class="field form-full"><label>Kit Enviado?</label><select id="f-kitenviado"><option value="false"${!c.kitEnviado?' selected':''}>Não enviado</option><option value="true"${c.kitEnviado?' selected':''}>✓ Enviado</option></select></div>
-      </div>
-    </div>
   </div>
   <div class="modal-foot">
     ${hasPlanilhaId?`<button class="btn" onclick="switchTabById('tab-documentos')"><i class="ti ti-folder"></i> Documentos</button>`:''}
@@ -1071,7 +1058,6 @@ function saveCliente(){
   c.telefone=document.getElementById('f-tel').value;
   c.email=document.getElementById('f-email').value;
   c.parceiroId=document.getElementById('f-parceiro').value||null;
-  c.origem=document.getElementById('f-origem').value;
   c.status=document.getElementById('f-status').value;
   c.obs=document.getElementById('f-obs').value;
   c.tipoCert=document.getElementById('f-tipo').value;
@@ -1080,18 +1066,6 @@ function saveCliente(){
   c.valorCobrado=parseFloat(document.getElementById('f-valor').value)||0;
   c.formaPag=document.getElementById('f-pagform').value;
   c.pago=document.getElementById('f-pago').value==='true';
-  c.tipoValidacao=document.getElementById('f-valid').value;
-  c.dataVideo=document.getElementById('f-videodata').value;
-  c.solutiLink=document.getElementById('f-link').value;
-  c.solutiChave=document.getElementById('f-chave').value;
-  c.kitDestinatario=document.getElementById('f-dest').value;
-  c.kitEnviado=document.getElementById('f-kitenviado').value==='true';
-  c.triagem={
-    temCnh:Number(document.getElementById('triagem-temCnh')?.value ?? 0),
-    jaTeveCertificado:Number(document.getElementById('triagem-jaTeveCertificado')?.value ?? 0),
-    temBiometria:Number(document.getElementById('triagem-temBiometria')?.value ?? 0),
-  };
-  c.triagem.resumo=getTriagemSummary(c.triagem);
   if(!editingId)clientes.unshift(c);
   save();closeModal(true);renderClientes();renderDashboard();renderKanban();
   editingId=null;
@@ -1528,7 +1502,6 @@ function openDetail(id){
   const steps=STATUS_LIST.map((s,i)=>`<div class="step${i<si?' done':i===si?' current':''}">${s}</div>`).join('');
   const hist=(c.historico||[]).slice().reverse().map(h=>`<div class="contact-entry"><span class="dt">${fmtDate(h.data)}<br><small>${h.canal}</small></span><span>${h.obs||'—'}</span></div>`).join('')||'<p style="font-size:12px;color:var(--muted)">Nenhum contato registrado</p>';
   const notificacoes=(c.notificacoes||[]).slice().reverse().map(n=>`<div class="contact-entry"><span class="dt">${fmtDate(n.data)}<br><small>${n.titulo||'Notificação'}</small></span><span>${n.texto||'—'}</span></div>`).join('')||'<p style="font-size:12px;color:var(--muted)">Nenhuma notificação registrada</p>';
-  const kit=c.solutiLink||c.solutiChave?`<div class="kit-box"><div class="kit-label"><i class="ti ti-key"></i> Kit de Instalação Soluti</div><div class="kit-row"><strong>Link:</strong> <a href="${c.solutiLink}" style="color:var(--accent)" target="_blank">${c.solutiLink}</a></div><div class="kit-row"><strong>Chave:</strong> <code>${c.solutiChave}</code></div><div class="kit-row"><strong>Destinatário:</strong> ${c.kitDestinatario||'—'} <span style="color:${c.kitEnviado?'var(--success)':'var(--danger)'}">${c.kitEnviado?'✓ Enviado':'Não enviado'}</span></div></div>`:'<p style="font-size:12px;color:var(--muted)">Kit Soluti ainda não registrado</p>';
   document.getElementById('detail-box').innerHTML=`
   <div class="modal-head">
     <div>
@@ -1551,7 +1524,6 @@ function openDetail(id){
           <div class="detail-row"><span class="lbl">Telefone</span><span class="val">${c.telefone||'—'}</span></div>
           <div class="detail-row"><span class="lbl">E-mail</span><span class="val" style="word-break:break-all">${c.email||'—'}</span></div>
           <div class="detail-row"><span class="lbl">Nascimento</span><span class="val">${fmtDate(c.dataNasc)}</span></div>
-          <div class="detail-row"><span class="lbl">Origem</span><span class="val">${c.origem||'—'}</span></div>
           <div class="detail-row"><span class="lbl">Parceiro</span><span class="val">${parc?`<span class="parceiro-tag">${parc.nome}</span>`:'Sem parceiro'}</span></div>
         </div>
         <div class="detail-section">
@@ -1559,8 +1531,6 @@ function openDetail(id){
           <div class="detail-row"><span class="lbl">Tipo</span><span class="val">${c.tipoCert||'—'}</span></div>
           <div class="detail-row"><span class="lbl">Emissão</span><span class="val">${fmtDate(c.dataEmissao)}</span></div>
           <div class="detail-row"><span class="lbl">Vencimento</span><span class="val">${c.dataVencimento?`<span class="badge ${daysUntil(c.dataVencimento)<0?'badge-vencido':daysUntil(c.dataVencimento)<60?'badge-vencendo':'badge-emitido'}">${fmtDate(c.dataVencimento)}</span>`:'—'}</span></div>
-          <div class="detail-row"><span class="lbl">Validação</span><span class="val">${c.tipoValidacao||'—'}</span></div>
-          <div class="detail-row"><span class="lbl">Videoconferência</span><span class="val">${c.dataVideo?fmtDate(c.dataVideo):'—'}</span></div>
         </div>
         <div class="detail-section">
           <h4>Pagamento</h4>
@@ -1570,10 +1540,6 @@ function openDetail(id){
         </div>
       </div>
       <div>
-        <div class="detail-section">
-          <h4>Kit Soluti</h4>
-          ${kit}
-        </div>
         <div class="detail-section">
           <h4>Histórico de Contatos</h4>
           <button class="btn btn-sm" style="margin-bottom:8px" onclick="openModal('contato','${c.id}');closeDetail(true)"><i class="ti ti-plus"></i> Registrar Contato</button>
