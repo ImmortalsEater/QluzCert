@@ -199,6 +199,8 @@ function normalizeAlertData(data){
   return {
     counts:{
       total_registros:Number(counts.total_registros || 0),
+      emitidos:Number(counts.emitidos || 0),
+      vencendo_60_dias:Number(counts.vencendo_60_dias || 0),
       renovacoes_urgentes:Number(counts.renovacoes_urgentes || renovacoes.urgentes.length),
       renovacoes_normais:Number(counts.renovacoes_normais || renovacoes.normais.length),
       pagamentos_urgentes:Number(counts.pagamentos_urgentes || pagamentos.urgentes.length),
@@ -245,8 +247,11 @@ function buildLocalAlertData(){
       }
     }
   });
+  const vencendo60 = [...renovacoes.urgentes, ...renovacoes.normais].filter(r=>r.dias<=60).length;
   const counts = {
     total_registros: clientes.length,
+    emitidos: clientes.filter(c=>c.status==='Emitido').length,
+    vencendo_60_dias: vencendo60,
     renovacoes_urgentes: renovacoes.urgentes.length,
     renovacoes_normais: renovacoes.normais.length,
     pagamentos_urgentes: pagamentos.urgentes.length,
@@ -400,22 +405,24 @@ function updateBadges(){
 
 // ==================== DASHBOARD ====================
 function renderDashboard(){
-  const total=clientes.length;
-  const emitidos=clientes.filter(c=>c.status==='Emitido').length;
-  const leads=clientes.filter(c=>c.status==='Novo Lead').length;
-  const vencendo=clientes.filter(c=>c.dataVencimento&&daysUntil(c.dataVencimento)<=60).length;
+  // Total/Emitidos/Renovações vêm da planilha real (Clientes), não do funil de leads local
+  const alertData = getAlertData();
+  const counts = alertData.counts || {};
+  const total = Number(counts.total_registros || 0);
+  const emitidos = Number(counts.emitidos || 0);
+  const vencendo = Number(counts.vencendo_60_dias || 0);
+  const aguardandoEmissao = Math.max(total - emitidos, 0);
  // Lê o valor processado pelo Django na tabela. Se não existir, faz a soma local.
   const faturamento = (typeof window !== 'undefined' && window.INITIAL_FATURAMENTO !== undefined)
     ? Number(window.INITIAL_FATURAMENTO)
     : clientes.filter(c=>c.pago).reduce((s,c)=>s+(parseFloat(c.valorCobrado)||0),0);
 
   document.getElementById('dashboard-metrics').innerHTML=`
-    <div class="metric-card accent"><div class="metric-label">Total de Clientes</div><div class="metric-val">${total}</div><div class="metric-sub">${leads} novos leads</div></div>
+    <div class="metric-card accent"><div class="metric-label">Total de Clientes</div><div class="metric-val">${total}</div><div class="metric-sub">${aguardandoEmissao} aguardando emissão</div></div>
     <div class="metric-card success"><div class="metric-label">Emitidos</div><div class="metric-val">${emitidos}</div><div class="metric-sub">${Math.round(total?emitidos/total*100:0)}% do total</div></div>
     <div class="metric-card warn"><div class="metric-label">Renovações ≤60 dias</div><div class="metric-val">${vencendo}</div><div class="metric-sub">requerem contato</div></div>
     <div class="metric-card"><div class="metric-label">Faturamento Recebido</div><div class="metric-val" style="font-size:18px">${fmtMoney(faturamento)}</div><div class="metric-sub">pagamentos confirmados</div></div>
   `;
-  const alertData = getAlertData();
   const urgentes=[...alertData.renovacoes.urgentes,...alertData.pagamentos.urgentes,...alertData.renovacoes.normais,...alertData.pagamentos.normais]
     .sort((a,b)=>(a.dias??9999)-(b.dias??9999))
     .slice(0,5);

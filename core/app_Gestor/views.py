@@ -146,6 +146,8 @@ def _build_alert_payload():
     pagamentos_normais = []
 
     rows = sheets_repository.list_rows('Clientes')
+    emitidos = sum(1 for row in rows if bool_from(row.get('certificado_feito')))
+    vencendo_60_dias = 0
 
     def _base_payload(row, dias_restantes, vencimento):
         row_id = row.get('id', '')
@@ -170,6 +172,8 @@ def _build_alert_payload():
             continue
 
         dias_restantes = (vencimento - hoje).days
+        if dias_restantes <= 60:
+            vencendo_60_dias += 1
         base = _base_payload(row, dias_restantes, vencimento)
         base['statusLabel'] = f"Vencido há {abs(dias_restantes)} dias" if dias_restantes < 0 else f"Vence em {dias_restantes} dias"
 
@@ -194,6 +198,8 @@ def _build_alert_payload():
 
     counts = {
         'total_registros': len(rows),
+        'emitidos': emitidos,
+        'vencendo_60_dias': vencendo_60_dias,
         'renovacoes_urgentes': len(renovacoes_urgentes),
         'renovacoes_normais': len(renovacoes_normais),
         'pagamentos_urgentes': len(pagamentos_urgentes),

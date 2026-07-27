@@ -117,6 +117,32 @@ class BuildAlertPayloadTests(ListRowsPatchMixin, SimpleTestCase):
 
         self.assertEqual(payload['counts']['alertas_totais'], 0)
 
+    def test_counts_total_and_emitidos_reflect_the_sheet(self):
+        self.patch_list_rows({'Clientes': [
+            _clientes_fixture(id='CLI-1', certificado_feito='Sim'),
+            _clientes_fixture(id='CLI-2', certificado_feito='Não'),
+            _clientes_fixture(id='CLI-3', certificado_feito=''),
+        ]})
+
+        payload = views._build_alert_payload()
+
+        self.assertEqual(payload['counts']['total_registros'], 3)
+        self.assertEqual(payload['counts']['emitidos'], 1)
+
+    def test_vencendo_60_dias_counts_rows_within_threshold_regardless_of_pagamento(self):
+        dentro_do_prazo = (date.today() + timedelta(days=60)).isoformat()
+        fora_do_prazo = (date.today() + timedelta(days=61)).isoformat()
+        vencido = (date.today() - timedelta(days=5)).isoformat()
+        self.patch_list_rows({'Clientes': [
+            _clientes_fixture(id='CLI-1', data_vencimento=dentro_do_prazo, pago_venda='Sim', pago_comissao='Sim'),
+            _clientes_fixture(id='CLI-2', data_vencimento=fora_do_prazo, pago_venda='Sim', pago_comissao='Sim'),
+            _clientes_fixture(id='CLI-3', data_vencimento=vencido, pago_venda='Sim', pago_comissao='Sim'),
+        ]})
+
+        payload = views._build_alert_payload()
+
+        self.assertEqual(payload['counts']['vencendo_60_dias'], 2)
+
     def test_vencimento_within_30_days_is_urgent_renovacao(self):
         vencimento = (date.today() + timedelta(days=10)).isoformat()
         self.patch_list_rows({'Clientes': [_clientes_fixture(data_vencimento=vencimento, pago_venda='Sim', pago_comissao='Sim')]})
