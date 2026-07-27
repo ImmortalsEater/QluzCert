@@ -17,6 +17,7 @@ let precos = ((typeof window !== 'undefined' && Array.isArray(window.INITIAL_PRE
       ? window.INITIAL_PRECOS.slice()
       : (Array.isArray(DB.get('precos')) ? DB.get('precos') : []));
 let leads = (typeof window !== 'undefined' && Array.isArray(window.INITIAL_LEADS)) ? window.INITIAL_LEADS.slice() : [];
+let notificacoesRecentes = (typeof window !== 'undefined' && Array.isArray(window.INITIAL_NOTIFICACOES)) ? window.INITIAL_NOTIFICACOES.slice() : [];
 let editingId = null;
 let backendAlertData = (typeof window !== 'undefined' && window.INITIAL_ALERTS) ? window.INITIAL_ALERTS : null;
 
@@ -481,14 +482,13 @@ function renderDashboard(){
       <td style="padding:10px 16px">${statusBadge(l.status)}</td>
       <td style="padding:10px 16px;color:var(--muted);font-size:12px">${fmtDate(l.atualizadoEm)}</td>
     </tr>`).join('')}</table>`;
-  const notificados=clientes.filter(c=>Array.isArray(c.notificacoes)&&c.notificacoes.length).sort((a,b)=>(b.notificacoes?.length||0)-(a.notificacoes?.length||0)).slice(0,6);
   const panel=document.getElementById('dashboard-notificados');
   if(panel){
-    panel.innerHTML = notificados.length ? `<table style="width:100%;border-collapse:collapse">${notificados.map(c=>`
-      <tr onclick="openDetail('${c.id}')" style="cursor:pointer;border-bottom:1px solid var(--border)">
-        <td style="padding:10px 16px;font-size:13px"><strong>${c.nome}</strong></td>
-        <td style="padding:10px 16px;color:var(--muted);font-size:12px">${(c.notificacoes||[]).length} aviso(s)</td>
-        <td style="padding:10px 16px;color:var(--muted);font-size:12px">${fmtDate((c.notificacoes||[])[0]?.data||c.criadoEm)}</td>
+    panel.innerHTML = notificacoesRecentes.length ? `<table style="width:100%;border-collapse:collapse">${notificacoesRecentes.map(n=>`
+      <tr onclick="location.href='/planilha/editar/${n.clienteId}/'" style="cursor:pointer;border-bottom:1px solid var(--border)">
+        <td style="padding:10px 16px;font-size:13px"><strong>${n.nome}</strong></td>
+        <td style="padding:10px 16px;color:var(--muted);font-size:12px">${n.titulo}${n.texto?` — ${n.texto}`:''}</td>
+        <td style="padding:10px 16px;color:var(--muted);font-size:12px">${fmtDate(n.data)}</td>
       </tr>`).join('')}</table>` : '<p style="font-size:13px;color:var(--muted);text-align:center;padding:20px">Nenhum cliente notificado ainda.</p>';
   }
 }
@@ -1203,34 +1203,6 @@ async function savePreco(){
   }
 }
 
-function renderContatoModal(box,cid){
-  const c=clientes.find(x=>x.id===cid);
-  if(!c)return;
-  box.innerHTML=`
-  <div class="modal-head"><h2 id="modal-dialog-title">Registrar Contato — ${c.nome}</h2><button class="btn btn-sm" onclick="closeModal(true)" aria-label="Fechar"><i class="ti ti-x" aria-hidden="true"></i></button></div>
-  <div class="modal-body">
-    <div class="form-grid">
-      <div class="field"><label>Data</label><input id="ct-data" type="date" value="${new Date().toISOString().split('T')[0]}"></div>
-      <div class="field"><label>Canal</label><select id="ct-canal"><option>WhatsApp</option><option>Telefone</option><option>E-mail</option><option>Presencial</option></select></div>
-      <div class="field form-full"><label>Resultado / Observação</label><textarea id="ct-obs" placeholder="Ex: Cliente confirmou interesse, aguardando documentos..."></textarea></div>
-      <div class="field"><label>Novo Status</label><select id="ct-status">${STATUS_LIST.map(s=>`<option${c.status===s?' selected':''}>${s}</option>`).join('')}</select></div>
-    </div>
-  </div>
-  <div class="modal-foot">
-    <button class="btn" onclick="closeModal(true)">Cancelar</button>
-    <button class="btn btn-primary" onclick="saveContato('${cid}')">Registrar</button>
-  </div>`;
-}
-
-function saveContato(cid){
-  const c=clientes.find(x=>x.id===cid);
-  if(!c)return;
-  if(!c.historico)c.historico=[];
-  c.historico.push({data:document.getElementById('ct-data').value,canal:document.getElementById('ct-canal').value,obs:document.getElementById('ct-obs').value,dt:new Date().toISOString()});
-  c.status=document.getElementById('ct-status').value;
-  save();closeModal(true);renderClientes();renderRenovacoes();renderKanban();
-}
-
 function renderPagamentoModal(box, cid) {
   let c = resolveClienteById(cid || editingId);
   if (!c) {
@@ -1311,7 +1283,7 @@ function renderPagamentoModal(box, cid) {
   </div>`;
 }
 
-function savePagamento(cid){
+async function savePagamento(cid){
   let c = resolveClienteById(cid || editingId);
   let isNewToLocal = false;
 
@@ -1363,16 +1335,28 @@ function savePagamento(cid){
 
   const notify = document.getElementById('pg-notificar')?.checked;
   if(notify){
-    if(!Array.isArray(c.notificacoes)) c.notificacoes = [];
-    c.notificacoes.unshift({
-      id: uid(),
-      data,
-      tipo: 'pagamento',
-      titulo: 'Pagamento registrado',
-      texto: document.getElementById('pg-notificacao').value.trim() || `Pagamento ${status.toLowerCase()} para ${c.nome || 'o cliente'}.`,
-      status: c.pago ? 'enviado' : 'pendente',
-      origem: 'pagamento',
-    });
+    const planilhaPk = getPlanilhaPkFromClientId(c.id);
+    const texto = document.getElementById('pg-notificacao').value.trim() || `Pagamento ${status.toLowerCase()} para ${c.nome || 'o cliente'}.`;
+    if(planilhaPk){
+      try{
+        const body = new URLSearchParams({
+          tipo: 'notificacao', data, titulo: 'Pagamento registrado', texto,
+          status: c.pago ? 'enviado' : 'pendente',
+        });
+        const resp = await fetch(`/planilha/${planilhaPk}/contatos/`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': getCsrfToken(), 'X-Requested-With': 'XMLHttpRequest'},
+          body: body.toString(),
+        });
+        const respData = await resp.json().catch(()=>({}));
+        if(!resp.ok) throw new Error(respData.error || 'Falha ao registrar notificação');
+      }catch(err){
+        console.error(err);
+        showToast(err.message || 'Pagamento salvo, mas a notificação não pôde ser registrada', 'error');
+      }
+    }else{
+      showToast('Cliente não sincronizado com a planilha — notificação não registrada', 'info');
+    }
   }
 
   if(isNewToLocal){
@@ -1391,65 +1375,70 @@ function savePagamento(cid){
   showToast('Pagamento salvo com sucesso!', 'success');
 }
 // ==================== NOVO MODAL DE CRM (CONTATOS) ====================
-function renderContatoModal(box, cid) {
-  // 1. Busca o cliente localmente, ou extrai os dados do card de alerta (se vier da planilha)
-  let c = clientes.find(x => String(x.id) === String(cid));
-  if (!c) {
-      const alertData = getAlertData();
-      const allAlerts = [...alertData.renovacoes.urgentes, ...alertData.renovacoes.normais, ...alertData.pagamentos.urgentes, ...alertData.pagamentos.normais];
-      const alertItem = allAlerts.find(x => String(x.id) === String(cid));
-      if (alertItem) {
-          c = { id: cid, nome: alertItem.nome, tipoCert: alertItem.tipoCert, historico: [] };
-      } else {
-          showToast('Erro: Cliente não encontrado.', 'error');
-          return;
-      }
+async function renderContatoModal(box, cid) {
+  const pk = getPlanilhaPkFromClientId(cid);
+  if(!pk){
+    box.innerHTML = `<div class="modal-head"><h2>Registrar Contato</h2><button class="btn btn-sm" onclick="closeModal(true)"><i class="ti ti-x"></i></button></div><div class="modal-body"><p style="font-size:13px;color:var(--muted)">Cliente sincronizado da planilha é necessário para registrar contato.</p></div>`;
+    return;
   }
 
-  // 2. Monta a lista visual de contatos anteriores
-  const histHTML = (c.historico || []).slice().reverse().map(h => `
+  box.innerHTML = `<div class="modal-head"><h2>Registrar Contato</h2><button class="btn btn-sm" onclick="closeModal(true)"><i class="ti ti-x"></i></button></div><div class="modal-body"><p style="font-size:13px;color:var(--muted)">Carregando...</p></div>`;
+
+  let cliente = {};
+  let historico = [];
+  try{
+    const resp = await fetch(`/planilha/${pk}/contatos/`);
+    if(resp.ok){
+      const data = await resp.json();
+      cliente = data.cliente || {};
+      historico = (data.contatos || []).filter(c => c.tipo !== 'notificacao');
+    }
+  }catch(err){
+    console.error(err);
+  }
+
+  const histHTML = historico.map(h => `
     <div style="padding: 14px; border-bottom: 1px solid var(--border); font-size: 13px;">
         <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-            <strong><i class="ti ti-calendar"></i> ${fmtDate(h.data)} — ${h.canal}</strong>
+            <strong><i class="ti ti-calendar"></i> ${fmtDate(h.data)} — ${h.canal||'—'}</strong>
             <span class="badge badge-novo">${h.resultado || 'Contato Feito'}</span>
         </div>
         <div style="color: var(--muted); margin-bottom: 6px;">
-            <strong>Agendado para:</strong> ${h.agendamento ? new Date(h.agendamento).toLocaleString('pt-BR') : 'Não agendado'} 
+            <strong>Agendado para:</strong> ${h.agendamento ? new Date(h.agendamento).toLocaleString('pt-BR') : 'Não agendado'}
             ${h.produto ? `| <strong>Produto Ofertado:</strong> ${h.produto}` : ''}
         </div>
-        <div style="background: var(--bg); padding: 10px; border-radius: 6px;">${h.obs || 'Nenhuma observação detalhada.'}</div>
+        <div style="background: var(--bg); padding: 10px; border-radius: 6px;">${h.texto || 'Nenhuma observação detalhada.'}</div>
     </div>`).join('') || '<div class="empty-state"><i class="ti ti-message-off"></i><p>Nenhum histórico de contato registrado.</p></div>';
 
-  // 3. Renderiza a estrutura do Modal com Abas
   box.innerHTML = `
   <div class="modal-head">
-    <h2><i class="ti ti-headset"></i> Gestão de Contato — ${c.nome}</h2>
+    <h2><i class="ti ti-headset"></i> Gestão de Contato — ${cliente.nome || 'Cliente'}</h2>
     <button class="btn btn-sm" onclick="closeModal(true)"><i class="ti ti-x"></i></button>
   </div>
   <div class="modal-body" style="padding: 0;">
-    
+
     <!-- Abas -->
     <div class="tabs" style="padding: 14px 20px 0 20px; background: #fafaf8; border-bottom: 1px solid var(--border); margin-bottom:0;">
       <div class="tab active" onclick="switchTab(this,'tab-reg-contato')">Registrar Contato</div>
       <div class="tab" onclick="switchTab(this,'tab-hist-contato')">Visualizar Histórico</div>
     </div>
-    
+
     <!-- Aba de Formulário -->
     <div id="tab-reg-contato" class="tab-pane" style="padding: 20px;">
         <div style="background: var(--bg); padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; display:flex; gap:20px;">
-            <div><strong>Cliente:</strong> <br><span style="color:var(--accent)">${c.nome}</span></div>
-            <div><strong>Produto Atual:</strong> <br><span style="color:var(--accent)">${c.tipoCert || 'Não identificado'}</span></div>
+            <div><strong>Cliente:</strong> <br><span style="color:var(--accent)">${cliente.nome || '—'}</span></div>
+            <div><strong>Produto Atual:</strong> <br><span style="color:var(--accent)">${cliente.tipoCert || 'Não identificado'}</span></div>
         </div>
-        
+
         <div class="form-grid cols3">
           <div class="field"><label>Data do Contato</label><input id="ct-data" type="date" value="${new Date().toISOString().split('T')[0]}"></div>
           <div class="field"><label>Canal</label><select id="ct-canal"><option>WhatsApp</option><option>Ligação</option><option>E-mail</option><option>Presencial</option></select></div>
           <div class="field"><label>Resultado da Conversa</label><select id="ct-resultado"><option>Em Negociação</option><option>Agendado para Renovação</option><option>Sem Interesse</option><option>Caixa Postal / Não Atende</option><option>Pagamento Confirmado</option></select></div>
-          
+
           <div class="field"><label>Produto Ofertado</label><select id="ct-produto"><option value="">Manter atual</option>${precos.map(p=>`<option>${p.tipo}</option>`).join('')}</select></div>
           <div class="field"><label>Agendar Retorno Para</label><input id="ct-agendamento" type="datetime-local"></div>
-          <div class="field"><label>Alterar Status no Funil</label><select id="ct-status">${STATUS_LIST.map(s=>`<option${c.status===s?' selected':''}>${s}</option>`).join('')}</select></div>
-          
+          <div class="field"><label>Alterar Status no Funil</label><select id="ct-status"><option value="">Manter atual</option>${STATUS_LIST.map(s=>`<option>${s}</option>`).join('')}</select></div>
+
           <div class="field form-full">
             <label>Observação (Até 600 caracteres recomendados)</label>
             <textarea id="ct-obs" placeholder="Descreva como foi o atendimento..." style="min-height: 100px; resize: vertical;"></textarea>
@@ -1462,69 +1451,46 @@ function renderContatoModal(box, cid) {
         ${histHTML}
     </div>
   </div>
-  
+
   <div class="modal-foot">
     <button class="btn" onclick="closeModal(true)">Cancelar</button>
-    <button class="btn btn-primary" onclick="saveContato('${c.id}')"><i class="ti ti-device-floppy"></i> Salvar Registro</button>
+    <button class="btn btn-primary" onclick="saveContato('${pk}')"><i class="ti ti-device-floppy"></i> Salvar Registro</button>
   </div>`;
 }
 
-function saveContato(cid) {
-  let c = clientes.find(x => String(x.id) === String(cid));
-  let isNewToLocal = false;
-
-  // Se o cliente só existe na planilha/backend, cria uma base local para ele receber o histórico
-  if (!c) {
-      const alertData = getAlertData();
-      const allAlerts = [...alertData.renovacoes.urgentes, ...alertData.renovacoes.normais, ...alertData.pagamentos.urgentes, ...alertData.pagamentos.normais];
-      const alertItem = allAlerts.find(x => String(x.id) === String(cid));
-      
-      if (alertItem) {
-          c = { 
-              id: cid, 
-              nome: alertItem.nome, 
-              tipoCert: alertItem.tipoCert, 
-              criadoEm: new Date().toISOString().split('T')[0], 
-              status: 'Novo Lead', 
-              historico: [] 
-          };
-          isNewToLocal = true;
-      } else {
-          showToast('Erro ao salvar: Cliente não encontrado.', 'error');
-          return;
-      }
+async function saveContato(cid) {
+  const planilhaPk = getPlanilhaPkFromClientId(cid);
+  if(!planilhaPk){
+    showToast('Cliente sincronizado da planilha é necessário para registrar contato', 'error');
+    return;
   }
 
-  if (!c.historico) c.historico = [];
-  
-  // Salva os dados enriquecidos do novo formulário
-  c.historico.push({
-      data: document.getElementById('ct-data').value,
-      canal: document.getElementById('ct-canal').value,
-      resultado: document.getElementById('ct-resultado').value,
-      produto: document.getElementById('ct-produto').value,
-      agendamento: document.getElementById('ct-agendamento').value,
-      obs: document.getElementById('ct-obs').value,
-      dt: new Date().toISOString()
+  const body = new URLSearchParams({
+    tipo: 'contato',
+    data: document.getElementById('ct-data').value,
+    canal: document.getElementById('ct-canal').value,
+    resultado: document.getElementById('ct-resultado').value,
+    produto: document.getElementById('ct-produto').value,
+    agendamento: document.getElementById('ct-agendamento').value,
+    texto: document.getElementById('ct-obs').value,
+    novo_status_funil: document.getElementById('ct-status').value,
   });
 
-  // Atualiza o status do Kanban de acordo com a seleção
-  c.status = document.getElementById('ct-status').value;
-  
-  if (isNewToLocal) {
-      clientes.unshift(c);
+  try{
+    const resp = await fetch(`/planilha/${planilhaPk}/contatos/`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': getCsrfToken(), 'X-Requested-With': 'XMLHttpRequest'},
+      body: body.toString(),
+    });
+    const data = await resp.json().catch(()=>({}));
+    if(!resp.ok) throw new Error(data.error || 'Falha ao registrar contato');
+    showToast('Contato registrado com sucesso!', 'success');
+    closeModal(true);
+    location.reload();
+  }catch(err){
+    console.error(err);
+    showToast(err.message || 'Erro ao registrar contato', 'error');
   }
-
-  save();
-  closeModal(true);
-  
-  // Recarrega as telas para refletir a mudança de status
-  renderClientes();
-  renderRenovacoes();
-  renderInadimplencia();
-  renderKanban();
-  
-  showToast('Contato registrado com sucesso!', 'success');
 }
 
 // ==================== DETAIL ====================
@@ -1590,6 +1556,49 @@ function openDetail(id){
   document.getElementById('detail-overlay').classList.add('open');
 }
 function closeDetail(e){if(e===true||e.target===document.getElementById('detail-overlay')){document.getElementById('detail-overlay').classList.remove('open')}}
+
+async function openHistoricoCliente(pk){
+  const box=document.getElementById('detail-box');
+  const overlay=document.getElementById('detail-overlay');
+  box.innerHTML='<div class="modal-head"><h2>Histórico do Cliente</h2><button class="btn btn-sm" onclick="closeDetail(true)"><i class="ti ti-x"></i></button></div><div class="modal-body"><p style="font-size:13px;color:var(--muted)">Carregando...</p></div>';
+  overlay.classList.add('open');
+  try{
+    const resp=await fetch(`/planilha/${pk}/contatos/`);
+    if(!resp.ok) throw new Error('Falha ao carregar histórico');
+    const data=await resp.json();
+    const cliente=data.cliente||{};
+    const contatos=(data.contatos||[]).filter(c=>c.tipo!=='notificacao');
+    const notificacoes=(data.contatos||[]).filter(c=>c.tipo==='notificacao');
+    const histHTML=contatos.length?contatos.map(h=>`<div class="contact-entry"><span class="dt">${fmtDate(h.data)}<br><small>${h.canal||'—'}${h.resultado?` · ${h.resultado}`:''}</small></span><span>${h.texto||'—'}</span></div>`).join(''):'<p style="font-size:12px;color:var(--muted)">Nenhum contato registrado</p>';
+    const notifHTML=notificacoes.length?notificacoes.map(n=>`<div class="contact-entry"><span class="dt">${fmtDate(n.data)}<br><small>${n.titulo||'Notificação'}</small></span><span>${n.texto||'—'}</span></div>`).join(''):'<p style="font-size:12px;color:var(--muted)">Nenhuma notificação registrada</p>';
+    box.innerHTML=`
+    <div class="modal-head">
+      <div>
+        <h2>${cliente.nome||'Cliente'}</h2>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">${cliente.telefone||'Telefone não informado'}${cliente.email?` · ${cliente.email}`:''}</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="openModal('contato','${pk}');closeDetail(true)"><i class="ti ti-plus"></i> Registrar Contato</button>
+        <button class="btn btn-sm" onclick="closeDetail(true)"><i class="ti ti-x"></i></button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <div class="detail-section">
+          <h4>Histórico de Contatos</h4>
+          <div class="contact-log">${histHTML}</div>
+        </div>
+        <div class="detail-section">
+          <h4>Notificações</h4>
+          <div class="contact-log">${notifHTML}</div>
+        </div>
+      </div>
+    </div>`;
+  }catch(err){
+    console.error(err);
+    box.innerHTML='<div class="modal-head"><h2>Histórico do Cliente</h2><button class="btn btn-sm" onclick="closeDetail(true)"><i class="ti ti-x"></i></button></div><div class="modal-body"><p style="font-size:13px;color:var(--danger)">Não foi possível carregar o histórico deste cliente.</p></div>';
+  }
+}
 
 // ==================== INIT ====================
 function initApp(){

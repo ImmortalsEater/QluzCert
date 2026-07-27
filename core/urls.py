@@ -17,7 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
-from core.app_Gestor.views import DashboardView, LoginPreviewView, CadastroPreviewView, RecuperarSenhaPreviewView, alertas_dashboard, atualizar_planilha, atualizar_status_cliente, editar_google_row, criar_google_row, cliente_excluir, parceiro_criar, parceiro_editar, parceiro_excluir, preco_criar, preco_editar, preco_excluir, app_state_download, upload_documento, criar_pagamento_pix, webhook_mercado_pago, documentos_cliente, download_documento, excluir_documento
+from core.app_Gestor.views import DashboardView, LoginPreviewView, CadastroPreviewView, RecuperarSenhaPreviewView, alertas_dashboard, atualizar_planilha, atualizar_status_cliente, editar_google_row, criar_google_row, cliente_excluir, contatos_cliente_registro, parceiro_criar, parceiro_editar, parceiro_excluir, preco_criar, preco_editar, preco_excluir, app_state_download, upload_documento, criar_pagamento_pix, webhook_mercado_pago, documentos_cliente, download_documento, excluir_documento
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -31,6 +31,7 @@ urlpatterns = [
     path('planilha/editar/<str:pk>/', editar_google_row, name='editar_google_row'),
     path('planilha/<str:pk>/status/', atualizar_status_cliente, name='atualizar_status_cliente'),
     path('planilha/<str:pk>/excluir/', cliente_excluir, name='cliente_excluir'),
+    path('planilha/<str:pk>/contatos/', contatos_cliente_registro, name='contatos_cliente_registro'),
     path('planilha/<str:pk>/documentos/', documentos_cliente, name='documentos_cliente'),
     path('documentos/upload/', upload_documento, name='upload_documento'),
     path('documentos/<int:doc_id>/download/', download_documento, name='download_documento'),

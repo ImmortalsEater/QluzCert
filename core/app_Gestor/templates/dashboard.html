@@ -120,6 +120,7 @@
 
                       <a class="btn btn-sm btn-edit" href="{% url 'editar_google_row' row.id %}"><i class="ti ti-pencil"></i>Editar</a>
                       <a class="btn btn-sm btn-edit" href="{% url 'documentos_cliente' row.id %}"><i class="ti ti-folder"></i>Documentos</a>
+                      <button type="button" class="btn btn-sm" onclick="openHistoricoCliente('{{ row.id }}')"><i class="ti ti-history"></i>Histórico</button>
                       <button type="button" class="btn btn-sm btn-danger" onclick="deletePlanilhaCliente('{{ row.id }}')"><i class="ti ti-trash"></i>Excluir</button>
                     </td>
                   </tr>
@@ -239,6 +240,7 @@
   window.INITIAL_PARCEIROS = {{ initial_parceiros_json|default:'[]'|safe }};
   window.INITIAL_PRECOS = {{ initial_precos_json|default:'[]'|safe }};
   window.INITIAL_LEADS = {{ initial_leads_json|default:'[]'|safe }};
+  window.INITIAL_NOTIFICACOES = {{ initial_notificacoes_json|default:'[]'|safe }};
   window.INITIAL_ALERTS = {{ initial_alerts_json|default:'{}'|safe }};
   // Nova linha que puxa o faturamento exato da tabela
   window.INITIAL_FATURAMENTO = {{ faturamento_recebido_json|default:'0'|safe }};
