@@ -89,7 +89,11 @@
           <div class="table-header" style="position:relative">
             <h3><i class="ti ti-table"></i>Planilha Importada do Google Drive</h3>
             <span id="planilha-count" class="result-count" aria-live="polite"></span>
-            <div class="column-selector-dropdown" style="margin-left:auto;position:relative">
+            <select id="filter-status" style="margin-left:auto;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface)">
+              <option value="">Todos os status</option>
+              <option>Novo Lead</option><option>Documentação Pendente</option><option>Aguardando Pagamento</option><option>Agendado para Vídeo</option><option>Emitido</option>
+            </select>
+            <div class="column-selector-dropdown" style="position:relative">
               <button type="button" class="btn btn-sm" id="column-selector-toggle"><i class="ti ti-columns"></i>Colunas <i class="ti ti-chevron-down chevron" style="margin-left:4px;font-size:11px"></i></button>
               <div class="column-selector-panel" id="column-selector-panel">
                 <label class="column-toggle-label"><input type="checkbox" id="column-toggle-all"> <strong>Selecionar todas</strong></label>
@@ -125,34 +129,13 @@
           <div id="planilha-no-match" class="empty-state"{% if google_rows %} style="display:none"{% endif %}><i class="ti ti-search-off"></i><p id="planilha-empty-msg">Nenhum cliente cadastrado na planilha ainda.</p></div>
           <div id="planilha-pagination" class="pagination"></div>
         </div>
-        <div class="table-wrap">
-          <div class="table-header" style="justify-content:space-between;flex-wrap:wrap">
-            <h3><i class="ti ti-users"></i>Clientes Cadastrados</h3>
-            <div style="display:flex;align-items:center;gap:10px">
-              <span id="clientes-count" class="result-count" aria-live="polite"></span>
-              <select id="filter-status" style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface)">
-                <option value="">Todos os status</option>
-                <option>Novo Lead</option><option>Documentação Pendente</option><option>Aguardando Pagamento</option><option>Agendado para Vídeo</option><option>Emitido</option>
-              </select>
-            </div>
-          </div>
-          <div class="table-scroll">
-            <table>
-              <thead><tr>
-                <th>Cliente</th><th>CPF/CNPJ</th><th>Tipo Cert.</th><th>Status</th><th>Parceiro</th><th>Vencimento</th><th>Ações</th></tr></thead>
-              <tbody id="clientes-tbody"></tbody>
-            </table>
-          </div>
-          <div id="clientes-empty" class="empty-state" style="display:none"><i class="ti ti-users"></i><p>Nenhum cliente encontrado.</p></div>
-          <div id="clientes-pagination" class="pagination"></div>
-        </div>
       </div>
 
       <!-- FUNIL KANBAN -->
       <div id="view-funil" class="view">
         <div class="section-actions">
-          <button class="btn btn-primary" onclick="openModal('cliente')"><i class="ti ti-plus"></i>Novo Lead</button>
-          <span style="font-size:12px;color:var(--muted);margin-left:4px">Arraste mentalmente os cards ou clique para editar o status</span>
+          <button class="btn btn-primary" onclick="openModal('novoCliente', null, this)"><i class="ti ti-plus"></i>Novo Lead</button>
+          <span style="font-size:12px;color:var(--muted);margin-left:4px">Use o seletor no card para mudar o status do atendimento</span>
         </div>
         <div class="kanban" id="kanban-board"></div>
       </div>
@@ -254,6 +237,7 @@
   window.INITIAL_CLIENTES = {{ initial_clientes_json|default:'[]'|safe }};
   window.INITIAL_PARCEIROS = {{ initial_parceiros_json|default:'[]'|safe }};
   window.INITIAL_PRECOS = {{ initial_precos_json|default:'[]'|safe }};
+  window.INITIAL_LEADS = {{ initial_leads_json|default:'[]'|safe }};
   window.INITIAL_ALERTS = {{ initial_alerts_json|default:'{}'|safe }};
   // Nova linha que puxa o faturamento exato da tabela
   window.INITIAL_FATURAMENTO = {{ faturamento_recebido_json|default:'0'|safe }};
@@ -313,10 +297,10 @@
     showDjangoMessages();
 
     var searchInput = document.getElementById('search-cliente');
-    var debouncedFilter = debounce(function(){ clientesPage = 1; planilhaPage = 1; renderClientes(); filterPlanilhaImportada(); }, 200);
+    var debouncedFilter = debounce(function(){ planilhaPage = 1; filterPlanilhaImportada(); }, 200);
     if (searchInput) searchInput.addEventListener('input', debouncedFilter);
     var statusFilter = document.getElementById('filter-status');
-    if (statusFilter) statusFilter.addEventListener('change', function(){ clientesPage = 1; renderClientes(); });
+    if (statusFilter) statusFilter.addEventListener('change', function(){ planilhaPage = 1; filterPlanilhaImportada(); });
 
     var initialTab = (location.hash || '').replace('#', '');
     if (initialTab && document.getElementById('view-' + initialTab)) {

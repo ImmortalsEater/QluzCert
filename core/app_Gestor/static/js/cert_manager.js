@@ -16,11 +16,11 @@ let parceiros = ((typeof window !== 'undefined' && Array.isArray(window.INITIAL_
 let precos = ((typeof window !== 'undefined' && Array.isArray(window.INITIAL_PRECOS) && window.INITIAL_PRECOS.length>0)
       ? window.INITIAL_PRECOS.slice()
       : (Array.isArray(DB.get('precos')) ? DB.get('precos') : []));
+let leads = (typeof window !== 'undefined' && Array.isArray(window.INITIAL_LEADS)) ? window.INITIAL_LEADS.slice() : [];
 let editingId = null;
 let backendAlertData = (typeof window !== 'undefined' && window.INITIAL_ALERTS) ? window.INITIAL_ALERTS : null;
 
 const ROWS_PER_PAGE = 50;
-let clientesPage = 1;
 let planilhaPage = 1;
 
 const STATUS_LIST = ['Novo Lead','Documentação Pendente','Aguardando Pagamento','Agendado para Vídeo','Emitido'];
@@ -102,6 +102,29 @@ async function atualizarPlanilha(){
     console.error(err);
     showToast('Erro ao atualizar planilha', 'error');
     if(btn) btn.disabled = false;
+  }
+}
+
+async function mudarStatusLead(id, novoStatus){
+  const lead = leads.find(l=>l.id===id);
+  const anterior = lead ? lead.status : null;
+  if(lead) lead.status = novoStatus;
+  renderKanban();
+  try{
+    const body = new URLSearchParams({status: novoStatus, expected_atualizado_em: lead?.atualizadoEm || ''});
+    const resp = await fetch(`/planilha/${id}/status/`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': getCsrfToken(), 'X-Requested-With': 'XMLHttpRequest'},
+      body: body.toString(),
+    });
+    const data = await resp.json().catch(()=>({}));
+    if(!resp.ok) throw new Error(data.error || 'Falha ao atualizar status');
+    if(lead) lead.atualizadoEm = data.atualizado_em;
+    showToast('Status atualizado', 'success');
+  }catch(err){
+    if(lead) lead.status = anterior;
+    renderKanban();
+    showToast(err.message || 'Erro ao atualizar status', 'error');
   }
 }
 
@@ -365,7 +388,7 @@ async function syncBackendAlertCounts(){
 
 const PAGE_CONFIG = {
   dashboard:{title:'Dashboard', render:renderDashboard},
-  clientes:{title:'Clientes', render:renderClientes},
+  clientes:{title:'Clientes', render:filterPlanilhaImportada},
   funil:{title:'Funil de Atendimento', render:renderKanban},
   renovacoes:{title:'Alertas de Renovação', render:renderRenovacoes},
   pagamentos:{title:'Alertas de Pagamento', render:renderInadimplencia},
@@ -451,12 +474,12 @@ function renderDashboard(){
     const kind = c.categoria === 'pagamento' ? 'pagamento' : 'renovacao';
     return renderAlertCard(c, kind);
   }).join(''); }
-  const recent=clientes.slice().sort((a,b)=>new Date(b.criadoEm||0)-new Date(a.criadoEm||0)).slice(0,6);
-  document.getElementById('dashboard-recent').innerHTML=`<table style="width:100%;border-collapse:collapse">${recent.map(c=>`
-    <tr onclick="openDetail('${c.id}')" style="cursor:pointer;border-bottom:1px solid var(--border)">
-      <td style="padding:10px 16px;font-size:13px">${c.nome}</td>
-      <td style="padding:10px 16px"><span class="badge ${STATUS_CLASSES[STATUS_LIST.indexOf(c.status)]||'badge-novo'}">${c.status||'Novo Lead'}</span></td>
-      <td style="padding:10px 16px;color:var(--muted);font-size:12px">${fmtDate(c.criadoEm)}</td>
+  const recent=leads.slice().sort((a,b)=>new Date(b.atualizadoEm||0)-new Date(a.atualizadoEm||0)).slice(0,6);
+  document.getElementById('dashboard-recent').innerHTML=`<table style="width:100%;border-collapse:collapse">${recent.map(l=>`
+    <tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:10px 16px;font-size:13px">${l.nome}</td>
+      <td style="padding:10px 16px">${statusBadge(l.status)}</td>
+      <td style="padding:10px 16px;color:var(--muted);font-size:12px">${fmtDate(l.atualizadoEm)}</td>
     </tr>`).join('')}</table>`;
   const notificados=clientes.filter(c=>Array.isArray(c.notificacoes)&&c.notificacoes.length).sort((a,b)=>(b.notificacoes?.length||0)-(a.notificacoes?.length||0)).slice(0,6);
   const panel=document.getElementById('dashboard-notificados');
@@ -471,40 +494,12 @@ function renderDashboard(){
 }
 
 // ==================== CLIENTES ====================
-function renderClientes(){
-  const q=normalizeQuery(document.getElementById('search-cliente')?.value);
-  const sf=document.getElementById('filter-status')?.value||'';
-  let list=clientes.filter(c=>{
-    const match=!q||[c.nome,c.cpfCnpj,c.email,c.telefone].some(v=>(v||'').toLowerCase().includes(q));
-    const sm=!sf||c.status===sf;
-    return match&&sm;
-  });
-  const tbody=document.getElementById('clientes-tbody');
-  const empty=document.getElementById('clientes-empty');
-  updateResultCount('clientes-count', list.length, clientes.length);
-  if(!list.length){tbody.innerHTML='';empty.style.display='';renderPaginationControls('clientes-pagination',1,1,'goToClientesPage');return}
-  empty.style.display='none';
-  const totalPages=Math.max(1,Math.ceil(list.length/ROWS_PER_PAGE));
-  if(clientesPage>totalPages) clientesPage=totalPages;
-  if(clientesPage<1) clientesPage=1;
-  const pageStart=(clientesPage-1)*ROWS_PER_PAGE;
-  const pageList=list.slice(pageStart,pageStart+ROWS_PER_PAGE);
-  const rows=pageList.map(c=>{
-    const vBadge=formatVencimento(c);
-    return`<tr>
-      <td><strong style="cursor:pointer;color:var(--accent)" onclick="openDetail('${c.id}')">${c.nome}</strong></td>
-      <td style="font-family:monospace;font-size:12px">${c.cpfCnpj||'—'}</td>
-      <td><span class="tipo-cert">${c.tipoCert||'—'}</span></td>
-      <td>${statusBadge(c.status)}</td>
-      <td>${parceiroBadge(c.parceiroId)}</td>
-      <td>${vBadge}</td>
-      <td><button class="btn btn-sm" onclick="openDetail('${c.id}')"><i class="ti ti-eye"></i></button> <button class="btn btn-sm" onclick="editCliente('${c.id}')"><i class="ti ti-edit"></i></button> <button class="btn btn-sm" onclick="openDocumentosCliente('${c.id}')"><i class="ti ti-folder"></i></button> <button class="btn btn-sm btn-danger" onclick="deleteCliente('${c.id}')"><i class="ti ti-trash"></i></button></td>
-    </tr>`;
-  });
-  tbody.innerHTML=tableRows(rows);
-  renderPaginationControls('clientes-pagination', clientesPage, totalPages, 'goToClientesPage');
-}
-function goToClientesPage(n){clientesPage=n;renderClientes()}
+// A tabela "Clientes Cadastrados" (client-side, array local `clientes`) foi
+// removida -- a view Clientes agora tem só a tabela vinda do Sheets
+// (#planilha-tbody, ver filterPlanilhaImportada). renderClientes() é mantida
+// como no-op porque o fluxo antigo do modal rico (saveCliente, registrarContato
+// etc., fora do escopo desta migração) ainda a chama após salvar.
+function renderClientes(){}
 
 // Colunas de identificação da tabela "Planilha Importada" são localizadas pelo texto do
 // cabeçalho (não pela classe CSS): a classe de cada coluna é derivada do cabeçalho real da
@@ -523,13 +518,28 @@ function getPlanilhaSearchColIndexes(){
   return _planilhaSearchColIndexes;
 }
 
+// Decora a célula de status (texto cru vindo do Django) com o badge colorido
+// já usado no Kanban -- feito client-side para não precisar marcar a célula
+// como |safe no template (as outras colunas são texto livre digitado por
+// humanos, então o template evita HTML cru nas células por segurança).
+function decoratePlanilhaStatusBadges(){
+  document.querySelectorAll('#planilha-tbody td.col-status').forEach(td=>{
+    const raw=td.textContent.trim();
+    if(td.dataset.decorated===raw) return;
+    td.dataset.decorated=raw;
+    td.innerHTML=statusBadge(raw==='—'?'':raw);
+  });
+}
+
 function filterPlanilhaImportada(){
   const q=normalizeQuery(document.getElementById('search-cliente')?.value);
+  const statusFilterVal=document.getElementById('filter-status')?.value||'';
   const tbody=document.getElementById('planilha-tbody');
   const table=document.getElementById('planilha-table');
   const noMatch=document.getElementById('planilha-no-match');
   const msg=document.getElementById('planilha-empty-msg');
   if(!tbody||!table) return;
+  decoratePlanilhaStatusBadges();
   const dataRows=Array.from(tbody.querySelectorAll('tr'));
 
   if(!dataRows.length){
@@ -545,7 +555,10 @@ function filterPlanilhaImportada(){
   const matches=dataRows.filter(row=>{
     const cells=row.querySelectorAll('td');
     const text=cols.map(i=>cells[i]?.textContent||'').join(' ').toLowerCase();
-    return !q||text.includes(q);
+    const searchOk=!q||text.includes(q);
+    const statusCell=row.querySelector('td.col-status');
+    const statusOk=!statusFilterVal||(statusCell?.dataset.decorated===statusFilterVal);
+    return searchOk&&statusOk;
   });
 
   const totalPages=Math.max(1,Math.ceil(matches.length/ROWS_PER_PAGE));
@@ -577,17 +590,19 @@ function deleteCliente(id){if(confirm('Remover este cliente?')){clientes=cliente
 function renderKanban(){
   const board=document.getElementById('kanban-board');
   board.innerHTML=STATUS_LIST.map((s,i)=>{
-    const cards=clientes.filter(c=>c.status===s);
+    const cards=leads.filter(l=>l.status===s);
     return`<div class="kanban-col">
       <div class="kanban-col-head" style="color:${KANBAN_COLORS[i]}">${s} <span style="background:${KANBAN_COLORS[i]}22;color:${KANBAN_COLORS[i]};padding:1px 7px;border-radius:10px;font-size:11px">${cards.length}</span></div>
-      ${cards.map(c=>`<div class="kanban-card" onclick="openDetail('${c.id}')">
-        <div class="kanban-card-name">${c.nome}</div>
-        <div class="kanban-card-sub">${c.tipoCert||'Tipo não definido'}</div>
+      ${cards.map(l=>`<div class="kanban-card">
+        <div class="kanban-card-name">${l.nome}</div>
+        <div class="kanban-card-sub">${l.tipoCert||'Tipo não definido'}</div>
         <div class="kanban-card-footer">
-          <span style="font-size:11px;color:var(--muted)">${fmtDate(c.criadoEm)}</span>
-          ${!c.pago&&c.dataVencimento&&daysUntil(c.dataVencimento)<=30?`<span class="parceiro-tag" style="font-size:10px;background:${daysUntil(c.dataVencimento)<0?'var(--danger)':'var(--warn)'}22;color:${daysUntil(c.dataVencimento)<0?'var(--danger)':'var(--warn)'}">${daysUntil(c.dataVencimento)<0?`Pagamento vencido há ${Math.abs(daysUntil(c.dataVencimento))} dias`:'Pagamento pendente'}</span>`:''}
-          ${c.parceiroId?`<span class="parceiro-tag" style="font-size:10px">${(parceiros.find(p=>p.id===c.parceiroId)||{}).nome||''}</span>`:''}
+          ${!l.pago&&l.dataVencimento&&daysUntil(l.dataVencimento)<=30?`<span class="parceiro-tag" style="font-size:10px;background:${daysUntil(l.dataVencimento)<0?'var(--danger)':'var(--warn)'}22;color:${daysUntil(l.dataVencimento)<0?'var(--danger)':'var(--warn)'}">${daysUntil(l.dataVencimento)<0?`Pagamento vencido há ${Math.abs(daysUntil(l.dataVencimento))} dias`:'Pagamento pendente'}</span>`:''}
+          ${l.parceiro?`<span class="parceiro-tag" style="font-size:10px">${l.parceiro}</span>`:''}
         </div>
+        <select class="kanban-status-select" onchange="mudarStatusLead('${l.id}', this.value)">
+          ${STATUS_LIST.map(st=>`<option${l.status===st?' selected':''}>${st}</option>`).join('')}
+        </select>
       </div>`).join('')}
     </div>`;
   }).join('');

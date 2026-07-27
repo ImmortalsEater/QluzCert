@@ -77,6 +77,7 @@ CLIENTES_COLUMNS = [
     {'label':'Contador/Contabilidade','field':'contador_contabilidade','class':'col-contador-contabilidade'},
     {'label':'Telefone','field':'telefone1','class':'col-telefone1'},
     {'label':'Cliente','field':'cliente','class':'col-cliente'},
+    {'label':'Status','field':'status','class':'col-status'},
     {'label':'CPF/CNPJ','field':'cpf_cnpj','class':'col-cpf-cnpj'},
     {'label':'email','field':'email','class':'col-email'},
     {'label':'Telefone2','field':'telefone2','class':'col-telefone2'},
@@ -246,6 +247,28 @@ def _build_precos_from_source():
     return precos
 
 
+def _build_clientes_leads_from_sheets():
+    leads = []
+    for row in sheets_repository.list_rows('Clientes'):
+        row_id = row.get('id', '')
+        if not row_id:
+            continue
+        vencimento = parse_date(row.get('data_vencimento'))
+        leads.append({
+            'id': row_id,
+            'nome': row.get('cliente', ''),
+            'status': row.get('status') or 'Novo Lead',
+            'tipoCert': row.get('tipo_certificado', ''),
+            'parceiro': row.get('contador_parceiro', ''),
+            'telefone': row.get('telefone1') or row.get('telefone2') or '',
+            'email': row.get('email', ''),
+            'dataVencimento': vencimento.isoformat() if vencimento else '',
+            'pago': bool_from(row.get('pago_venda')) or bool_from(row.get('pago_comissao')),
+            'atualizadoEm': row.get('atualizado_em', ''),
+        })
+    return leads
+
+
 def alertas_dashboard(request):
     return JsonResponse(_build_alert_payload())
 
@@ -256,6 +279,28 @@ def atualizar_planilha(request):
     cache em memória e buscar dados frescos direto da API do Google Sheets."""
     sheets_repository.invalidate_cache()
     return JsonResponse({'success': True})
+
+
+@require_POST
+def atualizar_status_cliente(request, pk):
+    novo_status = (request.POST.get('status') or '').strip()
+    if not novo_status:
+        return JsonResponse({'error': 'Informe o novo status.'}, status=400)
+
+    expected_atualizado_em = request.POST.get('expected_atualizado_em') or None
+    try:
+        atualizado = sheets_repository.update_row(
+            'Clientes', pk, {'status': novo_status},
+            expected_atualizado_em=expected_atualizado_em,
+        )
+        return JsonResponse({'success': True, 'atualizado_em': atualizado.get('atualizado_em')})
+    except sheets_repository.ConcurrencyError:
+        return JsonResponse({'error': 'Este registro foi alterado por outra pessoa. Recarregue e tente novamente.'}, status=409)
+    except LookupError:
+        return JsonResponse({'error': 'Registro não encontrado na planilha.'}, status=404)
+    except Exception as e:
+        logger.exception('Falha ao atualizar status do cliente %s', pk)
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 class LoginPreviewView(TemplateView):
@@ -309,6 +354,11 @@ class DashboardView(TemplateView):
             initial_precos = []
 
         try:
+            initial_leads = _build_clientes_leads_from_sheets()
+        except Exception:
+            initial_leads = []
+
+        try:
             alertas = _build_alert_payload()
         except Exception:
             logger.exception('Falha ao montar alertas a partir da planilha do Google Sheets')
@@ -330,6 +380,10 @@ class DashboardView(TemplateView):
             context['initial_precos_json'] = json.dumps(initial_precos, default=str)
         except Exception:
             context['initial_precos_json'] = '[]'
+        try:
+            context['initial_leads_json'] = json.dumps(initial_leads, default=str)
+        except Exception:
+            context['initial_leads_json'] = '[]'
         try:
             context['initial_alerts_json'] = json.dumps(alertas, default=str)
         except Exception:
@@ -355,6 +409,10 @@ def editar_google_row(request, pk):
         email = request.POST.get('email')
         if email:
             fields['email'] = email
+
+        status = request.POST.get('status')
+        if status:
+            fields['status'] = status
 
         valor_comissao = request.POST.get('valor_comissao')
         if valor_comissao:
@@ -395,6 +453,7 @@ def criar_google_row(request):
 
         fields = {
             'cliente': nome,
+            'status': request.POST.get('status', 'Novo Lead'),
             'cpf_cnpj': request.POST.get('cpf_cnpj', ''),
             'email': request.POST.get('email', ''),
             'telefone1': request.POST.get('telefone1', ''),

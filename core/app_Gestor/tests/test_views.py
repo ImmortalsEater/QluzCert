@@ -21,6 +21,7 @@ CLIENTE_ROW = {
     'contador_contabilidade': '',
     'telefone1': '(11) 99999-0000',
     'cliente': 'Ana Silva',
+    'status': 'Novo Lead',
     'cpf_cnpj': '111.222.333-44',
     'email': 'ana@example.com',
     'telefone2': '',
@@ -79,6 +80,9 @@ class FormatSheetCellValueTests(SimpleTestCase):
     def test_unknown_field_passes_through(self):
         self.assertEqual(views._format_sheet_cell_value('cliente', 'Ana Silva'), 'Ana Silva')
 
+    def test_status_field_passes_through(self):
+        self.assertEqual(views._format_sheet_cell_value('status', 'Emitido'), 'Emitido')
+
 
 class BuildDashboardFromSheetsTests(ListRowsPatchMixin, SimpleTestCase):
 
@@ -92,6 +96,8 @@ class BuildDashboardFromSheetsTests(ListRowsPatchMixin, SimpleTestCase):
         self.assertEqual(len(rows[0]['cells']), len(cols))
         cliente_cell = rows[0]['cells'][cols.index(next(c for c in cols if c['field'] == 'cliente'))]
         self.assertEqual(cliente_cell['value'], 'Ana Silva')
+        status_cell = rows[0]['cells'][cols.index(next(c for c in cols if c['field'] == 'status'))]
+        self.assertEqual(status_cell['value'], 'Novo Lead')
 
     def test_row_without_id_is_skipped(self):
         self.patch_list_rows({'Clientes': [_clientes_fixture(id='')]})
@@ -290,6 +296,60 @@ class AtualizarPlanilhaViewTests(TestCase):
         self.assertEqual(repo._cache, {})
 
 
+class AtualizarStatusClienteTests(TestCase):
+
+    def test_requires_post(self):
+        response = self.client.get(reverse('atualizar_status_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}))
+        self.assertEqual(response.status_code, 405)
+
+    def test_post_without_status_returns_400(self):
+        response = self.client.post(reverse('atualizar_status_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}), {})
+        self.assertEqual(response.status_code, 400)
+
+    def test_post_success_updates_row(self):
+        with patch.object(repo, 'update_row', return_value=_clientes_fixture(status='Emitido', atualizado_em='2024-02-01T00:00:00+00:00')) as mock_update:
+            response = self.client.post(
+                reverse('atualizar_status_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'status': 'Emitido', 'expected_atualizado_em': '2024-01-01T00:00:00+00:00'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['success'])
+        self.assertEqual(data['atualizado_em'], '2024-02-01T00:00:00+00:00')
+        mock_update.assert_called_once_with(
+            'Clientes', 'CLI-aaaaaaaa', {'status': 'Emitido'},
+            expected_atualizado_em='2024-01-01T00:00:00+00:00',
+        )
+
+    def test_post_not_found_returns_404(self):
+        with patch.object(repo, 'update_row', side_effect=LookupError('sumiu')):
+            response = self.client.post(
+                reverse('atualizar_status_cliente', kwargs={'pk': 'CLI-nope'}),
+                {'status': 'Emitido'},
+            )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_post_concurrency_conflict_returns_409(self):
+        with patch.object(repo, 'update_row', side_effect=repo.ConcurrencyError('conflito')):
+            response = self.client.post(
+                reverse('atualizar_status_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'status': 'Emitido'},
+            )
+
+        self.assertEqual(response.status_code, 409)
+
+    def test_post_generic_failure_returns_500(self):
+        with patch.object(repo, 'update_row', side_effect=Exception('planilha fora do ar')):
+            response = self.client.post(
+                reverse('atualizar_status_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'status': 'Emitido'},
+            )
+
+        self.assertEqual(response.status_code, 500)
+
+
 @override_settings(GOOGLE_SHEET_ID='fake-sheet-id')
 class EditarGoogleRowViewTests(TestCase):
 
@@ -321,6 +381,28 @@ class EditarGoogleRowViewTests(TestCase):
         self.assertEqual(pk, 'CLI-aaaaaaaa')
         self.assertEqual(fields['cliente'], 'Ana Silva Atualizada')
         self.assertEqual(fields['pago_comissao'], 'Sim')
+
+    def test_post_status_only_included_when_provided(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'update_row') as mock_update:
+            self.client.post(
+                reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'status': 'Emitido', 'pago_comissao': 'Não'},
+            )
+
+        tab, pk, fields = mock_update.call_args.args
+        self.assertEqual(fields['status'], 'Emitido')
+
+    def test_post_without_status_does_not_include_it(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'update_row') as mock_update:
+            self.client.post(
+                reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'pago_comissao': 'Não'},
+            )
+
+        tab, pk, fields = mock_update.call_args.args
+        self.assertNotIn('status', fields)
 
     def test_post_invalid_valor_comissao_is_silently_ignored(self):
         with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
@@ -401,6 +483,16 @@ class CriarGoogleRowViewTests(TestCase):
         self.assertEqual(tab, 'Clientes')
         self.assertEqual(fields['cliente'], 'Novo Cliente')
         self.assertEqual(fields['email'], 'novo@example.com')
+        self.assertEqual(fields['status'], 'Novo Lead')
+
+    def test_post_status_default_is_overridden_when_provided(self):
+        with patch.object(repo, 'create_row') as mock_create:
+            self.client.post(reverse('criar_google_row'), {
+                'cliente': 'Novo Cliente', 'status': 'Emitido',
+            })
+
+        tab, fields = mock_create.call_args.args
+        self.assertEqual(fields['status'], 'Emitido')
 
     def test_post_success_ajax_returns_json(self):
         with patch.object(repo, 'create_row'):
