@@ -314,3 +314,36 @@ class DeleteRowTests(SheetsRepositoryTestCase):
 
         with self.assertRaises(LookupError):
             repo.delete_row('Clientes', 'CLI-nao-existe')
+
+    def test_raises_lookup_error_when_tab_missing_from_metadata(self):
+        self.use_fake_service(_clientes_fixture(), sheet_ids={'Outra': 99})
+
+        with self.assertRaises(LookupError):
+            repo.delete_row('Clientes', 'CLI-aaaaaaaa')
+
+
+class GetServiceTests(SimpleTestCase):
+    """_get_service() é a única função que fala com a Google API de verdade
+    (auth via credentials.json) -- aqui só validamos o cache/erro, sem rede."""
+
+    def setUp(self):
+        patcher = patch.object(repo, '_service', None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_raises_file_not_found_when_credentials_missing(self):
+        with patch.object(repo.os.path, 'exists', return_value=False):
+            with self.assertRaises(FileNotFoundError):
+                repo._get_service()
+
+    def test_builds_service_once_and_caches_it(self):
+        fake_service = object()
+        with patch.object(repo.os.path, 'exists', return_value=True), \
+             patch.object(repo.service_account.Credentials, 'from_service_account_file', return_value=object()), \
+             patch.object(repo, 'build', return_value=fake_service) as mock_build:
+            first = repo._get_service()
+            second = repo._get_service()
+
+        self.assertIs(first, fake_service)
+        self.assertIs(second, fake_service)
+        mock_build.assert_called_once()
