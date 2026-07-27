@@ -87,6 +87,24 @@ function initSaveMenu(){
   if(btnExport) btnExport.addEventListener('click', function(e){ e.stopPropagation(); menu.style.display='none'; exportState(); });
 }
 
+async function atualizarPlanilha(){
+  const btn = document.getElementById('atualizar-planilha-btn');
+  if(btn) btn.disabled = true;
+  try{
+    const response = await fetch('/atualizar-planilha/', {
+      method: 'POST',
+      headers: {'X-CSRFToken': getCsrfToken(), 'X-Requested-With': 'XMLHttpRequest'},
+    });
+    if(!response.ok) throw new Error('Falha ao atualizar');
+    showToast('Planilha atualizada, recarregando...', 'success');
+    setTimeout(()=>{ location.hash = 'clientes'; location.reload(); }, 500);
+  }catch(err){
+    console.error(err);
+    showToast('Erro ao atualizar planilha', 'error');
+    if(btn) btn.disabled = false;
+  }
+}
+
 async function exportState(){
   // baixa um xlsx gerado a partir dos dados atuais da planilha do Google Sheets
   try{

@@ -65,6 +65,15 @@ def _invalidate(tab):
     _cache.pop(tab, None)
 
 
+def invalidate_cache(tab=None):
+    """Força a próxima leitura de `tab` (ou de todas as abas, se omitido) a
+    buscar dados frescos da API em vez de servir do cache em memória."""
+    if tab is None:
+        _cache.clear()
+    else:
+        _invalidate(tab)
+
+
 def _read_tab(tab):
     """Leitura sempre fresca (sem cache) da aba inteira. Retorna (header, rows)."""
     service = _get_service()

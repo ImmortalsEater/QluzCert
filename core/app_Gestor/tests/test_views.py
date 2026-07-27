@@ -270,6 +270,26 @@ class AlertasDashboardViewTests(ListRowsPatchMixin, TestCase):
         self.assertEqual(response.json()['counts']['renovacoes_urgentes'], 1)
 
 
+class AtualizarPlanilhaViewTests(TestCase):
+
+    def setUp(self):
+        self.addCleanup(repo._cache.clear)
+
+    def test_requires_post(self):
+        response = self.client.get(reverse('atualizar_planilha'))
+        self.assertEqual(response.status_code, 405)
+
+    def test_post_invalidates_cache_for_all_tabs(self):
+        repo._cache['Clientes'] = ([{'id': 'CLI-1'}], 0)
+        repo._cache['Parceiros'] = ([{'id': 'PAR-1'}], 0)
+
+        response = self.client.post(reverse('atualizar_planilha'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'success': True})
+        self.assertEqual(repo._cache, {})
+
+
 @override_settings(GOOGLE_SHEET_ID='fake-sheet-id')
 class EditarGoogleRowViewTests(TestCase):
 

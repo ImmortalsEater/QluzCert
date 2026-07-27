@@ -17,7 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
-from core.app_Gestor.views import DashboardView, LoginPreviewView, CadastroPreviewView, RecuperarSenhaPreviewView, alertas_dashboard, editar_google_row, criar_google_row, parceiro_criar, parceiro_editar, parceiro_excluir, preco_criar, preco_editar, preco_excluir, app_state_download, upload_documento, criar_pagamento_pix, webhook_mercado_pago, documentos_cliente, download_documento, excluir_documento
+from core.app_Gestor.views import DashboardView, LoginPreviewView, CadastroPreviewView, RecuperarSenhaPreviewView, alertas_dashboard, atualizar_planilha, editar_google_row, criar_google_row, parceiro_criar, parceiro_editar, parceiro_excluir, preco_criar, preco_editar, preco_excluir, app_state_download, upload_documento, criar_pagamento_pix, webhook_mercado_pago, documentos_cliente, download_documento, excluir_documento
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -26,6 +26,7 @@ urlpatterns = [
     path('preview/cadastro/', CadastroPreviewView.as_view(), name='cadastro_preview'),
     path('preview/recuperar-senha/', RecuperarSenhaPreviewView.as_view(), name='recuperar_senha_preview'),
     path('alertas/', alertas_dashboard, name='alertas_dashboard'),
+    path('atualizar-planilha/', atualizar_planilha, name='atualizar_planilha'),
     path('planilha/criar/', criar_google_row, name='criar_google_row'),
     path('planilha/editar/<str:pk>/', editar_google_row, name='editar_google_row'),
     path('planilha/<str:pk>/documentos/', documentos_cliente, name='documentos_cliente'),

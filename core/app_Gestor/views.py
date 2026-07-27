@@ -250,6 +250,14 @@ def alertas_dashboard(request):
     return JsonResponse(_build_alert_payload())
 
 
+@require_POST
+def atualizar_planilha(request):
+    """Força a próxima leitura das abas Clientes/Parceiros/Precos a ignorar o
+    cache em memória e buscar dados frescos direto da API do Google Sheets."""
+    sheets_repository.invalidate_cache()
+    return JsonResponse({'success': True})
+
+
 class LoginPreviewView(TemplateView):
     template_name = 'login.html'
 

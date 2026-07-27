@@ -322,6 +322,30 @@ class DeleteRowTests(SheetsRepositoryTestCase):
             repo.delete_row('Clientes', 'CLI-aaaaaaaa')
 
 
+class InvalidateCacheTests(SheetsRepositoryTestCase):
+
+    def test_invalidate_specific_tab_only_clears_that_tab(self):
+        fake = self.use_fake_service(_clientes_fixture())
+        repo.list_rows('Clientes')
+        repo._cache['Parceiros'] = ([{'id': 'PAR-1'}], 0)
+
+        repo.invalidate_cache('Clientes')
+
+        self.assertNotIn('Clientes', repo._cache)
+        self.assertIn('Parceiros', repo._cache)
+        repo.list_rows('Clientes')
+        self.assertEqual(fake.get_calls, 2)
+
+    def test_invalidate_without_tab_clears_everything(self):
+        self.use_fake_service(_clientes_fixture())
+        repo.list_rows('Clientes')
+        repo._cache['Parceiros'] = ([{'id': 'PAR-1'}], 0)
+
+        repo.invalidate_cache()
+
+        self.assertEqual(repo._cache, {})
+
+
 class GetServiceTests(SimpleTestCase):
     """_get_service() é a única função que fala com a Google API de verdade
     (auth via credentials.json) -- aqui só validamos o cache/erro, sem rede."""
