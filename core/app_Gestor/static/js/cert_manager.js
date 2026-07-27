@@ -391,8 +391,9 @@ function nav(page){
 function renderSaveActions(){
   const html = `
     <div style="display:flex;align-items:center;gap:10px">
+      <button class="btn btn-quaternary" id="atualizar-planilha-btn" onclick="atualizarPlanilha()"><i class="ti ti-refresh"></i>Atualizar agora</button>
       <div class="save-dropdown" style="position:relative;display:inline-block">
-        <button class="btn btn-sm" id="save-main-btn"><i class="ti ti-device-floppy"></i> Salvar <i class="ti ti-chevron-down" style="margin-left:6px;font-size:12px"></i></button>
+        <button class="btn btn-sm btn-quaternary-soft" id="save-main-btn"><i class="ti ti-device-floppy"></i> Salvar <i class="ti ti-chevron-down" style="margin-left:6px;font-size:12px"></i></button>
         <div id="save-menu" style="position:absolute;right:0;top:36px;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,0.06);display:none;min-width:180px;padding:8px;z-index:60">
           <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px" id="save-local-btn">Salvar localmente</button>
           <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px;margin-top:6px" id="export-btn">Exportar (.xlsx)</button>
