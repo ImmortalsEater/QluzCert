@@ -63,6 +63,9 @@ def _annotate_columns(cols):
     return annotated
 
 
+STATUS_OPCOES = ['Novo Lead', 'Documentação Pendente', 'Aguardando Pagamento', 'Agendado para Vídeo', 'Emitido']
+
+
 CLIENTES_COLUMNS = [
     {'label':'Data da Venda','field':'data_venda','class':'col-data-venda'},
     {'label':'Contador/Parceiro','field':'contador_parceiro','class':'col-contador-parceiro'},
@@ -261,6 +264,25 @@ def _build_clientes_leads_from_sheets():
     return leads
 
 
+def _build_notificacoes_recentes(limit=6):
+    clientes_by_id = {row.get('id'): row for row in sheets_repository.list_rows('Clientes')}
+    notificacoes = [row for row in sheets_repository.list_rows('Contatos') if row.get('tipo') == 'notificacao']
+    notificacoes.sort(key=lambda row: row.get('atualizado_em', ''), reverse=True)
+
+    result = []
+    for row in notificacoes[:limit]:
+        cliente = clientes_by_id.get(row.get('cliente_id'), {})
+        result.append({
+            'id': row.get('id', ''),
+            'clienteId': row.get('cliente_id', ''),
+            'nome': cliente.get('cliente') or 'Cliente removido',
+            'titulo': row.get('titulo') or 'Notificação',
+            'texto': row.get('texto', ''),
+            'data': row.get('data') or row.get('atualizado_em', ''),
+        })
+    return result
+
+
 def alertas_dashboard(request):
     return JsonResponse(_build_alert_payload())
 
@@ -351,6 +373,11 @@ class DashboardView(TemplateView):
             initial_leads = []
 
         try:
+            initial_notificacoes = _build_notificacoes_recentes()
+        except Exception:
+            initial_notificacoes = []
+
+        try:
             alertas = _build_alert_payload()
         except Exception:
             logger.exception('Falha ao montar alertas a partir da planilha do Google Sheets')
@@ -377,6 +404,10 @@ class DashboardView(TemplateView):
         except Exception:
             context['initial_leads_json'] = '[]'
         try:
+            context['initial_notificacoes_json'] = json.dumps(initial_notificacoes, default=str)
+        except Exception:
+            context['initial_notificacoes_json'] = '[]'
+        try:
             context['initial_alerts_json'] = json.dumps(alertas, default=str)
         except Exception:
             context['initial_alerts_json'] = '{}'
@@ -392,28 +423,36 @@ def editar_google_row(request, pk):
         raise Http404('Registro não encontrado na planilha.')
 
     if request.method == 'POST':
-        fields = {}
+        nome = request.POST.get('cliente', '').strip()
+        if not nome:
+            messages.error(request, 'Informe o nome do cliente.')
+            return redirect('editar_google_row', pk=pk)
 
-        cliente = request.POST.get('cliente')
-        if cliente:
-            fields['cliente'] = cliente
-
-        email = request.POST.get('email')
-        if email:
-            fields['email'] = email
-
-        status = request.POST.get('status')
-        if status:
-            fields['status'] = status
-
-        valor_comissao = request.POST.get('valor_comissao')
-        if valor_comissao:
-            try:
-                fields['valor_comissao'] = str(float(valor_comissao.replace(',', '.')))
-            except ValueError:
-                pass
-
-        fields['pago_comissao'] = 'Sim' if request.POST.get('pago_comissao') in ['Sim', 'on', 'true', 'True'] else 'Não'
+        fields = {
+            'cliente': nome,
+            'status': request.POST.get('status', ''),
+            'cpf_cnpj': request.POST.get('cpf_cnpj', ''),
+            'email': request.POST.get('email', ''),
+            'telefone1': request.POST.get('telefone1', ''),
+            'telefone2': request.POST.get('telefone2', ''),
+            'contador_parceiro': request.POST.get('contador_parceiro', ''),
+            'contador_contabilidade': request.POST.get('contador_contabilidade', ''),
+            'tipo_certificado': request.POST.get('tipo_certificado', ''),
+            'forma_pagamento': request.POST.get('forma_pagamento', ''),
+            'banco': request.POST.get('banco', ''),
+            'chave_pix': request.POST.get('chave_pix', ''),
+            'data_venda': request.POST.get('data_venda', ''),
+            'data_vencimento': request.POST.get('data_vencimento', ''),
+            'valor_venda': request.POST.get('valor_venda', ''),
+            'percentual_comissao': request.POST.get('percentual_comissao', ''),
+            'valor_comissao': request.POST.get('valor_comissao', ''),
+            'pago_venda': request.POST.get('pago_venda', 'Não'),
+            'pago_comissao': request.POST.get('pago_comissao', 'Não'),
+            'certificado_feito': request.POST.get('certificado_feito', 'Não'),
+            'venda': request.POST.get('venda', ''),
+            'custo_certificado': request.POST.get('custo_certificado', ''),
+            'valor_liquido': request.POST.get('valor_liquido', ''),
+        }
 
         expected_atualizado_em = request.POST.get('expected_atualizado_em') or None
         try:
@@ -429,8 +468,13 @@ def editar_google_row(request, pk):
 
         return redirect(f"{reverse('dashboard')}#clientes")
 
-    registro_view = {**registro, 'pago_comissao': bool_from(registro.get('pago_comissao'))}
-    return render(request, 'google_edit.html', {'registro': registro_view})
+    registro_view = {
+        **registro,
+        'pago_comissao': bool_from(registro.get('pago_comissao')),
+        'pago_venda': bool_from(registro.get('pago_venda')),
+        'certificado_feito': bool_from(registro.get('certificado_feito')),
+    }
+    return render(request, 'google_edit.html', {'registro': registro_view, 'status_opcoes': STATUS_OPCOES})
 
 
 def criar_google_row(request):
@@ -497,6 +541,56 @@ def cliente_excluir(request, pk):
     except Exception as e:
         logger.exception('Falha ao excluir cliente %s', pk)
         return JsonResponse({'error': str(e)}, status=500)
+
+
+def contatos_cliente_registro(request, pk):
+    cliente = sheets_repository.get_row('Clientes', pk)
+    if cliente is None:
+        return JsonResponse({'error': 'Cliente não encontrado na planilha.'}, status=404)
+
+    if request.method == 'GET':
+        contatos = [row for row in sheets_repository.list_rows('Contatos') if row.get('cliente_id') == pk]
+        contatos.sort(key=lambda row: row.get('atualizado_em', ''), reverse=True)
+        return JsonResponse({
+            'cliente': {
+                'nome': cliente.get('cliente', ''),
+                'telefone': cliente.get('telefone1') or cliente.get('telefone2') or '',
+                'email': cliente.get('email', ''),
+                'tipoCert': cliente.get('tipo_certificado', ''),
+            },
+            'contatos': contatos,
+        })
+
+    if request.method == 'POST':
+        tipo = request.POST.get('tipo', 'contato')
+        fields = {
+            'cliente_id': pk,
+            'tipo': tipo,
+            'data': request.POST.get('data', ''),
+            'canal': request.POST.get('canal', ''),
+            'resultado': request.POST.get('resultado', ''),
+            'produto': request.POST.get('produto', ''),
+            'agendamento': request.POST.get('agendamento', ''),
+            'titulo': request.POST.get('titulo', ''),
+            'texto': request.POST.get('texto', ''),
+            'status': request.POST.get('status', ''),
+        }
+        try:
+            registro = sheets_repository.create_row('Contatos', fields)
+        except Exception as e:
+            logger.exception('Falha ao registrar contato para o cliente %s', pk)
+            return JsonResponse({'error': str(e)}, status=500)
+
+        novo_status_funil = request.POST.get('novo_status_funil')
+        if novo_status_funil:
+            try:
+                sheets_repository.update_row('Clientes', pk, {'status': novo_status_funil})
+            except Exception:
+                logger.exception('Falha ao atualizar status do funil junto do contato %s', pk)
+
+        return JsonResponse({'success': True, 'id': registro.get('id')})
+
+    return HttpResponseBadRequest('Método não permitido')
 
 
 def parceiro_criar(request):

@@ -1,9 +1,10 @@
+import json
 import tempfile
 from datetime import date, timedelta
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, SimpleTestCase, TestCase, override_settings
+from django.test import Client, RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
 from core.app_Gestor import sheets_repository as repo
@@ -112,6 +113,34 @@ class BuildDashboardFromSheetsTests(ListRowsPatchMixin, SimpleTestCase):
         _, rows = views._build_dashboard_from_sheets()
 
         self.assertEqual(rows, [])
+
+
+class BuildClientesLeadsFromSheetsTests(ListRowsPatchMixin, SimpleTestCase):
+
+    def test_maps_sheet_row_to_lead_dict(self):
+        self.patch_list_rows({'Clientes': [_clientes_fixture()]})
+
+        leads = views._build_clientes_leads_from_sheets()
+
+        self.assertEqual(len(leads), 1)
+        self.assertEqual(leads[0]['id'], 'CLI-aaaaaaaa')
+        self.assertEqual(leads[0]['nome'], 'Ana Silva')
+        self.assertEqual(leads[0]['status'], 'Novo Lead')
+        self.assertEqual(leads[0]['dataVencimento'], '2024-06-01')
+
+    def test_status_falls_back_to_novo_lead_when_blank(self):
+        self.patch_list_rows({'Clientes': [_clientes_fixture(status='')]})
+
+        leads = views._build_clientes_leads_from_sheets()
+
+        self.assertEqual(leads[0]['status'], 'Novo Lead')
+
+    def test_row_without_id_is_skipped(self):
+        self.patch_list_rows({'Clientes': [_clientes_fixture(id='')]})
+
+        leads = views._build_clientes_leads_from_sheets()
+
+        self.assertEqual(leads, [])
 
 
 class BuildAlertPayloadTests(ListRowsPatchMixin, SimpleTestCase):
@@ -382,38 +411,58 @@ class EditarGoogleRowViewTests(TestCase):
         self.assertEqual(fields['cliente'], 'Ana Silva Atualizada')
         self.assertEqual(fields['pago_comissao'], 'Sim')
 
-    def test_post_status_only_included_when_provided(self):
+    def test_post_status_is_sent_when_provided(self):
         with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
              patch.object(repo, 'update_row') as mock_update:
             self.client.post(
                 reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
-                {'status': 'Emitido', 'pago_comissao': 'Não'},
+                {'cliente': 'Ana Silva', 'status': 'Emitido', 'pago_comissao': 'Não'},
             )
 
         tab, pk, fields = mock_update.call_args.args
         self.assertEqual(fields['status'], 'Emitido')
 
-    def test_post_without_status_does_not_include_it(self):
+    def test_post_without_status_sends_empty_string(self):
         with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
              patch.object(repo, 'update_row') as mock_update:
             self.client.post(
                 reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
-                {'pago_comissao': 'Não'},
+                {'cliente': 'Ana Silva', 'pago_comissao': 'Não'},
             )
 
         tab, pk, fields = mock_update.call_args.args
-        self.assertNotIn('status', fields)
+        self.assertEqual(fields['status'], '')
 
-    def test_post_invalid_valor_comissao_is_silently_ignored(self):
+    def test_post_without_cliente_shows_error_and_does_not_update(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'update_row') as mock_update:
+            response = self.client.post(
+                reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'cliente': '', 'pago_comissao': 'Não'},
+                follow=True,
+            )
+
+        mock_update.assert_not_called()
+        messages = [str(m) for m in response.context['messages']]
+        self.assertTrue(any('nome do cliente' in m for m in messages))
+
+    def test_post_sends_full_field_set_including_new_fields(self):
         with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
              patch.object(repo, 'update_row') as mock_update:
             self.client.post(
                 reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
-                {'valor_comissao': 'não é número', 'pago_comissao': 'Não'},
+                {
+                    'cliente': 'Ana Silva', 'cpf_cnpj': '111.222.333-44', 'telefone1': '(11) 90000-0000',
+                    'tipo_certificado': 'e-CPF A1', 'custo_certificado': '50.00', 'valor_liquido': '100.00',
+                    'certificado_feito': 'Sim', 'pago_venda': 'Sim', 'pago_comissao': 'Não',
+                },
             )
 
         tab, pk, fields = mock_update.call_args.args
-        self.assertNotIn('valor_comissao', fields)
+        self.assertEqual(fields['cpf_cnpj'], '111.222.333-44')
+        self.assertEqual(fields['custo_certificado'], '50.00')
+        self.assertEqual(fields['certificado_feito'], 'Sim')
+        self.assertEqual(fields['pago_venda'], 'Sim')
 
     def test_post_generic_failure_shows_error_message(self):
         with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
@@ -421,7 +470,7 @@ class EditarGoogleRowViewTests(TestCase):
              patch.object(repo, 'list_rows', return_value=[]):
             response = self.client.post(
                 reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
-                {'pago_comissao': 'Sim'},
+                {'cliente': 'Ana Silva', 'pago_comissao': 'Sim'},
                 follow=True,
             )
 
@@ -434,7 +483,7 @@ class EditarGoogleRowViewTests(TestCase):
              patch.object(repo, 'list_rows', return_value=[]):
             response = self.client.post(
                 reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
-                {'pago_comissao': 'Sim', 'expected_atualizado_em': 'stale'},
+                {'cliente': 'Ana Silva', 'pago_comissao': 'Sim', 'expected_atualizado_em': 'stale'},
                 follow=True,
             )
 
@@ -446,7 +495,7 @@ class EditarGoogleRowViewTests(TestCase):
              patch.object(repo, 'update_row', side_effect=LookupError('sumiu')):
             response = self.client.post(
                 reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
-                {'pago_comissao': 'Sim'},
+                {'cliente': 'Ana Silva', 'pago_comissao': 'Sim'},
             )
 
         self.assertEqual(response.status_code, 404)
@@ -550,6 +599,131 @@ class ClienteExcluirViewTests(TestCase):
             response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
 
         self.assertEqual(response.status_code, 500)
+
+
+class ContatosClienteRegistroTests(TestCase):
+
+    def test_get_404_when_cliente_missing(self):
+        with patch.object(repo, 'get_row', return_value=None):
+            response = self.client.get(reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-nope'}))
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_get_lists_only_contatos_for_this_cliente(self):
+        contatos = [
+            {'id': 'CTT-1', 'cliente_id': 'CLI-aaaaaaaa', 'tipo': 'contato', 'atualizado_em': '2024-01-02'},
+            {'id': 'CTT-2', 'cliente_id': 'CLI-outro', 'tipo': 'contato', 'atualizado_em': '2024-01-03'},
+        ]
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'list_rows', return_value=contatos):
+            response = self.client.get(reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-aaaaaaaa'}))
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual([c['id'] for c in data['contatos']], ['CTT-1'])
+
+    def test_post_creates_contato_row(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'create_row', return_value={'id': 'CTT-novo'}) as mock_create:
+            response = self.client.post(
+                reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'tipo': 'contato', 'canal': 'WhatsApp', 'texto': 'Cliente confirmou interesse'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'success': True, 'id': 'CTT-novo'})
+        tab, fields = mock_create.call_args.args
+        self.assertEqual(tab, 'Contatos')
+        self.assertEqual(fields['cliente_id'], 'CLI-aaaaaaaa')
+        self.assertEqual(fields['canal'], 'WhatsApp')
+
+    def test_post_notificacao_does_not_touch_status_without_novo_status_funil(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'create_row', return_value={'id': 'CTT-novo'}), \
+             patch.object(repo, 'update_row') as mock_update:
+            self.client.post(
+                reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'tipo': 'notificacao', 'titulo': 'Pagamento registrado', 'texto': 'Pagamento confirmado'},
+            )
+
+        mock_update.assert_not_called()
+
+    def test_post_with_novo_status_funil_updates_cliente_status(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'create_row', return_value={'id': 'CTT-novo'}), \
+             patch.object(repo, 'update_row') as mock_update:
+            self.client.post(
+                reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'tipo': 'contato', 'canal': 'Ligação', 'novo_status_funil': 'Emitido'},
+            )
+
+        mock_update.assert_called_once_with('Clientes', 'CLI-aaaaaaaa', {'status': 'Emitido'})
+
+    def test_post_404_when_cliente_missing(self):
+        with patch.object(repo, 'get_row', return_value=None):
+            response = self.client.post(reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-nope'}), {})
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_put_method_not_allowed(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()):
+            response = self.client.put(reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-aaaaaaaa'}))
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_post_create_row_failure_returns_500(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'create_row', side_effect=Exception('planilha fora do ar')):
+            response = self.client.post(
+                reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'tipo': 'contato', 'texto': 'teste'},
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertIn('planilha fora do ar', response.json()['error'])
+
+    def test_post_still_succeeds_when_status_update_fails(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'create_row', return_value={'id': 'CTT-novo'}), \
+             patch.object(repo, 'update_row', side_effect=Exception('falhou')):
+            response = self.client.post(
+                reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'tipo': 'contato', 'novo_status_funil': 'Emitido'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'success': True, 'id': 'CTT-novo'})
+
+
+class BuildNotificacoesRecentesTests(ListRowsPatchMixin, SimpleTestCase):
+
+    def test_only_includes_tipo_notificacao_sorted_by_atualizado_em(self):
+        self.patch_list_rows({
+            'Clientes': [_clientes_fixture(id='CLI-aaaaaaaa', cliente='Ana Silva')],
+            'Contatos': [
+                {'id': 'CTT-1', 'cliente_id': 'CLI-aaaaaaaa', 'tipo': 'contato', 'atualizado_em': '2024-01-05'},
+                {'id': 'CTT-2', 'cliente_id': 'CLI-aaaaaaaa', 'tipo': 'notificacao', 'titulo': 'Pagamento registrado', 'texto': 'Confirmado', 'data': '2024-01-01', 'atualizado_em': '2024-01-01'},
+                {'id': 'CTT-3', 'cliente_id': 'CLI-aaaaaaaa', 'tipo': 'notificacao', 'titulo': 'Lembrete', 'texto': 'Renovação próxima', 'data': '2024-01-04', 'atualizado_em': '2024-01-04'},
+            ],
+        })
+
+        result = views._build_notificacoes_recentes()
+
+        self.assertEqual([r['id'] for r in result], ['CTT-3', 'CTT-2'])
+        self.assertEqual(result[0]['nome'], 'Ana Silva')
+
+    def test_limit_caps_number_of_results(self):
+        self.patch_list_rows({
+            'Clientes': [_clientes_fixture()],
+            'Contatos': [
+                {'id': f'CTT-{i}', 'cliente_id': 'CLI-aaaaaaaa', 'tipo': 'notificacao', 'atualizado_em': f'2024-01-{i:02d}'}
+                for i in range(1, 10)
+            ],
+        })
+
+        result = views._build_notificacoes_recentes(limit=3)
+
+        self.assertEqual(len(result), 3)
 
 
 @override_settings(GOOGLE_SHEET_ID='fake-sheet-id')
@@ -972,3 +1146,135 @@ class MarcarPagamentoAprovadoTests(TestCase):
 
         state = AppState.objects.get(key='main')
         self.assertTrue(state.data['clientes'][0]['pago'])
+
+
+# NOTA: criar_pagamento_pix e webhook_mercado_pago não têm nenhuma rota em
+# core/urls.py hoje (import presente, sem path() correspondente) -- por isso
+# são testadas aqui via RequestFactory chamando a view diretamente, não por
+# reverse()/self.client. Além disso, ambas chamam gerar_pagamento_mercado_pago
+# / consultar_pagamento_mercado_pago, que não existem em lugar nenhum do
+# código (nem em services.py, mesmo antes da migração pra Sheets) -- o
+# pagamento PIX real está quebrado hoje. Os testes abaixo travam o
+# comportamento ATUAL (erro 500/400 nesse ponto), não o comportamento
+# desejado -- servem para não deixar isso regredir silenciosamente até que
+# alguém implemente as duas funções de verdade.
+class CriarPagamentoPixViewTests(TestCase):
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_requires_post(self):
+        request = self.factory.get('/criar-pagamento-pix/')
+        response = views.criar_pagamento_pix(request)
+        self.assertEqual(response.status_code, 400)
+
+    def test_invalid_json_body_returns_400(self):
+        request = self.factory.post('/criar-pagamento-pix/', data='not-json', content_type='application/json')
+        response = views.criar_pagamento_pix(request)
+        self.assertEqual(response.status_code, 400)
+
+    def test_valor_zero_or_negative_returns_400(self):
+        request = self.factory.post('/criar-pagamento-pix/', {'valor': '0', 'email_cliente': 'ana@example.com'})
+        response = views.criar_pagamento_pix(request)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Valor inválido', json.loads(response.content)['error'])
+
+    def test_missing_email_returns_400(self):
+        request = self.factory.post('/criar-pagamento-pix/', {'valor': '100'})
+        response = views.criar_pagamento_pix(request)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('email_cliente', json.loads(response.content)['error'])
+
+    def test_valid_payload_currently_fails_missing_helper(self):
+        request = self.factory.post('/criar-pagamento-pix/', {'valor': '100', 'email_cliente': 'ana@example.com'})
+        response = views.criar_pagamento_pix(request)
+        self.assertEqual(response.status_code, 500)
+        self.assertIn('gerar_pagamento_mercado_pago', json.loads(response.content)['error'])
+
+    def test_invalid_valor_string_defaults_to_zero_and_returns_400(self):
+        request = self.factory.post('/criar-pagamento-pix/', {'valor': 'abc', 'email_cliente': 'ana@example.com'})
+        response = views.criar_pagamento_pix(request)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Valor inválido', json.loads(response.content)['error'])
+
+    def test_success_path_with_mocked_helper_creates_pagamento(self):
+        # gerar_pagamento_mercado_pago não existe de verdade (ver nota da classe) --
+        # este teste documenta o contrato esperado (shape do retorno) e confirma
+        # que o resto da view (criação do PagamentoCliente, resposta JSON) já
+        # funciona corretamente assumindo que a função venha a ser implementada.
+        fake_payment = {
+            'id': 123456,
+            'status': 'pending',
+            'point_of_interaction': {'transaction_data': {'qr_code_base64': 'ZmFrZQ==', 'qr_code': '00020126'}},
+        }
+        with patch.object(views, 'gerar_pagamento_mercado_pago', return_value=fake_payment, create=True):
+            request = self.factory.post('/criar-pagamento-pix/', {
+                'valor': '150', 'email_cliente': 'ana@example.com', 'nome_cliente': 'Ana Silva', 'cliente_ref': 'CLI-aaaaaaaa',
+            })
+            response = views.criar_pagamento_pix(request)
+
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content)
+        self.assertEqual(data['gateway_payment_id'], '123456')
+        self.assertEqual(data['qr_code_base64'], 'ZmFrZQ==')
+        pagamento = PagamentoCliente.objects.get(pk=data['pagamento_id'])
+        self.assertEqual(pagamento.cliente_ref, 'CLI-aaaaaaaa')
+        self.assertEqual(pagamento.status, PagamentoCliente.STATUS_PENDING)
+
+
+class WebhookMercadoPagoViewTests(TestCase):
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_requires_post(self):
+        request = self.factory.get('/webhook-mercado-pago/')
+        response = views.webhook_mercado_pago(request)
+        self.assertEqual(response.status_code, 405)
+
+    def test_ignores_non_payment_topic(self):
+        request = self.factory.post('/webhook-mercado-pago/?topic=merchant_order&id=123')
+        response = views.webhook_mercado_pago(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content)['status'], 'ignored')
+
+    def test_ignores_when_payment_id_missing(self):
+        request = self.factory.post('/webhook-mercado-pago/?topic=payment')
+        response = views.webhook_mercado_pago(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content)['status'], 'ignored')
+
+    def test_payment_topic_currently_fails_missing_helper(self):
+        request = self.factory.post('/webhook-mercado-pago/?topic=payment&id=123')
+        response = views.webhook_mercado_pago(request)
+        self.assertEqual(response.status_code, 400)
+        data = json.loads(response.content)
+        self.assertEqual(data['status'], 'error')
+        self.assertIn('consultar_pagamento_mercado_pago', data['message'])
+
+    def test_extracts_payment_id_from_json_body_when_no_query_param(self):
+        body = json.dumps({'action': 'payment.updated', 'data': {'id': '999'}})
+        request = self.factory.post('/webhook-mercado-pago/', data=body, content_type='application/json')
+        response = views.webhook_mercado_pago(request)
+        # Sem payment_id/topic na query string, o body é usado -- ainda cai no
+        # mesmo bug de consultar_pagamento_mercado_pago ausente, mas confirma
+        # que a extração do id a partir do body funcionou (não foi "ignored").
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(json.loads(response.content)['status'], 'error')
+
+    def test_approved_payment_updates_pagamento_and_marks_approved(self):
+        pagamento = PagamentoCliente.objects.create(
+            cliente_ref='CLI-aaaaaaaa', nome_cliente='Ana Silva', email_cliente='ana@example.com',
+            valor=100, descricao='Certificado', gateway_payment_id='123',
+        )
+        fake_payment_info = {'status': 'approved'}
+        with patch.object(views, 'consultar_pagamento_mercado_pago', return_value=fake_payment_info, create=True), \
+             patch.object(repo, 'update_row') as mock_update:
+            request = self.factory.post('/webhook-mercado-pago/?topic=payment&id=123')
+            response = views.webhook_mercado_pago(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content)['status'], 'success')
+        pagamento.refresh_from_db()
+        self.assertEqual(pagamento.status, PagamentoCliente.STATUS_APPROVED)
+        mock_update.assert_called_once_with('Clientes', 'CLI-aaaaaaaa', {'pago_venda': 'Sim'})
