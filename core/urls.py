@@ -29,6 +29,7 @@ urlpatterns = [
     path('planilha/criar/', criar_google_row, name='criar_google_row'),
     path('planilha/editar/<str:pk>/', editar_google_row, name='editar_google_row'),
     path('planilha/<str:pk>/documentos/', documentos_cliente, name='documentos_cliente'),
+    path('documentos/upload/', upload_documento, name='upload_documento'),
     path('documentos/<int:doc_id>/download/', download_documento, name='download_documento'),
     path('documentos/<int:doc_id>/excluir/', excluir_documento, name='excluir_documento'),
     path('parceiro/criar/', parceiro_criar, name='parceiro_criar'),
