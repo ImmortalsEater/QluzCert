@@ -93,6 +93,13 @@ class BuildDashboardFromSheetsTests(ListRowsPatchMixin, SimpleTestCase):
         cliente_cell = rows[0]['cells'][cols.index(next(c for c in cols if c['field'] == 'cliente'))]
         self.assertEqual(cliente_cell['value'], 'Ana Silva')
 
+    def test_row_without_id_is_skipped(self):
+        self.patch_list_rows({'Clientes': [_clientes_fixture(id='')]})
+
+        _, rows = views._build_dashboard_from_sheets()
+
+        self.assertEqual(rows, [])
+
     def test_empty_sheet_returns_no_rows(self):
         self.patch_list_rows({'Clientes': []})
 

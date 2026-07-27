@@ -120,6 +120,12 @@ def _build_dashboard_from_sheets():
     cols = _annotate_columns(CLIENTES_COLUMNS)
     rows = []
     for row in sheets_repository.list_rows('Clientes'):
+        row_id = row.get('id', '')
+        if not row_id:
+            # Linha sem id não é editável/endereçável (provável corrupção do
+            # cabeçalho da planilha) -- ignorada em vez de derrubar a página
+            # inteira quando o template tentar montar um link com id vazio.
+            continue
         cells = [
             {
                 'class': col['class'],
@@ -128,7 +134,7 @@ def _build_dashboard_from_sheets():
             }
             for col in cols
         ]
-        rows.append({'id': row.get('id', ''), 'cells': cells})
+        rows.append({'id': row_id, 'cells': cells})
     return cols, rows
 
 
