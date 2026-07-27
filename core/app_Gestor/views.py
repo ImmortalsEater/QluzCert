@@ -531,25 +531,14 @@ def preco_excluir(request, id):
         return JsonResponse({'error': str(e)}, status=500)
 
 
-@csrf_exempt
 def app_state_download(request):
-    """Gera e retorna um arquivo Excel (.xlsx) com o estado enviado no body
-    ou com o estado salvo no banco (key='main') quando chamado via GET.
+    """Gera e retorna um arquivo Excel (.xlsx) com os dados atuais das abas
+    Clientes, Parceiros e Precos da planilha do Google Sheets.
     """
     try:
-        if request.method == 'POST':
-            payload = json.loads(request.body.decode('utf-8'))
-        else:
-            state = AppState.objects.filter(key='main').first()
-            payload = state.data if state else {'clientes': [], 'parceiros': [], 'precos': []}
-
-        clientes = payload.get('clientes', []) or []
-        parceiros = payload.get('parceiros', []) or []
-        precos = payload.get('precos', []) or []
-
-        df_clientes = pd.DataFrame(clientes)
-        df_parceiros = pd.DataFrame(parceiros)
-        df_precos = pd.DataFrame(precos)
+        df_clientes = pd.DataFrame(sheets_repository.list_rows('Clientes'))
+        df_parceiros = pd.DataFrame(sheets_repository.list_rows('Parceiros'))
+        df_precos = pd.DataFrame(sheets_repository.list_rows('Precos'))
 
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -568,9 +557,10 @@ def app_state_download(request):
 
         output.seek(0)
         resp = HttpResponse(output.read(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        resp['Content-Disposition'] = 'attachment; filename="estado_clientes_parceiros.xlsx"'
+        resp['Content-Disposition'] = 'attachment; filename="clientes_parceiros_precos.xlsx"'
         return resp
     except Exception as e:
+        logger.exception('Falha ao gerar exportação xlsx da planilha')
         return JsonResponse({'error': str(e)}, status=500)
 
 

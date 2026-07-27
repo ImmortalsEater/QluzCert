@@ -88,14 +88,9 @@ function initSaveMenu(){
 }
 
 async function exportState(){
-  // envia estado atual para o servidor e força download do arquivo gerado
-  const payload = {clientes, parceiros, precos};
+  // baixa um xlsx gerado a partir dos dados atuais da planilha do Google Sheets
   try{
-    const resp = await fetch('/app_state_download/', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
-    });
+    const resp = await fetch('/app_state_download/');
     // show overlay while generating
     showExportOverlay();
     if(!resp.ok){
@@ -107,7 +102,7 @@ async function exportState(){
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'estado_clientes_parceiros.xlsx';
+    a.download = 'clientes_parceiros_precos.xlsx';
     document.body.appendChild(a);
     a.click();
     a.remove();

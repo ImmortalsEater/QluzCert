@@ -718,9 +718,12 @@ class DownloadExcluirDocumentoViewTests(TestCase):
         self.assertEqual(DocumentoCliente.objects.count(), 0)
 
 
-class AppStateDownloadViewTests(TestCase):
+@override_settings(GOOGLE_SHEET_ID='fake-sheet-id')
+class AppStateDownloadViewTests(ListRowsPatchMixin, TestCase):
 
-    def test_get_without_saved_state_returns_empty_xlsx(self):
+    def test_get_without_data_returns_empty_xlsx(self):
+        self.patch_list_rows({})
+
         response = self.client.get(reverse('app_state_download'))
 
         self.assertEqual(response.status_code, 200)
@@ -729,27 +732,32 @@ class AppStateDownloadViewTests(TestCase):
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
 
-    def test_get_uses_saved_app_state(self):
-        AppState.objects.create(key='main', data={'clientes': [{'nome': 'Ana'}], 'parceiros': [], 'precos': []})
+    def test_get_exports_current_sheet_data(self):
+        self.patch_list_rows({
+            'Clientes': [{'cliente': 'Ana'}],
+            'Parceiros': [{'nome': 'Escritorio A'}],
+            'Precos': [{'tipo': 'e-CPF A1'}],
+        })
 
         response = self.client.get(reverse('app_state_download'))
 
         self.assertEqual(response.status_code, 200)
+        self.assertIn('attachment', response['Content-Disposition'])
 
-    def test_post_with_payload_returns_xlsx(self):
-        response = self.client.post(
-            reverse('app_state_download'),
-            data='{"clientes": [{"nome": "Ana"}], "parceiros": [{"nome": "Escritorio A"}], "precos": [{"tipo": "e-CPF A1"}]}',
-            content_type='application/json',
-        )
+    def test_post_also_exports_current_sheet_data_ignoring_any_body(self):
+        self.patch_list_rows({'Clientes': [{'cliente': 'Ana'}]})
+
+        response = self.client.post(reverse('app_state_download'), data='isso nao e mais usado', content_type='text/plain')
 
         self.assertEqual(response.status_code, 200)
         self.assertIn('attachment', response['Content-Disposition'])
 
-    def test_post_invalid_json_returns_500(self):
-        response = self.client.post(
-            reverse('app_state_download'), data='not json', content_type='application/json',
-        )
+    def test_failure_returns_500(self):
+        patcher = patch.object(repo, 'list_rows', side_effect=Exception('planilha indisponivel'))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        response = self.client.get(reverse('app_state_download'))
 
         self.assertEqual(response.status_code, 500)
         self.assertIn('error', response.json())
