@@ -223,65 +223,17 @@ function saveCliente(){
 }
 
 // ==================== DETAIL ====================
+// A visão de detalhe local (renderizada a partir do array `clientes`/
+// localStorage) foi substituída pela página real de edição (editar_google_row),
+// que já mostra e edita todos os campos vindos da planilha. Esta função existe
+// apenas como fallback caso algum ponto futuro volte a chamar openDetail(id)
+// diretamente.
 function openDetail(id){
-  const c=resolveClienteById(id);
-  if(!c)return;
-  const parc=parceiros.find(p=>p.id===c.parceiroId);
-  const si=STATUS_LIST.indexOf(c.status);
-  const steps=STATUS_LIST.map((s,i)=>`<div class="step${i<si?' done':i===si?' current':''}">${s}</div>`).join('');
-  const hist=(c.historico||[]).slice().reverse().map(h=>`<div class="contact-entry"><span class="dt">${fmtDate(h.data)}<br><small>${h.canal}</small></span><span>${h.obs||'—'}</span></div>`).join('')||'<p style="font-size:12px;color:var(--muted)">Nenhum contato registrado</p>';
-  const notificacoes=(c.notificacoes||[]).slice().reverse().map(n=>`<div class="contact-entry"><span class="dt">${fmtDate(n.data)}<br><small>${n.titulo||'Notificação'}</small></span><span>${n.texto||'—'}</span></div>`).join('')||'<p style="font-size:12px;color:var(--muted)">Nenhuma notificação registrada</p>';
-  document.getElementById('detail-box').innerHTML=`
-  <div class="modal-head">
-    <div>
-      <h2>${c.nome}</h2>
-      <div style="font-size:12px;color:var(--muted);margin-top:2px">${c.cpfCnpj||'CPF/CNPJ não informado'} · Cadastrado em ${fmtDate(c.criadoEm)}</div>
-    </div>
-    <div style="display:flex;gap:8px">
-      <button class="btn btn-sm" onclick="openDocumentosCliente('${c.id}')"><i class="ti ti-folder"></i> Documentos</button>
-      <button class="btn btn-sm" onclick="openModal('pagamento','${c.id}');closeDetail(true)"><i class="ti ti-qrcode"></i> Pagamento</button>
-      <button class="btn btn-sm" onclick="editCliente('${c.id}');closeDetail(true)"><i class="ti ti-edit"></i> Editar</button>
-      <button class="btn btn-sm" onclick="closeDetail(true)"><i class="ti ti-x"></i></button>
-    </div>
-  </div>
-  <div class="modal-body">
-    <div class="progress-steps" style="margin-bottom:18px">${steps}</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-      <div>
-        <div class="detail-section">
-          <h4>Dados Pessoais</h4>
-          <div class="detail-row"><span class="lbl">Telefone</span><span class="val">${c.telefone||'—'}</span></div>
-          <div class="detail-row"><span class="lbl">E-mail</span><span class="val" style="word-break:break-all">${c.email||'—'}</span></div>
-          <div class="detail-row"><span class="lbl">Nascimento</span><span class="val">${fmtDate(c.dataNasc)}</span></div>
-          <div class="detail-row"><span class="lbl">Parceiro</span><span class="val">${parc?`<span class="parceiro-tag">${parc.nome}</span>`:'Sem parceiro'}</span></div>
-        </div>
-        <div class="detail-section">
-          <h4>Certificado</h4>
-          <div class="detail-row"><span class="lbl">Tipo</span><span class="val">${c.tipoCert||'—'}</span></div>
-          <div class="detail-row"><span class="lbl">Emissão</span><span class="val">${fmtDate(c.dataEmissao)}</span></div>
-          <div class="detail-row"><span class="lbl">Vencimento</span><span class="val">${c.dataVencimento?`<span class="badge ${daysUntil(c.dataVencimento)<0?'badge-vencido':daysUntil(c.dataVencimento)<60?'badge-vencendo':'badge-emitido'}">${fmtDate(c.dataVencimento)}</span>`:'—'}</span></div>
-        </div>
-        <div class="detail-section">
-          <h4>Pagamento</h4>
-          <div class="detail-row"><span class="lbl">Valor</span><span class="val" style="font-weight:700;color:var(--success)">${c.valorCobrado?fmtMoney(c.valorCobrado):'—'}</span></div>
-          <div class="detail-row"><span class="lbl">Forma</span><span class="val">${c.formaPag||'—'}</span></div>
-          <div class="detail-row"><span class="lbl">Status pagto</span><span class="val"><span style="color:${c.pago?'var(--success)':'var(--danger)'}">${c.pago?'✓ Confirmado':'Pendente'}</span></span></div>
-        </div>
-      </div>
-      <div>
-        <div class="detail-section">
-          <h4>Histórico de Contatos</h4>
-          <button class="btn btn-sm" style="margin-bottom:8px" onclick="openModal('contato','${c.id}');closeDetail(true)"><i class="ti ti-plus"></i> Registrar Contato</button>
-          <div class="contact-log">${hist}</div>
-        </div>
-        <div class="detail-section">
-          <h4>Notificações</h4>
-          <div class="contact-log">${notificacoes}</div>
-        </div>
-        ${c.obs?`<div class="detail-section"><h4>Observações</h4><p style="font-size:13px;color:var(--muted)">${c.obs}</p></div>`:''}
-      </div>
-    </div>
-  </div>`;
-  document.getElementById('detail-overlay').classList.add('open');
+  const pk = getPlanilhaPkFromClientId(id);
+  if(!pk){
+    showToast('Detalhes disponíveis apenas para clientes sincronizados da planilha','info');
+    return;
+  }
+  location.href = `/planilha/editar/${pk}/`;
 }
 function closeDetail(e){if(e===true||e.target===document.getElementById('detail-overlay')){document.getElementById('detail-overlay').classList.remove('open')}}

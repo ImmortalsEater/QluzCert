@@ -98,5 +98,16 @@ async function deletePlanilhaCliente(id){
   });
 }
 
-function editCliente(id){editingId=id;openModal('cliente')}
+// O modal local (renderClienteModal) só grava em localStorage, nunca na
+// planilha -- a edição real é a página servida por editar_google_row. Esta
+// função existe apenas como fallback caso algum ponto futuro volte a chamar
+// editCliente(id) diretamente.
+function editCliente(id){
+  const pk = getPlanilhaPkFromClientId(id);
+  if(!pk){
+    showToast('Edição disponível apenas para clientes sincronizados da planilha','info');
+    return;
+  }
+  location.href = `/planilha/editar/${pk}/`;
+}
 function deleteCliente(id){if(confirm('Remover este cliente?')){clientes=clientes.filter(c=>c.id!==id);save();renderClientes();renderDashboard()}}
