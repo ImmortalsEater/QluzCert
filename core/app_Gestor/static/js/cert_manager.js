@@ -361,7 +361,7 @@ function renderAlertCard(item, kind){
   const detail = isPayment
     ? `${item.statusLabel} · ${item.tipoPagamento || 'Pagamento'}${item.tipoCert ? ` · ${item.tipoCert}` : ''}`
     : `${item.statusLabel} · ${item.tipoCert || '—'}${item.telefone ? ` · ${item.telefone}` : ''}`;
-  return `<div class="alert-item ${accentClass}" style="cursor:pointer" onclick="openDetail('${item.id}')">
+  return `<div class="alert-item ${accentClass}" style="cursor:pointer" onclick="location.href='/planilha/editar/${item.planilha_pk}/'">
     <div class="alert-icon ${accentClass}"><i class="${iconClass}"></i></div>
     <div class="alert-info">
       <div class="alert-name">${item.nome}</div>
@@ -591,9 +591,9 @@ function renderKanban(){
   const board=document.getElementById('kanban-board');
   board.innerHTML=STATUS_LIST.map((s,i)=>{
     const cards=leads.filter(l=>l.status===s);
-    return`<div class="kanban-col">
+    return`<div class="kanban-col" ondragover="handleKanbanDragOver(event)" ondragleave="handleKanbanDragLeave(event)" ondrop="handleKanbanDrop(event,'${s}')">
       <div class="kanban-col-head" style="color:${KANBAN_COLORS[i]}">${s} <span style="background:${KANBAN_COLORS[i]}22;color:${KANBAN_COLORS[i]};padding:1px 7px;border-radius:10px;font-size:11px">${cards.length}</span></div>
-      ${cards.map(l=>`<div class="kanban-card">
+      ${cards.map(l=>`<div class="kanban-card" draggable="true" ondragstart="handleKanbanDragStart(event,'${l.id}')" ondragend="handleKanbanDragEnd(event)">
         <div class="kanban-card-name">${l.nome}</div>
         <div class="kanban-card-sub">${l.tipoCert||'Tipo não definido'}</div>
         <div class="kanban-card-footer">
@@ -606,6 +606,35 @@ function renderKanban(){
       </div>`).join('')}
     </div>`;
   }).join('');
+}
+
+function handleKanbanDragStart(event, id){
+  event.dataTransfer.setData('text/plain', id);
+  event.dataTransfer.effectAllowed = 'move';
+  event.currentTarget.classList.add('dragging');
+}
+
+function handleKanbanDragEnd(event){
+  event.currentTarget.classList.remove('dragging');
+}
+
+function handleKanbanDragOver(event){
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  event.currentTarget.classList.add('drag-over');
+}
+
+function handleKanbanDragLeave(event){
+  event.currentTarget.classList.remove('drag-over');
+}
+
+function handleKanbanDrop(event, novoStatus){
+  event.preventDefault();
+  event.currentTarget.classList.remove('drag-over');
+  const id = event.dataTransfer.getData('text/plain');
+  const lead = leads.find(l=>l.id===id);
+  if(!lead || lead.status===novoStatus) return;
+  mudarStatusLead(id, novoStatus);
 }
 
 // ==================== RENOVAÇÕES ====================
@@ -625,36 +654,23 @@ function renderInadimplencia(){
   document.getElementById('pag-normal').innerHTML=normais.length?normais.map(c=>renderAlertCard(c,'pagamento')).join(''):'<p style="font-size:13px;color:var(--muted)">Nenhum pagamento a vencer ✓</p>';
 }
 
+// Retorna o id real da linha na planilha (ex: "CLI-a1b2c3d4") a partir de um id
+// de cliente, removendo o prefixo "planilha-" usado pelos cards de alerta
+// (ex: "planilha-CLI-a1b2c3d4"). Ids da planilha nunca são numéricos -- são
+// gerados por sheets_repository._new_id como "<PREFIXO>-<hex>".
 function getPlanilhaPkFromClientId(clientId){
-  if(clientId === null || clientId === undefined || clientId === '') return null;
+  if(clientId === null || clientId === undefined) return null;
   const raw = String(clientId).trim();
   if(!raw) return null;
-  const match = raw.match(/^(?:planilha[-_]?|)(\d+)$/i);
-  if(match) return parseInt(match[1], 10);
-  if(raw.startsWith('planilha-')){
-    const fallback = raw.split('-', 2)[1];
-    const pk = parseInt(fallback, 10);
-    return Number.isFinite(pk) ? pk : null;
-  }
-  return null;
+  const stripped = raw.replace(/^planilha[-_]?/i, '');
+  return /^CLI-/i.test(stripped) ? stripped : null;
 }
 
 function resolveClienteById(clientId){
   const raw = String(clientId || '').trim();
   if(!raw) return null;
-  const direct = clientes.find(c => String(c.id) === raw || String(c.id) === raw.replace(/^planilha[-_]?/i, ''));
-  if(direct) return direct;
-  const planilhaPk = getPlanilhaPkFromClientId(raw);
-  if(planilhaPk !== null){
-    const byPlanilha = clientes.find(c => Number(getPlanilhaPkFromClientId(c.id)) === planilhaPk || Number(c.planilhaPk) === planilhaPk || Number(c.planilha_id) === planilhaPk || Number(c.planilhaId) === planilhaPk);
-    if(byPlanilha) return byPlanilha;
-  }
   const simplified = raw.replace(/^planilha[-_]?/i, '');
-  if(simplified !== raw){
-    const bySimplified = clientes.find(c => String(c.id) === simplified || String(c.planilhaPk) === simplified || String(c.planilha_id) === simplified || String(c.planilhaId) === simplified);
-    if(bySimplified) return bySimplified;
-  }
-  return null;
+  return clientes.find(c => String(c.id) === raw || String(c.id) === simplified) || null;
 }
 
 function openDocumentosCliente(clientId){
@@ -884,7 +900,7 @@ function renderClienteModal(box){
   const c=resolveClienteById(editingId) || {};
   const pOpts=parceiros.map(p=>`<option value="${p.id}"${c.parceiroId===p.id?' selected':''}>${p.nome}</option>`).join('');
   const tOpts=precos.map(p=>`<option value="${p.tipo}"${c.tipoCert===p.tipo?' selected':''}>${p.tipo} — ${fmtMoney(p.preco)}</option>`).join('');
-  const hasPlanilhaId = !!String(c.id || editingId || '').startsWith('planilha-');
+  const hasPlanilhaId = !!getPlanilhaPkFromClientId(c.id || editingId);
   box.innerHTML=`
   <div class="modal-head">
     <div>
