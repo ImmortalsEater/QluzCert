@@ -13,13 +13,9 @@ let clientes = (Array.isArray(storedClientes) && storedClientes.length)
 let parceiros = ((typeof window !== 'undefined' && Array.isArray(window.INITIAL_PARCEIROS) && window.INITIAL_PARCEIROS.length>0)
       ? window.INITIAL_PARCEIROS.slice()
       : (Array.isArray(storedParceiros) ? storedParceiros : []));
-let precos = DB.get('precos')||[
-  {id:1,tipo:'e-CPF A1',validade:'1 ano',preco:150},
-  {id:2,tipo:'e-CPF A3',validade:'3 anos',preco:280},
-  {id:3,tipo:'e-CNPJ A1',validade:'1 ano',preco:200},
-  {id:4,tipo:'e-CNPJ A3',validade:'3 anos',preco:350},
-  {id:5,tipo:'NF-e',validade:'1 ano',preco:120},
-];
+let precos = ((typeof window !== 'undefined' && Array.isArray(window.INITIAL_PRECOS) && window.INITIAL_PRECOS.length>0)
+      ? window.INITIAL_PRECOS.slice()
+      : (Array.isArray(DB.get('precos')) ? DB.get('precos') : []));
 let editingId = null;
 let backendAlertData = (typeof window !== 'undefined' && window.INITIAL_ALERTS) ? window.INITIAL_ALERTS : null;
 
@@ -35,45 +31,6 @@ const KANBAN_COLORS = ['var(--info)','var(--warn)','var(--purple)','var(--teal)'
 function save(){DB.set('clientes',clientes);DB.set('parceiros',parceiros);DB.set('precos',precos);updateBadges()}
 
 function saveLocalOnly(){DB.set('clientes',clientes);DB.set('parceiros',parceiros);DB.set('precos',precos);updateBadges();setStatus('Salvo localmente'); showToast('Salvo localmente','success')}
-
-async function saveServerState(){
-  saveLocalOnly();
-  try {
-    const response = await fetch('/app_state/', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({clientes, parceiros, precos})
-    });
-    if (!response.ok) throw new Error('Falha ao salvar no servidor');
-    const data = await response.json();
-    if (data.saved) { setStatus('Salvo no servidor'); showToast('Salvo no servidor','success'); }
-    else { setStatus('Falha ao salvar no servidor'); showToast('Falha ao salvar no servidor','error'); }
-  } catch (err) {
-    console.error(err);
-    setStatus('Erro ao salvar no servidor');
-    showToast('Erro ao salvar no servidor','error');
-  }
-}
-
-async function saveCloudState(){
-  saveLocalOnly();
-  try {
-    const response = await fetch('/app_state_drive/', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({clientes, parceiros, precos})
-    });
-    if (!response.ok) throw new Error('Falha ao salvar na nuvem');
-    const data = await response.json();
-    if (data.saved && data.drive) { setStatus('Salvo na nuvem'); showToast('Salvo na nuvem','success'); }
-    else if (data.saved) { setStatus('Salvo no servidor, falha na nuvem'); showToast('Salvo no servidor, falha na nuvem','info'); }
-    else { setStatus('Falha ao salvar na nuvem'); showToast('Falha ao salvar na nuvem','error'); }
-  } catch (err) {
-    console.error(err);
-    setStatus('Erro ao salvar na nuvem');
-    showToast('Erro ao salvar na nuvem','error');
-  }
-}
 
 function setStatus(message){
   const status = document.getElementById('save-status');
@@ -121,21 +78,13 @@ function initSaveMenu(){
   const mainBtn = document.getElementById('save-main-btn');
   const menu = document.getElementById('save-menu');
   const btnLocal = document.getElementById('save-local-btn');
-  const btnCloud = document.getElementById('save-cloud-btn');
   if(!mainBtn || !menu) return;
   mainBtn.addEventListener('click', function(e){ e.stopPropagation(); menu.style.display = (menu.style.display==='block'?'none':'block'); });
   // fechar ao clicar fora
   document.addEventListener('click', function(){ if(menu) menu.style.display='none' });
   if(btnLocal) btnLocal.addEventListener('click', function(e){ e.stopPropagation(); menu.style.display='none'; saveLocalOnly(); });
-  if(btnCloud) btnCloud.addEventListener('click', function(e){ e.stopPropagation(); menu.style.display='none'; saveCloudState(); });
   const btnExport = document.getElementById('export-btn');
   if(btnExport) btnExport.addEventListener('click', function(e){ e.stopPropagation(); menu.style.display='none'; exportState(); });
-  // data source bindings
-  const srcSelect = document.getElementById('data-source-select');
-  const syncBtn = document.getElementById('sync-server-btn');
-  if(srcSelect){ srcSelect.value = getDataSource(); srcSelect.addEventListener('change', function(){ setDataSource(this.value); }); }
-  if(syncBtn){ syncBtn.addEventListener('click', function(){ syncBtn.disabled=true; fetchServerState(true).finally(()=>{ syncBtn.disabled=false; }); }); }
-  renderDataSourceIndicator();
 }
 
 async function exportState(){
@@ -424,20 +373,10 @@ function nav(page){
 function renderSaveActions(){
   const html = `
     <div style="display:flex;align-items:center;gap:10px">
-      <div style="display:flex;align-items:center;gap:8px">
-        <label style="font-size:12px;color:var(--muted)">Fonte:</label>
-        <select id="data-source-select" style="padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--surface)">
-          <option value="server">Servidor</option>
-          <option value="local">Local</option>
-        </select>
-        <button class="btn btn-sm" id="sync-server-btn">Sincronizar</button>
-        <span id="data-source-indicator" style="font-size:12px;color:var(--muted)"></span>
-      </div>
       <div class="save-dropdown" style="position:relative;display:inline-block">
         <button class="btn btn-sm" id="save-main-btn"><i class="ti ti-device-floppy"></i> Salvar <i class="ti ti-chevron-down" style="margin-left:6px;font-size:12px"></i></button>
         <div id="save-menu" style="position:absolute;right:0;top:36px;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,0.06);display:none;min-width:180px;padding:8px;z-index:60">
           <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px" id="save-local-btn">Salvar localmente</button>
-          <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px;margin-top:6px" id="save-cloud-btn">Salvar na nuvem</button>
           <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px;margin-top:6px" id="export-btn">Exportar (.xlsx)</button>
         </div>
       </div>
@@ -446,50 +385,6 @@ function renderSaveActions(){
   `;
   const ta = document.getElementById('topbar-actions');
   if(ta) ta.innerHTML = html;
-}
-
-function getDataSource(){
-  const cached = DB.get('data_source');
-  if(cached) return cached;
-  if(typeof window !== 'undefined' && Array.isArray(window.INITIAL_CLIENTES) && window.INITIAL_CLIENTES.length>0) return 'server';
-  return 'local';
-}
-
-function setDataSource(src){
-  DB.set('data_source', src);
-  renderDataSourceIndicator();
-  if(src==='server') fetchServerState(true);
-}
-
-function renderDataSourceIndicator(){
-  const el = document.getElementById('data-source-indicator');
-  if(!el) return;
-  const src = getDataSource();
-  el.textContent = src==='server' ? 'Usando: servidor' : 'Usando: local';
-}
-
-async function fetchServerState(apply){
-  try{
-    const r = await fetch('/app_state/');
-    if(!r.ok) throw new Error('Falha ao obter estado do servidor');
-    const data = await r.json();
-    if(apply){
-      if (Array.isArray(data.clientes) && data.clientes.length) {
-        clientes = data.clientes;
-      }
-      if (Array.isArray(data.parceiros) && data.parceiros.length) {
-        parceiros = data.parceiros;
-      }
-      if (Array.isArray(data.precos) && data.precos.length) {
-        precos = data.precos;
-      }
-      save();
-      renderClientes(); renderParceiros(); renderTabela(); renderDashboard();
-      syncBackendAlertCounts();
-      showToast('Estado do servidor aplicado','success');
-    }
-    return data;
-  }catch(e){ showToast('Erro ao obter estado do servidor','error'); console.error(e); return null }
 }
 
 function updateBadges(){
@@ -619,7 +514,7 @@ function filterPlanilhaImportada(){
   if(!dataRows.length){
     table.style.display='none';
     if(noMatch){ noMatch.style.display=''; }
-    if(msg) msg.textContent='Nenhuma planilha importada ainda. Use "Sincronizar com o Google Drive".';
+    if(msg) msg.textContent='Nenhum cliente cadastrado na planilha ainda.';
     updateResultCount('planilha-count', 0, 0);
     renderPaginationControls('planilha-pagination', 1, 1, 'goToPlanilhaPage');
     return;
@@ -864,7 +759,23 @@ function renderParceiros(){
   }).join('');
 }
 function editParceiro(id){editingId=id;openModal('parceiro')}
-function deleteParceiro(id){if(confirm('Remover parceiro?')){parceiros=parceiros.filter(p=>p.id!==id);save();renderParceiros()}}
+async function deleteParceiro(id){
+  if(!confirm('Remover parceiro?'))return;
+  try{
+    const response=await fetch(`/parceiro/excluir/${id}/`,{
+      method:'POST',
+      headers:{'X-CSRFToken':getCsrfToken(),'X-Requested-With':'XMLHttpRequest'},
+    });
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data.error||'Falha ao remover parceiro');
+    parceiros=parceiros.filter(p=>p.id!==id);
+    renderParceiros();
+    showToast('Parceiro removido','success');
+  }catch(err){
+    console.error(err);
+    showToast(err.message||'Erro ao remover parceiro','error');
+  }
+}
 
 // ==================== TABELA PREÇOS ====================
 function renderTabela(){
@@ -874,7 +785,23 @@ function renderTabela(){
   </tr>`).join('');
 }
 function editPreco(id){editingId=id;openModal('preco')}
-function deletePreco(id){if(confirm('Remover?')){precos=precos.filter(p=>p.id!==id);save();renderTabela()}}
+async function deletePreco(id){
+  if(!confirm('Remover?'))return;
+  try{
+    const response=await fetch(`/preco/excluir/${id}/`,{
+      method:'POST',
+      headers:{'X-CSRFToken':getCsrfToken(),'X-Requested-With':'XMLHttpRequest'},
+    });
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data.error||'Falha ao remover preço');
+    precos=precos.filter(p=>p.id!==id);
+    renderTabela();
+    showToast('Preço removido','success');
+  }catch(err){
+    console.error(err);
+    showToast(err.message||'Erro ao remover preço','error');
+  }
+}
 
 // ==================== MODAIS ====================
 let modalTriggerEl=null;
@@ -1155,25 +1082,37 @@ function renderParceiroModal(box){
 }
 // Inicializa comportamentos ao carregar o DOM
 document.addEventListener('DOMContentLoaded', function(){
-  try{ renderSaveActions(); initSaveMenu();
-    // se a fonte padrão for servidor e não há clientes locais, aplica estado do servidor
-    if(getDataSource()==='server' && (!clientes || clientes.length===0)){
-      fetchServerState(true);
-    }
-  }catch(e){}
+  try{ renderSaveActions(); initSaveMenu(); }catch(e){}
 });
 
-function saveParceiro(){
+async function saveParceiro(){
   const nome=document.getElementById('p-nome').value.trim();
   if(!nome){alert('Nome obrigatório');return}
-  const p=editingId?parceiros.find(x=>x.id===editingId):{id:uid()};
-  p.nome=nome;p.tipo=document.getElementById('p-tipo').value;
-  p.telefone=document.getElementById('p-tel').value;p.email=document.getElementById('p-email').value;
-  const comissao=parseFloat(document.getElementById('p-comissao').value);
-  p.comissao=Number.isFinite(comissao)?comissao:null;
-  p.contato=document.getElementById('p-contato').value;
-  if(!editingId)parceiros.push(p);
-  save();closeModal(true);renderParceiros();editingId=null;
+  const payload=new URLSearchParams({
+    nome,
+    tipo:document.getElementById('p-tipo').value,
+    telefone:document.getElementById('p-tel').value,
+    email:document.getElementById('p-email').value,
+    comissao:document.getElementById('p-comissao').value,
+    contato:document.getElementById('p-contato').value,
+  });
+  const url=editingId?`/parceiro/editar/${editingId}/`:'/parceiro/criar/';
+  try{
+    const response=await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRFToken':getCsrfToken(),'X-Requested-With':'XMLHttpRequest'},
+      body:payload.toString(),
+    });
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data.error||'Falha ao salvar parceiro');
+    showToast('Parceiro salvo com sucesso','success');
+    closeModal(true);
+    editingId=null;
+    setTimeout(()=>{ location.reload(); },600);
+  }catch(err){
+    console.error(err);
+    showToast(err.message||'Erro ao salvar parceiro','error');
+  }
 }
 
 function renderPrecoModal(box){
@@ -1193,14 +1132,31 @@ function renderPrecoModal(box){
   </div>`;
 }
 
-function savePreco(){
+async function savePreco(){
   const tipo=document.getElementById('pr-tipo').value.trim();
   if(!tipo){alert('Tipo obrigatório');return}
-  const p=editingId?precos.find(x=>x.id==editingId):{id:uid()};
-  p.tipo=tipo;p.validade=document.getElementById('pr-valid').value;
-  p.preco=parseFloat(document.getElementById('pr-preco').value)||0;
-  if(!editingId)precos.push(p);
-  save();closeModal(true);renderTabela();editingId=null;
+  const payload=new URLSearchParams({
+    tipo,
+    validade:document.getElementById('pr-valid').value,
+    preco:document.getElementById('pr-preco').value,
+  });
+  const url=editingId?`/preco/editar/${editingId}/`:'/preco/criar/';
+  try{
+    const response=await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRFToken':getCsrfToken(),'X-Requested-With':'XMLHttpRequest'},
+      body:payload.toString(),
+    });
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data.error||'Falha ao salvar preço');
+    showToast('Preço salvo com sucesso','success');
+    closeModal(true);
+    editingId=null;
+    setTimeout(()=>{ location.reload(); },600);
+  }catch(err){
+    console.error(err);
+    showToast(err.message||'Erro ao salvar preço','error');
+  }
 }
 
 function renderContatoModal(box,cid){
@@ -1600,27 +1556,7 @@ function openDetail(id){
 function closeDetail(e){if(e===true||e.target===document.getElementById('detail-overlay')){document.getElementById('detail-overlay').classList.remove('open')}}
 
 // ==================== INIT ====================
-async function loadAppState(){
-  try {
-    const response = await fetch('/app_state/');
-    if (response.ok){
-      const data = await response.json();
-      if (Array.isArray(data.clientes) && data.clientes.length) {
-        clientes = data.clientes;
-      }
-      if (Array.isArray(data.parceiros) && data.parceiros.length) {
-        parceiros = data.parceiros;
-      } else if (!parceiros.length && typeof window !== 'undefined' && Array.isArray(window.INITIAL_PARCEIROS) && window.INITIAL_PARCEIROS.length>0) {
-        parceiros = window.INITIAL_PARCEIROS.slice();
-      }
-      if (Array.isArray(data.precos) && data.precos.length) {
-        precos = data.precos;
-      }
-      save();
-    }
-  } catch (err){
-    console.warn('Não foi possível carregar estado do servidor', err);
-  }
+function initApp(){
   renderDashboard();
   renderClientes();
   filterPlanilhaImportada();
@@ -1630,4 +1566,4 @@ async function loadAppState(){
   syncBackendAlertCounts();
 }
 
-loadAppState();
+initApp();

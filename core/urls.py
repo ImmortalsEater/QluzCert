@@ -17,7 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 
-from core.app_Gestor.views import DashboardView, LoginPreviewView, CadastroPreviewView, RecuperarSenhaPreviewView, alertas_dashboard, sincronizar_drive, editar_google_row, criar_google_row, app_state, app_state_drive, app_state_download, upload_documento, criar_pagamento_pix, webhook_mercado_pago, documentos_cliente, download_documento, excluir_documento
+from core.app_Gestor.views import DashboardView, LoginPreviewView, CadastroPreviewView, RecuperarSenhaPreviewView, alertas_dashboard, editar_google_row, criar_google_row, parceiro_criar, parceiro_editar, parceiro_excluir, preco_criar, preco_editar, preco_excluir, app_state_download, upload_documento, criar_pagamento_pix, webhook_mercado_pago, documentos_cliente, download_documento, excluir_documento
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -25,14 +25,17 @@ urlpatterns = [
     path('preview/login/', LoginPreviewView.as_view(), name='login_preview'),
     path('preview/cadastro/', CadastroPreviewView.as_view(), name='cadastro_preview'),
     path('preview/recuperar-senha/', RecuperarSenhaPreviewView.as_view(), name='recuperar_senha_preview'),
-    path('sincronizar/', sincronizar_drive, name='sincronizar_drive'),
     path('alertas/', alertas_dashboard, name='alertas_dashboard'),
     path('planilha/criar/', criar_google_row, name='criar_google_row'),
-    path('planilha/editar/<int:pk>/', editar_google_row, name='editar_google_row'),
-    path('planilha/<int:pk>/documentos/', documentos_cliente, name='documentos_cliente'),
+    path('planilha/editar/<str:pk>/', editar_google_row, name='editar_google_row'),
+    path('planilha/<str:pk>/documentos/', documentos_cliente, name='documentos_cliente'),
     path('documentos/<int:doc_id>/download/', download_documento, name='download_documento'),
     path('documentos/<int:doc_id>/excluir/', excluir_documento, name='excluir_documento'),
-    path('app_state/', app_state, name='app_state'),
-    path('app_state_drive/', app_state_drive, name='app_state_drive'),
+    path('parceiro/criar/', parceiro_criar, name='parceiro_criar'),
+    path('parceiro/editar/<str:id>/', parceiro_editar, name='parceiro_editar'),
+    path('parceiro/excluir/<str:id>/', parceiro_excluir, name='parceiro_excluir'),
+    path('preco/criar/', preco_criar, name='preco_criar'),
+    path('preco/editar/<str:id>/', preco_editar, name='preco_editar'),
+    path('preco/excluir/<str:id>/', preco_excluir, name='preco_excluir'),
     path('app_state_download/', app_state_download, name='app_state_download'),
 ]
