@@ -487,6 +487,18 @@ def criar_google_row(request):
     return render(request, 'google_create.html')
 
 
+@require_POST
+def cliente_excluir(request, pk):
+    try:
+        sheets_repository.delete_row('Clientes', pk)
+        return JsonResponse({'success': True})
+    except LookupError:
+        return JsonResponse({'error': 'Cliente não encontrado.'}, status=404)
+    except Exception as e:
+        logger.exception('Falha ao excluir cliente %s', pk)
+        return JsonResponse({'error': str(e)}, status=500)
+
+
 def parceiro_criar(request):
     if request.method != 'POST':
         return HttpResponseBadRequest('Método não permitido')

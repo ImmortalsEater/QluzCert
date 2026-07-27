@@ -526,6 +526,32 @@ class CriarGoogleRowViewTests(TestCase):
         self.assertTrue(any('sem credenciais' in m for m in messages))
 
 
+class ClienteExcluirViewTests(TestCase):
+
+    def test_requires_post(self):
+        response = self.client.get(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
+        self.assertEqual(response.status_code, 405)
+
+    def test_success(self):
+        with patch.object(repo, 'delete_row') as mock_delete:
+            response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
+
+        self.assertEqual(response.status_code, 200)
+        mock_delete.assert_called_once_with('Clientes', 'CLI-aaaaaaaa')
+
+    def test_not_found_returns_404(self):
+        with patch.object(repo, 'delete_row', side_effect=LookupError('nao existe')):
+            response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-nope'}))
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_failure_returns_500(self):
+        with patch.object(repo, 'delete_row', side_effect=Exception('falhou')):
+            response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
+
+        self.assertEqual(response.status_code, 500)
+
+
 @override_settings(GOOGLE_SHEET_ID='fake-sheet-id')
 class ParceiroViewsTests(TestCase):
 

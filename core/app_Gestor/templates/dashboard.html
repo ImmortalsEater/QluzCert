@@ -120,6 +120,7 @@
 
                       <a class="btn btn-sm btn-edit" href="{% url 'editar_google_row' row.id %}"><i class="ti ti-pencil"></i>Editar</a>
                       <a class="btn btn-sm btn-edit" href="{% url 'documentos_cliente' row.id %}"><i class="ti ti-folder"></i>Documentos</a>
+                      <button type="button" class="btn btn-sm btn-danger" onclick="deletePlanilhaCliente('{{ row.id }}')"><i class="ti ti-trash"></i>Excluir</button>
                     </td>
                   </tr>
                 {% endfor %}

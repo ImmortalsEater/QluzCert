@@ -583,6 +583,24 @@ function filterPlanilhaImportada(){
 }
 function goToPlanilhaPage(n){planilhaPage=n;filterPlanilhaImportada()}
 
+async function deletePlanilhaCliente(id){
+  if(!confirm('Remover este cliente da planilha? Essa ação não pode ser desfeita.'))return;
+  try{
+    const response=await fetch(`/planilha/${id}/excluir/`,{
+      method:'POST',
+      headers:{'X-CSRFToken':getCsrfToken(),'X-Requested-With':'XMLHttpRequest'},
+    });
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data.error||'Falha ao remover cliente');
+    showToast('Cliente removido da planilha','success');
+    location.hash='clientes';
+    location.reload();
+  }catch(err){
+    console.error(err);
+    showToast(err.message||'Erro ao remover cliente','error');
+  }
+}
+
 function editCliente(id){editingId=id;openModal('cliente')}
 function deleteCliente(id){if(confirm('Remover este cliente?')){clientes=clientes.filter(c=>c.id!==id);save();renderClientes();renderDashboard()}}
 
