@@ -1,10 +1,14 @@
-@import url('https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap');
+@font-face{font-family:'Inter';font-style:normal;font-weight:400;font-display:swap;src:url('../fonts/inter/inter-latin-400-normal.woff2') format('woff2')}
+@font-face{font-family:'Inter';font-style:normal;font-weight:600;font-display:swap;src:url('../fonts/inter/inter-latin-600-normal.woff2') format('woff2')}
+@font-face{font-family:'Inter';font-style:normal;font-weight:700;font-display:swap;src:url('../fonts/inter/inter-latin-700-normal.woff2') format('woff2')}
+@font-face{font-family:'Bricolage Grotesque';font-style:normal;font-weight:700;font-display:swap;src:url('../fonts/bricolage-grotesque/bricolage-grotesque-latin-700-normal.woff2') format('woff2')}
+@font-face{font-family:'Bricolage Grotesque';font-style:normal;font-weight:800;font-display:swap;src:url('../fonts/bricolage-grotesque/bricolage-grotesque-latin-800-normal.woff2') format('woff2')}
 
 * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
-    font-family: "Open Sans", sans-serif;
+    font-family: "Inter", sans-serif;
 }
 
 body {
@@ -30,7 +34,10 @@ body {
 }
 
 .container h1 {
+    font-family: "Bricolage Grotesque", sans-serif;
+    font-weight: 800;
     font-size: 36px;
+    letter-spacing: -0.02em;
     text-align: center;
 }
 

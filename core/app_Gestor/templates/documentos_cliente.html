@@ -65,7 +65,7 @@
                 <a class="btn btn-sm" href="{% url 'download_documento' doc.id %}">Baixar</a>
                 <form method="post" action="{% url 'excluir_documento' doc.id %}" onsubmit="return confirm('Remover este documento?');">
                   {% csrf_token %}
-                  <button type="submit" class="btn btn-sm" style="background:#fdecea;color:#c0392b;border-color:#f5c6cb;">Excluir</button>
+                  <button type="submit" class="btn btn-sm btn-danger">Excluir</button>
                 </form>
               </td>
             </tr>
@@ -77,7 +77,7 @@
     {% endif %}
 
     <div style="margin-top:24px;">
-      <a href="{% url 'dashboard' %}" class="btn" style="text-decoration:none;">Voltar ao painel</a>
+      <a href="{% url 'dashboard' %}" class="btn">Voltar ao painel</a>
     </div>
   </div>
 </body>

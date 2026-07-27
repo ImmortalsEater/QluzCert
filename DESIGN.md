@@ -52,26 +52,37 @@ colors:
   teal-bg: "#e1f5ee"
 typography:
   body-md:
-    fontFamily: "Segoe UI, system-ui, sans-serif"
+    fontFamily: "Inter, Segoe UI, system-ui, sans-serif"
     fontSize: 13px
     fontWeight: 400
   label:
-    fontFamily: "Segoe UI, system-ui, sans-serif"
+    fontFamily: "Inter, Segoe UI, system-ui, sans-serif"
     fontSize: 11px
     fontWeight: 700
     letterSpacing: 0.5px
   heading-sm:
-    fontFamily: "Segoe UI, system-ui, sans-serif"
+    fontFamily: "Inter, Segoe UI, system-ui, sans-serif"
     fontSize: 14px
     fontWeight: 600
   heading:
-    fontFamily: "Segoe UI, system-ui, sans-serif"
+    fontFamily: "Inter, Segoe UI, system-ui, sans-serif"
     fontSize: 15px
     fontWeight: 700
   metric:
-    fontFamily: "Segoe UI, system-ui, sans-serif"
+    fontFamily: "Bricolage Grotesque, Inter, system-ui, sans-serif"
     fontSize: 24px
     fontWeight: 700
+    letterSpacing: -0.01em
+  page-title:
+    fontFamily: "Bricolage Grotesque, Inter, system-ui, sans-serif"
+    fontSize: 16px
+    fontWeight: 600
+    letterSpacing: -0.01em
+  display:
+    fontFamily: "Bricolage Grotesque, Inter, system-ui, sans-serif"
+    fontSize: 36px
+    fontWeight: 800
+    letterSpacing: -0.02em
 rounded:
   sm: 7px
   md: 8px
@@ -135,7 +146,7 @@ components:
 
 QCert Manager is an internal, single-page operations dashboard used by a small digital-certificate sales team to track clients, partners, pricing, renewals, and payments, with a Google Sheets-backed sales ledger. It is built as one Django template driven by vanilla JavaScript — no CSS or component framework.
 
-The interface is built for an operator scanning dense tables and status badges all day, not for a marketing surface: flat, bordered panels; a warm off-white neutral base; and a single confident blue accent ("Branding Variant-01") reserved for primary actions and the active navigation state. Shadows are avoided almost everywhere and appear only on floating overlays. System fonts (Segoe UI stack) are used throughout rather than a loaded webface, keeping the tool feeling native and fast.
+The interface is built for an operator scanning dense tables and status badges all day, not for a marketing surface: flat, bordered panels; a warm off-white neutral base; and a single confident blue accent ("Branding Variant-01") reserved for primary actions and the active navigation state. Shadows are avoided almost everywhere and appear only on floating overlays. Typography splits by role rather than by screen: **Inter** (self-hosted `woff2`, Segoe UI stack as fallback) for every scanned piece of UI — tables, labels, nav, forms — and **Bricolage Grotesque** for glance-once headline text — the auth screens' `<h1>`, the Dashboard's KPI numbers, and the topbar page title. Operator-facing density still comes from size and weight within Inter; the second face is reserved for the handful of places a user reads a value once rather than scans it.
 
 ## Colors
 
@@ -156,13 +167,17 @@ The palette follows **Branding Variant-01**: a confident blue brand color, a coo
 
 ## Typography
 
-One font stack throughout (`Segoe UI, system-ui, sans-serif`) — hierarchy comes from size and weight, not typeface changes.
+Two font families, split by role rather than by screen: **Inter** for everything scanned — table cells, labels, nav, form fields — and **Bricolage Grotesque** for headline-scale text a user reads once at a glance rather than scans (page titles, KPI numbers, the auth screens' `<h1>`). Both are self-hosted `@font-face` in `cert_manager.css` (Inter 400/600/700, Bricolage Grotesque 600/700/800; `static/fonts/inter/*.woff2` and `static/fonts/bricolage-grotesque/*.woff2`), with `Segoe UI, system-ui, sans-serif` kept as the fallback stack so the app still renders correctly before the webfonts load or if they fail to.
 
-- **`metric`** (24px/700): the large KPI numbers on the Dashboard cards (Total de Clientes, Emitidos, etc.). The only large-scale display text in the product.
-- **`heading`** (15px/700): modal dialog titles (`.modal-head h2`), shared by every modal in the app.
-- **`heading-sm`** (14px/600): table/section header titles (`.table-header h3`), shared by every table panel.
-- **`label`** (11px/700, uppercase, 0.5px letter-spacing): the recurring "quiet caption" style — metric card labels, table column headers, Kanban column headers, form fieldset legends, detail-panel section titles. This is the most-reused text role in the product.
-- **`body-md`** (13px/400): the default size for table cells, form inputs, buttons, and alert/detail copy — the working size for nearly all UI text (the unstyled HTML default is 14px, but almost every component explicitly sets 13px).
+- **`display`** (36px/800, `Bricolage Grotesque`, -0.02em letter-spacing): the single `<h1>` on the login, cadastro, and recuperar-senha screens (`static/css/login.css`). The largest, most expressive use of the face — these are the only pre-auth surfaces in the product.
+- **`metric`** (24px/700, `Bricolage Grotesque`, -0.01em letter-spacing): the large KPI numbers on the Dashboard cards (Total de Clientes, Emitidos, etc. — `.metric-val`). The biggest number on any given screen; a glance-once value rather than something scanned character-by-character, so the display face's personality reads as a feature, not a legibility cost.
+- **`page-title`** (16px/600, `Bricolage Grotesque`, -0.01em letter-spacing): the topbar page title (`.topbar-title` — "Dashboard", "Clientes", etc.), one per screen. Same reasoning as `metric`: read once on arrival, not scanned.
+- **`heading`** (15px/700, `Inter`): modal dialog titles (`.modal-head h2`), shared by every modal in the app.
+- **`heading-sm`** (14px/600, `Inter`): table/section header titles (`.table-header h3`), shared by every table panel.
+- **`label`** (11px/700, `Inter`, uppercase, 0.5px letter-spacing): the recurring "quiet caption" style — metric card labels, table column headers, Kanban column headers, form fieldset legends, detail-panel section titles. This is the most-reused text role in the product.
+- **`body-md`** (13px/400, `Inter`): the default size for table cells, form inputs, buttons, and alert/detail copy — the working size for nearly all UI text (the unstyled HTML default is 14px, but almost every component explicitly sets 13px).
+
+**Don't** apply `Bricolage Grotesque` below ~16px or to anything repeated/scanned (table headers, labels, nav items, form fields) — those stay `Inter` because operators read them densely all day, and the display face's character shapes cost legibility at small sizes without adding anything a user would notice mid-scan. The boundary is glance-once vs. scanned, not "dashboard vs. auth."
 
 ## Layout
 

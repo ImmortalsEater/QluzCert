@@ -1,0 +1,377 @@
+/* ============================================================
+   BUTTONS
+   Component system for `.btn` and its variants.
+   Imported at the top of cert_manager.css.
+
+   Rules this file always follows (see DESIGN.md):
+   - radius: 20px ("full") on every button, no exceptions — pill
+     shape, matching the same token badges/tags already use
+   - depth: border only, never box-shadow (shadows are reserved
+     for floating surfaces — modals, toasts)
+   - color: every named brand/status role now maps to a button
+     variant — accent (`.btn-primary`), secondary, tertiary,
+     quaternary, success, warn, danger, info. The plain bordered/
+     neutral look (previously aliased as `.btn-secondary`) is just
+     the unmodified base `.btn` — use that directly when you want
+     "no particular color", now that `.btn-secondary` means the
+     `--secondary` brand color.
+   - secondary/tertiary/quaternary each ship two strengths: solid by
+     default (`.btn-secondary`, opaque fill + white text, matching
+     `.btn-primary`) and soft as the modifier (`.btn-secondary-soft`,
+     `-bg` tint) — see the "Brand extended" section.
+   ============================================================ */
+
+:root {
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* ---------- Base ---------- */
+/* Every button and button-styled link starts here. Left unmodified (no
+   color variant class), this *is* the neutral/default button: bordered,
+   surface-colored — use it for "no particular color", e.g. a plain
+   "Cancelar"/"Voltar" action next to a `.btn-primary`. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 120ms var(--ease-out-strong);
+}
+
+.btn:hover {
+  background: var(--surface-alt);
+  border-color: var(--border-strong);
+}
+
+.btn:active {
+  transform: scale(0.96);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn[disabled],
+.btn.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Icon + label buttons get a touch less left padding so the icon sits
+   closer to the edge than the label does; icon-only buttons get a
+   touch more so the glyph doesn't hug the edge. */
+.btn:has(> i:first-child) {
+  padding-left: 12px;
+}
+
+.btn:has(> i:only-child) {
+  padding-left: 14px;
+}
+
+/* ---------- Outline / ghost ---------- */
+
+/* Accent-colored outline, transparent fill. `.btn-edit` is this same
+   look under its existing semantic name (used across the app for
+   "Editar" actions) — kept as an alias so either name reads naturally. */
+.btn-outline,
+.btn-edit {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.btn-outline:hover,
+.btn-edit:hover {
+  background: var(--accent-light);
+}
+
+/* No border, no fill — lowest-emphasis action (e.g. "Cancelar" sitting
+   next to a primary button). Background only appears on hover/press. */
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+}
+
+.btn-ghost:hover {
+  background: var(--surface-alt);
+  border-color: transparent;
+}
+
+/* ---------- Primary (solid) ---------- */
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* ---------- Semantic (soft) ---------- */
+/* Light background + colored text/border — for status-adjacent actions
+   (delete, confirm, warn, info) where a fully solid fill would be
+   louder than the primary CTA. Hover deepens to each role's existing
+   `-hover` token, which DESIGN.md already defines for exactly this. */
+.btn-danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--danger-bg) 70%, var(--danger-hover) 30%);
+  color: var(--danger-hover);
+  border-color: var(--danger-hover);
+}
+
+.btn-success {
+  background: var(--success-bg);
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.btn-success:hover {
+  background: color-mix(in srgb, var(--success-bg) 70%, var(--success-hover) 30%);
+  color: var(--success-hover);
+  border-color: var(--success-hover);
+}
+
+.btn-warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.btn-warn:hover {
+  background: color-mix(in srgb, var(--warn-bg) 70%, var(--warn-hover) 30%);
+  color: var(--warn-hover);
+  border-color: var(--warn-hover);
+}
+
+.btn-info {
+  background: var(--info-bg);
+  color: var(--info);
+  border-color: var(--info);
+}
+
+.btn-info:hover {
+  background: color-mix(in srgb, var(--info-bg) 70%, var(--info-hover) 30%);
+  color: var(--info-hover);
+  border-color: var(--info-hover);
+}
+
+/* ---------- Brand extended (secondary / tertiary / quaternary) ---------- */
+/* `--secondary`, `--tertiary`, and `--quaternary` were reserved in DESIGN.md
+   with no UI role yet ("defined for when a use is picked"). This is that
+   first use: three more accent options, completing a primary→quaternary
+   emphasis ladder. No fixed meaning is assigned — pick secondary/tertiary/
+   quaternary purposefully per use, the same way you would purple/teal. For
+   "no particular color", use the unmodified base `.btn` instead of reaching
+   for one of these.
+
+   Each comes in two strengths, same idea as `.btn-primary`:
+   - default (`.btn-secondary`, etc.) — solid, same treatment as
+     `.btn-primary`: fully opaque fill, white text, no visible border.
+     This is the default because it matches how `.btn-primary` already
+     behaves — a color modifier class should mean "filled with this
+     color" unless told otherwise.
+   - `-soft` (`.btn-secondary-soft`, etc.) — `-bg` tint background, solid
+     color text/border, lower visual weight. Use this wherever a
+     `.btn-danger`/`.btn-success` would fit, or next to a `.btn-primary`
+     when the secondary/tertiary/quaternary action shouldn't compete
+     with it. */
+
+/* -- Solid (default) -- */
+.btn-secondary {
+  background: var(--secondary);
+  color: #fff;
+  border-color: var(--secondary);
+}
+
+.btn-secondary:hover {
+  background: var(--secondary-hover);
+  border-color: var(--secondary-hover);
+}
+
+.btn-tertiary {
+  background: var(--tertiary);
+  color: #fff;
+  border-color: var(--tertiary);
+}
+
+.btn-tertiary:hover {
+  background: var(--tertiary-hover);
+  border-color: var(--tertiary-hover);
+}
+
+.btn-quaternary {
+  background: var(--quaternary);
+  color: #fff;
+  border-color: var(--quaternary);
+}
+
+.btn-quaternary:hover {
+  background: var(--quaternary-hover);
+  border-color: var(--quaternary-hover);
+}
+
+/* -- Soft -- */
+.btn-secondary-soft {
+  background: var(--secondary-bg);
+  color: var(--secondary);
+  border-color: var(--secondary);
+}
+
+.btn-secondary-soft:hover {
+  background: color-mix(in srgb, var(--secondary-bg) 70%, var(--secondary-hover) 30%);
+  color: var(--secondary-hover);
+  border-color: var(--secondary-hover);
+}
+
+.btn-tertiary-soft {
+  background: var(--tertiary-bg);
+  color: var(--tertiary);
+  border-color: var(--tertiary);
+}
+
+.btn-tertiary-soft:hover {
+  background: color-mix(in srgb, var(--tertiary-bg) 70%, var(--tertiary-hover) 30%);
+  color: var(--tertiary-hover);
+  border-color: var(--tertiary-hover);
+}
+
+.btn-quaternary-soft {
+  background: var(--quaternary-bg);
+  color: var(--quaternary);
+  border-color: var(--quaternary);
+}
+
+.btn-quaternary-soft:hover {
+  background: color-mix(in srgb, var(--quaternary-bg) 70%, var(--quaternary-hover) 30%);
+  color: var(--quaternary-hover);
+  border-color: var(--quaternary-hover);
+}
+
+/* ---------- Sizes ---------- */
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.btn-sm:has(> i:first-child) {
+  padding-left: 8px;
+}
+
+.btn-sm:has(> i:only-child) {
+  padding-left: 10px;
+}
+
+.btn-lg {
+  padding: 10px 20px;
+  font-size: 14px;
+}
+
+.btn-lg:has(> i:first-child) {
+  padding-left: 16px;
+}
+
+.btn-lg:has(> i:only-child) {
+  padding-left: 18px;
+}
+
+/* ---------- Layout ---------- */
+.btn-block {
+  display: flex;
+  width: 100%;
+}
+
+/* ---------- Loading state ---------- */
+/* Keeps the button's footprint and label in the DOM (no layout shift,
+   no text reflow) and swaps in a spinner in its place. */
+.btn.is-loading {
+  position: relative;
+  color: transparent;
+  pointer-events: none;
+}
+
+.btn.is-loading::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 2px solid var(--text);
+  border-top-color: transparent;
+  border-radius: 50%;
+  opacity: 0.7;
+  animation: btn-spin 600ms linear infinite;
+}
+
+.btn-primary.is-loading::before {
+  border-color: #fff;
+  border-top-color: transparent;
+  opacity: 0.9;
+}
+
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------- Hit-area expansion ---------- */
+/* Icon-only / small buttons inside dense containers (table rows, modal
+   heads, section toolbars) keep a 40x40 minimum tap target via a
+   pseudo-element sized independently of the visible control, so the
+   button itself doesn't have to grow to stay easy to tap. */
+.table-wrap .btn,
+.section-actions .btn,
+.modal-head .btn {
+  position: relative;
+}
+
+.table-wrap .btn::after,
+.section-actions .btn::after,
+.modal-head .btn::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  height: 100%;
+  min-width: 40px;
+  min-height: 40px;
+}
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .btn {
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+  }
+
+  .btn:active {
+    transform: none;
+  }
+
+  .btn.is-loading::before {
+    animation-duration: 1200ms;
+  }
+}

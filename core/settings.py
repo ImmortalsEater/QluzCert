@@ -133,6 +133,10 @@ MERCADO_PAGO_ACCESS_TOKEN = os.getenv('MERCADO_PAGO_ACCESS_TOKEN', '')
 # aqui e sobrescrevível via variável de ambiente.
 GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID', '1L-MX27Y6iwCOyd0e4FqLxZJyRFCpHIP6arYYeFIHLME')
 
+# TTL (segundos) do cache de leitura em memória do sheets_repository — evita
+# que cada carregamento de tela de cada pessoa dispare uma chamada nova à API.
+GOOGLE_SHEETS_CACHE_TTL_SECONDS = int(os.getenv('GOOGLE_SHEETS_CACHE_TTL_SECONDS', '20'))
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 

@@ -4,7 +4,6 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.views.generic import TemplateView
 from django.contrib import messages
-from django.db import transaction
 from django.utils.decorators import method_decorator
 from django.http import JsonResponse, HttpResponseBadRequest, FileResponse, Http404
 from django.views.decorators.csrf import csrf_exempt
@@ -15,11 +14,9 @@ import json
 import logging
 import os
 import re
-from core.app.services import importar_planilha_do_drive
-from .services import save_state_to_drive
-from core.app.services import salvar_no_drive_desde_db
 from .models import AppState
-from core.app.models import PlanilhaRegistro
+from . import sheets_repository
+from .parsing import parse_date, parse_decimal, bool_from
 import io
 import pandas as pd
 from django.http import HttpResponse
@@ -58,18 +55,6 @@ FRIENDLY_COLUMN_LABELS = {
     'triagem': 'Triagem',
 }
 
-# Colunas que aparecem marcadas por padrão no seletor "Colunas" — as demais
-# ficam disponíveis mas ocultas até o usuário optar por exibi-las.
-DEFAULT_VISIBLE_FIELD_KEYS = {
-    'cliente', 'nome',
-    'cpfcnpj',
-    'tipocertificado', 'tipocert',
-    'contadorparceiro', 'parceiroid',
-    'datavencimento',
-    'status', 'pagovenda',
-}
-
-
 def _normalize_field_key(field_name):
     return re.sub(r'[^a-z0-9]', '', str(field_name or '').lower())
 
@@ -81,27 +66,12 @@ def _annotate_columns(cols):
         annotated.append({
             **col,
             'label': FRIENDLY_COLUMN_LABELS.get(key, col.get('label')),
-            'default_visible': key in DEFAULT_VISIBLE_FIELD_KEYS,
+            'default_visible': True,
         })
     return annotated
 
 
-_ISO_DATETIME_RE = re.compile(r'^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}:\d{2})?')
-
-
-def _format_snapshot_cell_value(val):
-    if val is None or val == '':
-        return '—'
-    if isinstance(val, str) and _ISO_DATETIME_RE.match(val):
-        try:
-            from datetime import datetime
-            return datetime.fromisoformat(val.replace('Z', '+00:00')).strftime('%d/%m/%Y')
-        except Exception:
-            return val
-    return val
-
-
-DEFAULT_GOOGLE_COLUMNS = [
+CLIENTES_COLUMNS = [
     {'label':'Data da Venda','field':'data_venda','class':'col-data-venda'},
     {'label':'Contador/Parceiro','field':'contador_parceiro','class':'col-contador-parceiro'},
     {'label':'Contador/Contabilidade','field':'contador_contabilidade','class':'col-contador-contabilidade'},
@@ -124,67 +94,47 @@ DEFAULT_GOOGLE_COLUMNS = [
     {'label':'Venda','field':'venda','class':'col-venda'},
     {'label':'Custo do Certificado','field':'custo_certificado','class':'col-custo-cert'},
     {'label':'Valor Liquido','field':'valor_liquido','class':'col-valor-liquido'},
-    {'label':'Importado em','field':'data_registro','class':'col-data-registro'},
+    {'label':'Atualizado em','field':'atualizado_em','class':'col-atualizado-em'},
 ]
 
+_DATE_FIELDS = {'data_venda', 'data_vencimento'}
+_DECIMAL_FIELDS = {'valor_venda', 'percentual_comissao', 'valor_comissao', 'custo_certificado', 'valor_liquido'}
+_BOOL_FIELDS = {'pago_comissao', 'pago_venda'}
 
-def _format_google_cell_value(val):
-    from datetime import date, datetime
 
-    if val is None or val == '':
+def _format_sheet_cell_value(field, raw):
+    if raw is None or raw == '':
         return '—'
-    if isinstance(val, float) or hasattr(val, 'quantize'):
-        try:
-            return f"{float(val):.2f}".replace('.', ',')
-        except Exception:
-            return val
-    if isinstance(val, (date, datetime)):
-        try:
-            return val.strftime('%d/%m/%Y')
-        except Exception:
-            return val
-    if isinstance(val, bool):
-        return 'Sim' if val else 'Não'
-    return val
+    if field in _DATE_FIELDS:
+        parsed = parse_date(raw)
+        return parsed.strftime('%d/%m/%Y') if parsed else raw
+    if field in _DECIMAL_FIELDS:
+        parsed = parse_decimal(raw)
+        return f"{parsed:.2f}".replace('.', ',') if parsed is not None else raw
+    if field in _BOOL_FIELDS:
+        return 'Sim' if bool_from(raw) else 'Não'
+    return raw
 
 
-def _load_sheet_snapshot():
-    state = AppState.objects.filter(key='sheet_sync').first()
-    if not state or not isinstance(state.data, dict):
-        return None
-    columns = state.data.get('columns') or []
-    rows = state.data.get('rows') or []
-    if not columns or not rows:
-        return None
-    return {'columns': columns, 'rows': rows}
-
-
-def _build_dashboard_from_db():
-    cols = _annotate_columns(DEFAULT_GOOGLE_COLUMNS)
+def _build_dashboard_from_sheets():
+    cols = _annotate_columns(CLIENTES_COLUMNS)
     rows = []
-    for r in PlanilhaRegistro.objects.order_by('-data_registro'):
-        cells = []
-        for col in cols:
-            val = getattr(r, col['field'], '')
-            cells.append({'class': col['class'], 'value': _format_google_cell_value(val), 'default_visible': col['default_visible']})
-        rows.append({'id': r.id, 'cells': cells, 'data_registro': r.data_registro})
-    return cols, rows
-
-
-def _build_dashboard_from_snapshot(snapshot):
-    cols = _annotate_columns(snapshot['columns'])
-    visible_by_class = {col['class']: col['default_visible'] for col in cols}
-    rows = []
-    for row in snapshot['rows']:
+    for row in sheets_repository.list_rows('Clientes'):
+        row_id = row.get('id', '')
+        if not row_id:
+            # Linha sem id não é editável/endereçável (provável corrupção do
+            # cabeçalho da planilha) -- ignorada em vez de derrubar a página
+            # inteira quando o template tentar montar um link com id vazio.
+            continue
         cells = [
             {
-                **cell,
-                'value': _format_snapshot_cell_value(cell.get('value')),
-                'default_visible': visible_by_class.get(cell.get('class'), True),
+                'class': col['class'],
+                'value': _format_sheet_cell_value(col['field'], row.get(col['field'], '')),
+                'default_visible': col['default_visible'],
             }
-            for cell in row.get('cells', [])
+            for col in cols
         ]
-        rows.append({**row, 'cells': cells})
+        rows.append({'id': row_id, 'cells': cells})
     return cols, rows
 
 
@@ -195,27 +145,36 @@ def _build_alert_payload():
     pagamentos_urgentes = []
     pagamentos_normais = []
 
-    def _base_payload(registro, dias_restantes):
+    rows = sheets_repository.list_rows('Clientes')
+    emitidos = sum(1 for row in rows if bool_from(row.get('certificado_feito')))
+    vencendo_60_dias = 0
+
+    def _base_payload(row, dias_restantes, vencimento):
+        row_id = row.get('id', '')
+        valor_venda = parse_decimal(row.get('valor_venda'))
         return {
-            'id': f'planilha-{registro.pk}',
-            'planilha_pk': registro.pk,
-            'nome': registro.cliente or registro.contador_parceiro or registro.email or f'Registro {registro.pk}',
-            'email': registro.email or '',
-            'telefone': registro.telefone1 or registro.telefone2 or '',
-            'parceiro': registro.contador_parceiro or '',
-            'tipoCert': registro.tipo_certificado or '',
-            'dataVencimento': registro.data_vencimento.isoformat() if registro.data_vencimento else '',
+            'id': f'planilha-{row_id}',
+            'planilha_pk': row_id,
+            'nome': row.get('cliente') or row.get('contador_parceiro') or row.get('email') or f'Registro {row_id}',
+            'email': row.get('email', ''),
+            'telefone': row.get('telefone1') or row.get('telefone2') or '',
+            'parceiro': row.get('contador_parceiro', ''),
+            'tipoCert': row.get('tipo_certificado', ''),
+            'dataVencimento': vencimento.isoformat(),
             'dias': dias_restantes,
-            'valorCobrado': float(registro.valor_venda) if registro.valor_venda is not None else 0,
-            'pago': bool(registro.pago_venda or registro.pago_comissao),
+            'valorCobrado': valor_venda if valor_venda is not None else 0,
+            'pago': bool_from(row.get('pago_venda')) or bool_from(row.get('pago_comissao')),
         }
 
-    for registro in PlanilhaRegistro.objects.order_by('-data_registro'):
-        if not registro.data_vencimento:
+    for row in rows:
+        vencimento = parse_date(row.get('data_vencimento'))
+        if not vencimento:
             continue
 
-        dias_restantes = (registro.data_vencimento - hoje).days
-        base = _base_payload(registro, dias_restantes)
+        dias_restantes = (vencimento - hoje).days
+        if dias_restantes <= 60:
+            vencendo_60_dias += 1
+        base = _base_payload(row, dias_restantes, vencimento)
         base['statusLabel'] = f"Vencido há {abs(dias_restantes)} dias" if dias_restantes < 0 else f"Vence em {dias_restantes} dias"
 
         if dias_restantes <= 30:
@@ -223,14 +182,14 @@ def _build_alert_payload():
         elif dias_restantes <= 90:
             renovacoes_normais.append({**base, 'categoria': 'renovacao'})
 
-        if not registro.pago_venda:
+        if not bool_from(row.get('pago_venda')):
             pagamento_base = {**base, 'categoria': 'pagamento', 'tipoPagamento': 'Venda'}
             if dias_restantes <= 0:
                 pagamentos_urgentes.append(pagamento_base)
             elif dias_restantes <= 30:
                 pagamentos_normais.append(pagamento_base)
 
-        if not registro.pago_comissao:
+        if not bool_from(row.get('pago_comissao')):
             pagamento_base = {**base, 'categoria': 'pagamento', 'tipoPagamento': 'Comissão'}
             if dias_restantes <= 0:
                 pagamentos_urgentes.append(pagamento_base)
@@ -238,7 +197,9 @@ def _build_alert_payload():
                 pagamentos_normais.append(pagamento_base)
 
     counts = {
-        'total_registros': PlanilhaRegistro.objects.count(),
+        'total_registros': len(rows),
+        'emitidos': emitidos,
+        'vencendo_60_dias': vencendo_60_dias,
         'renovacoes_urgentes': len(renovacoes_urgentes),
         'renovacoes_normais': len(renovacoes_normais),
         'pagamentos_urgentes': len(pagamentos_urgentes),
@@ -259,113 +220,42 @@ def _build_alert_payload():
 
 
 def _build_parceiros_from_source():
-    parceiros_dict = {}
-
-    for r in PlanilhaRegistro.objects.filter(contador_parceiro__gt=''):
-        key = (r.contador_parceiro or '').strip()
-        if not key or key in parceiros_dict:
-            continue
-        parceiros_dict[key] = {
-            'id': key,
-            'nome': r.contador_parceiro,
-            'tipo': 'Parceiro',
-            'comissao': float(r.percentual_comissao) if r.percentual_comissao is not None else None,
-            'contato': r.telefone1 or '',
-            'email': r.email or '',
-        }
-
-    if parceiros_dict:
-        return list(parceiros_dict.values())
-
-    snapshot = _load_sheet_snapshot()
-    if not snapshot:
-        return []
-
-    columns = snapshot.get('columns') or []
-    rows = snapshot.get('rows') or []
-
-    def _match_partner_column(label, field):
-        text = f"{label} {field}".lower()
-        return any(token in text for token in ['contador', 'parceiro', 'escritorio', 'escritório'])
-
-    partner_index = None
-    name_index = None
-    email_index = None
-    phone_index = None
-    cpf_index = None
-    commission_index = None
-
-    for index, col in enumerate(columns):
-        label = str(col.get('label', ''))
-        field = str(col.get('field', ''))
-        text = f"{label} {field}".lower()
-        if partner_index is None and _match_partner_column(label, field):
-            partner_index = index
-        if name_index is None and any(token in text for token in ['cliente', 'nome']):
-            name_index = index
-        if email_index is None and 'email' in text:
-            email_index = index
-        if phone_index is None and any(token in text for token in ['telefone', 'celular', 'whatsapp']):
-            phone_index = index
-        if cpf_index is None and any(token in text for token in ['cpf', 'cnpj']):
-            cpf_index = index
-        if commission_index is None and 'comissao' in text:
-            commission_index = index
-
-    for row in rows:
-        cells = row.get('cells') or []
-        if partner_index is None or partner_index >= len(cells):
-            continue
-        nome = str(cells[partner_index].get('value', '')).strip()
-        if not nome:
-            continue
-        if nome in parceiros_dict:
-            continue
-
-        parceiros_dict[nome] = {
-            'id': nome,
-            'nome': nome,
-            'tipo': 'Parceiro',
-            'comissao': None,
-            'contato': str(cells[phone_index].get('value', '')).strip() if phone_index is not None and phone_index < len(cells) else '',
-            'email': str(cells[email_index].get('value', '')).strip() if email_index is not None and email_index < len(cells) else '',
-        }
-
-        if commission_index is not None and commission_index < len(cells):
-            commission_value = cells[commission_index].get('value', '')
-            try:
-                parceiros_dict[nome]['comissao'] = float(str(commission_value).replace('.', '').replace(',', '.'))
-            except Exception:
-                parceiros_dict[nome]['comissao'] = None
-
-        if name_index is not None and name_index < len(cells) and not parceiros_dict[nome]['contato']:
-            parceiros_dict[nome]['contato'] = str(cells[name_index].get('value', '')).strip()
-
-        if cpf_index is not None and cpf_index < len(cells):
-            parceiros_dict[nome]['cpf_cnpj'] = str(cells[cpf_index].get('value', '')).strip()
-
-    return list(parceiros_dict.values())
+    parceiros = []
+    for row in sheets_repository.list_rows('Parceiros'):
+        parceiros.append({
+            'id': row.get('id', ''),
+            'nome': row.get('nome', ''),
+            'tipo': row.get('tipo', ''),
+            'telefone': row.get('telefone', ''),
+            'email': row.get('email', ''),
+            'comissao': parse_decimal(row.get('comissao')),
+            'contato': row.get('contato', ''),
+        })
+    return parceiros
 
 
-def sincronizar_drive(request):
-    """
-    Sincroniza parceiros e dados da planilha do Google Drive.
-    O ID do arquivo fica na URL: https://docs.google.com/spreadsheets/d/ID_AQUI/edit
-    """
-    try:
-        with transaction.atomic():
-            PlanilhaRegistro.objects.all().delete()
-            total_importado = importar_planilha_do_drive(settings.GOOGLE_SHEET_ID)
-        messages.success(request, f"Sucesso! Banco limpo e {total_importado} parceiros sincronizados da planilha.")
-    except Exception:
-        logger.exception('Falha ao sincronizar planilha do Google Drive')
-        messages.error(request, "Erro ao acessar o Google Drive. Tente novamente ou verifique as credenciais.")
-
-    return redirect(f"{reverse('dashboard')}#clientes")
+def _build_precos_from_source():
+    precos = []
+    for row in sheets_repository.list_rows('Precos'):
+        precos.append({
+            'id': row.get('id', ''),
+            'tipo': row.get('tipo', ''),
+            'validade': row.get('validade', ''),
+            'preco': parse_decimal(row.get('preco')),
+        })
+    return precos
 
 
 def alertas_dashboard(request):
     return JsonResponse(_build_alert_payload())
+
+
+@require_POST
+def atualizar_planilha(request):
+    """Força a próxima leitura das abas Clientes/Parceiros/Precos a ignorar o
+    cache em memória e buscar dados frescos direto da API do Google Sheets."""
+    sheets_repository.invalidate_cache()
+    return JsonResponse({'success': True})
 
 
 class LoginPreviewView(TemplateView):
@@ -386,11 +276,11 @@ class DashboardView(TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        snapshot = _load_sheet_snapshot()
-        if snapshot:
-            context['google_columns'], context['google_rows'] = _build_dashboard_from_snapshot(snapshot)
-        else:
-            context['google_columns'], context['google_rows'] = _build_dashboard_from_db()
+        try:
+            context['google_columns'], context['google_rows'] = _build_dashboard_from_sheets()
+        except Exception:
+            logger.exception('Falha ao carregar Clientes da planilha do Google Sheets')
+            context['google_columns'], context['google_rows'] = _annotate_columns(CLIENTES_COLUMNS), []
 
         # --- CORREÇÃO PRECISA: Soma o faturamento diretamente do banco onde pago_venda é True ---
         from django.db.models import Sum
@@ -413,7 +303,20 @@ class DashboardView(TemplateView):
         except Exception:
             initial_parceiros = []
 
-        alertas = _build_alert_payload()
+        try:
+            initial_precos = _build_precos_from_source()
+        except Exception:
+            initial_precos = []
+
+        try:
+            alertas = _build_alert_payload()
+        except Exception:
+            logger.exception('Falha ao montar alertas a partir da planilha do Google Sheets')
+            alertas = {
+                'counts': {},
+                'renovacoes': {'urgentes': [], 'normais': []},
+                'pagamentos': {'urgentes': [], 'normais': []},
+            }
 
         try:
             context['initial_clientes_json'] = json.dumps(initial_clientes, default=str)
@@ -423,6 +326,10 @@ class DashboardView(TemplateView):
             context['initial_parceiros_json'] = json.dumps(initial_parceiros, default=str)
         except Exception:
             context['initial_parceiros_json'] = '[]'
+        try:
+            context['initial_precos_json'] = json.dumps(initial_precos, default=str)
+        except Exception:
+            context['initial_precos_json'] = '[]'
         try:
             context['initial_alerts_json'] = json.dumps(alertas, default=str)
         except Exception:
@@ -434,63 +341,51 @@ class DashboardView(TemplateView):
             
         return context
 def editar_google_row(request, pk):
-    registro = get_object_or_404(PlanilhaRegistro, pk=pk)
+    registro = sheets_repository.get_row('Clientes', pk)
+    if registro is None:
+        raise Http404('Registro não encontrado na planilha.')
+
     if request.method == 'POST':
-        registro.cliente = request.POST.get('cliente', registro.cliente) or registro.cliente
-        registro.email = request.POST.get('email', registro.email) or registro.email
-        # campos numéricos
-        def parse_decimal_field(name, current):
-            val = request.POST.get(name)
-            if val is None:
-                return current
+        fields = {}
+
+        cliente = request.POST.get('cliente')
+        if cliente:
+            fields['cliente'] = cliente
+
+        email = request.POST.get('email')
+        if email:
+            fields['email'] = email
+
+        valor_comissao = request.POST.get('valor_comissao')
+        if valor_comissao:
             try:
-                return float(val.replace(',', '.'))
-            except Exception:
-                return current
+                fields['valor_comissao'] = str(float(valor_comissao.replace(',', '.')))
+            except ValueError:
+                pass
 
-        registro.valor_venda = parse_decimal_field('valor_venda', registro.valor_venda)
-        registro.percentual_comissao = parse_decimal_field('percentual_comissao', registro.percentual_comissao)
-        registro.valor_comissao = parse_decimal_field('valor_comissao', registro.valor_comissao)
+        fields['pago_comissao'] = 'Sim' if request.POST.get('pago_comissao') in ['Sim', 'on', 'true', 'True'] else 'Não'
 
-        registro.pago_comissao = request.POST.get('pago_comissao') in ['Sim', 'on', 'true', 'True']
-        registro.pago_venda = request.POST.get('pago_venda') in ['Sim', 'on', 'true', 'True']
-
-        registro.save()
-
-        # Reescreve a planilha no Drive com os dados atualizados
+        expected_atualizado_em = request.POST.get('expected_atualizado_em') or None
         try:
-            salvar_no_drive_desde_db(settings.GOOGLE_SHEET_ID)
-            messages.success(request, 'Registro atualizado e planilha no Drive sobrescrita com sucesso.')
+            sheets_repository.update_row('Clientes', pk, fields, expected_atualizado_em=expected_atualizado_em)
+            messages.success(request, 'Registro atualizado na planilha com sucesso.')
+        except sheets_repository.ConcurrencyError:
+            messages.error(request, 'Este registro foi alterado por outra pessoa nesse meio tempo. Recarregue a página e tente novamente.')
+        except LookupError:
+            raise Http404('Registro não encontrado na planilha.')
         except Exception:
-            logger.exception('Falha ao reescrever planilha no Drive após editar registro %s', pk)
-            messages.warning(request, 'Registro salvo localmente, mas falhou ao atualizar o Drive.')
+            logger.exception('Falha ao atualizar registro %s na planilha', pk)
+            messages.error(request, 'Falha ao salvar as alterações na planilha do Google. Tente novamente.')
 
         return redirect(f"{reverse('dashboard')}#clientes")
 
-    return render(request, 'google_edit.html', {'registro': registro})
+    registro_view = {**registro, 'pago_comissao': bool_from(registro.get('pago_comissao'))}
+    return render(request, 'google_edit.html', {'registro': registro_view})
 
 
 def criar_google_row(request):
     is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
     if request.method == 'POST':
-        def parse_decimal(name):
-            val = request.POST.get(name)
-            if not val:
-                return None
-            try:
-                return float(val.replace(',', '.'))
-            except Exception:
-                return None
-
-        def parse_date(name):
-            val = request.POST.get(name)
-            if not val:
-                return None
-            try:
-                return date.fromisoformat(val)
-            except Exception:
-                return None
-
         nome = request.POST.get('cliente', '').strip()
         if not nome:
             if is_ajax:
@@ -498,115 +393,166 @@ def criar_google_row(request):
             messages.error(request, 'Informe o nome do cliente.')
             return render(request, 'google_create.html')
 
-        registro = PlanilhaRegistro(
-            cliente=nome,
-            cpf_cnpj=request.POST.get('cpf_cnpj', ''),
-            email=request.POST.get('email', ''),
-            telefone1=request.POST.get('telefone1', ''),
-            telefone2=request.POST.get('telefone2', ''),
-            contador_parceiro=request.POST.get('contador_parceiro', ''),
-            contador_contabilidade=request.POST.get('contador_contabilidade', ''),
-            tipo_certificado=request.POST.get('tipo_certificado', ''),
-            forma_pagamento=request.POST.get('forma_pagamento', ''),
-            banco=request.POST.get('banco', ''),
-            chave_pix=request.POST.get('chave_pix', ''),
-            data_venda=parse_date('data_venda'),
-            data_vencimento=parse_date('data_vencimento'),
-            valor_venda=parse_decimal('valor_venda'),
-            percentual_comissao=parse_decimal('percentual_comissao'),
-            valor_comissao=parse_decimal('valor_comissao'),
-            pago_venda=request.POST.get('pago_venda') == 'Sim',
-            pago_comissao=request.POST.get('pago_comissao') == 'Sim',
-        )
-        registro.save()
+        fields = {
+            'cliente': nome,
+            'cpf_cnpj': request.POST.get('cpf_cnpj', ''),
+            'email': request.POST.get('email', ''),
+            'telefone1': request.POST.get('telefone1', ''),
+            'telefone2': request.POST.get('telefone2', ''),
+            'contador_parceiro': request.POST.get('contador_parceiro', ''),
+            'contador_contabilidade': request.POST.get('contador_contabilidade', ''),
+            'tipo_certificado': request.POST.get('tipo_certificado', ''),
+            'forma_pagamento': request.POST.get('forma_pagamento', ''),
+            'banco': request.POST.get('banco', ''),
+            'chave_pix': request.POST.get('chave_pix', ''),
+            'data_venda': request.POST.get('data_venda', ''),
+            'data_vencimento': request.POST.get('data_vencimento', ''),
+            'valor_venda': request.POST.get('valor_venda', ''),
+            'percentual_comissao': request.POST.get('percentual_comissao', ''),
+            'valor_comissao': request.POST.get('valor_comissao', ''),
+            'pago_venda': request.POST.get('pago_venda', 'Não'),
+            'pago_comissao': request.POST.get('pago_comissao', 'Não'),
+        }
 
-        drive_ok = False
-        drive_error = ''
         try:
-            salvar_no_drive_desde_db(settings.GOOGLE_SHEET_ID)
-            drive_ok = True
+            sheets_repository.create_row('Clientes', fields)
+            sheet_ok = True
+            sheet_error = ''
         except Exception as e:
-            logger.exception('Falha ao atualizar planilha no Drive após criar cliente %s', nome)
-            drive_error = str(e)
+            logger.exception('Falha ao criar cliente na planilha: %s', nome)
+            sheet_ok = False
+            sheet_error = str(e)
 
         if is_ajax:
-            return JsonResponse({'success': True, 'drive_updated': drive_ok, 'drive_error': drive_error})
+            return JsonResponse({'success': sheet_ok, 'drive_updated': sheet_ok, 'drive_error': sheet_error})
 
-        if drive_ok:
-            messages.success(request, 'Cliente criado e planilha no Drive atualizada com sucesso.')
+        if sheet_ok:
+            messages.success(request, 'Cliente criado na planilha com sucesso.')
         else:
-            messages.warning(request, f'Cliente criado localmente, falha ao atualizar Drive: {drive_error}')
+            messages.error(request, f'Falha ao criar cliente na planilha: {sheet_error}')
 
         return redirect(f"{reverse('dashboard')}#clientes")
 
     return render(request, 'google_create.html')
 
 
-@csrf_exempt
-def app_state(request):
-    if request.method == 'GET':
-        state = AppState.objects.filter(key='main').first()
-        data = state.data if state else {'clientes': [], 'parceiros': [], 'precos': []}
-        return JsonResponse(data)
-
-    if request.method == 'POST':
-        try:
-            payload = json.loads(request.body.decode('utf-8'))
-        except Exception:
-            return HttpResponseBadRequest('JSON inválido')
-
-        state, _ = AppState.objects.get_or_create(key='main')
-        state.data = payload
-        state.save()
-        return JsonResponse({'saved': True})
-
-    return HttpResponseBadRequest('Método não permitido')
-
-
-@csrf_exempt
-def app_state_drive(request):
+def parceiro_criar(request):
     if request.method != 'POST':
         return HttpResponseBadRequest('Método não permitido')
 
+    nome = request.POST.get('nome', '').strip()
+    if not nome:
+        return JsonResponse({'error': 'Informe o nome do parceiro.'}, status=400)
+
+    fields = {
+        'nome': nome,
+        'tipo': request.POST.get('tipo', ''),
+        'telefone': request.POST.get('telefone', ''),
+        'email': request.POST.get('email', ''),
+        'comissao': request.POST.get('comissao', ''),
+        'contato': request.POST.get('contato', ''),
+    }
     try:
-        payload = json.loads(request.body.decode('utf-8'))
-    except Exception:
-        return HttpResponseBadRequest('JSON inválido')
+        created = sheets_repository.create_row('Parceiros', fields)
+        return JsonResponse({'success': True, 'id': created.get('id')})
+    except Exception as e:
+        logger.exception('Falha ao criar parceiro: %s', nome)
+        return JsonResponse({'error': str(e)}, status=500)
 
-    state, _ = AppState.objects.get_or_create(key='main')
-    state.data = payload
-    state.save()
 
-    success = False
+def parceiro_editar(request, id):
+    if request.method != 'POST':
+        return HttpResponseBadRequest('Método não permitido')
+
+    fields = {}
+    for name in ('nome', 'tipo', 'telefone', 'email', 'contato', 'comissao'):
+        val = request.POST.get(name)
+        if val is not None:
+            fields[name] = val
+
     try:
-        save_state_to_drive(payload, settings.GOOGLE_SHEET_ID)
-        success = True
-    except Exception:
-        logger.exception('Falha ao salvar estado do app na nuvem (Drive)')
-        messages.warning(request, 'Falha ao salvar na nuvem. O estado local foi salvo normalmente.')
+        sheets_repository.update_row('Parceiros', id, fields)
+        return JsonResponse({'success': True})
+    except LookupError:
+        return JsonResponse({'error': 'Parceiro não encontrado.'}, status=404)
+    except Exception as e:
+        logger.exception('Falha ao editar parceiro %s', id)
+        return JsonResponse({'error': str(e)}, status=500)
 
-    return JsonResponse({'saved': True, 'drive': success})
+
+@require_POST
+def parceiro_excluir(request, id):
+    try:
+        sheets_repository.delete_row('Parceiros', id)
+        return JsonResponse({'success': True})
+    except LookupError:
+        return JsonResponse({'error': 'Parceiro não encontrado.'}, status=404)
+    except Exception as e:
+        logger.exception('Falha ao excluir parceiro %s', id)
+        return JsonResponse({'error': str(e)}, status=500)
 
 
-@csrf_exempt
+def preco_criar(request):
+    if request.method != 'POST':
+        return HttpResponseBadRequest('Método não permitido')
+
+    tipo = request.POST.get('tipo', '').strip()
+    if not tipo:
+        return JsonResponse({'error': 'Informe o tipo de certificado.'}, status=400)
+
+    fields = {
+        'tipo': tipo,
+        'validade': request.POST.get('validade', ''),
+        'preco': request.POST.get('preco', ''),
+    }
+    try:
+        created = sheets_repository.create_row('Precos', fields)
+        return JsonResponse({'success': True, 'id': created.get('id')})
+    except Exception as e:
+        logger.exception('Falha ao criar preço: %s', tipo)
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+def preco_editar(request, id):
+    if request.method != 'POST':
+        return HttpResponseBadRequest('Método não permitido')
+
+    fields = {}
+    for name in ('tipo', 'validade', 'preco'):
+        val = request.POST.get(name)
+        if val is not None:
+            fields[name] = val
+
+    try:
+        sheets_repository.update_row('Precos', id, fields)
+        return JsonResponse({'success': True})
+    except LookupError:
+        return JsonResponse({'error': 'Preço não encontrado.'}, status=404)
+    except Exception as e:
+        logger.exception('Falha ao editar preço %s', id)
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@require_POST
+def preco_excluir(request, id):
+    try:
+        sheets_repository.delete_row('Precos', id)
+        return JsonResponse({'success': True})
+    except LookupError:
+        return JsonResponse({'error': 'Preço não encontrado.'}, status=404)
+    except Exception as e:
+        logger.exception('Falha ao excluir preço %s', id)
+        return JsonResponse({'error': str(e)}, status=500)
+
+
 def app_state_download(request):
-    """Gera e retorna um arquivo Excel (.xlsx) com o estado enviado no body
-    ou com o estado salvo no banco (key='main') quando chamado via GET.
+    """Gera e retorna um arquivo Excel (.xlsx) com os dados atuais das abas
+    Clientes, Parceiros e Precos da planilha do Google Sheets.
     """
     try:
-        if request.method == 'POST':
-            payload = json.loads(request.body.decode('utf-8'))
-        else:
-            state = AppState.objects.filter(key='main').first()
-            payload = state.data if state else {'clientes': [], 'parceiros': [], 'precos': []}
-
-        clientes = payload.get('clientes', []) or []
-        parceiros = payload.get('parceiros', []) or []
-        precos = payload.get('precos', []) or []
-
-        df_clientes = pd.DataFrame(clientes)
-        df_parceiros = pd.DataFrame(parceiros)
-        df_precos = pd.DataFrame(precos)
+        df_clientes = pd.DataFrame(sheets_repository.list_rows('Clientes'))
+        df_parceiros = pd.DataFrame(sheets_repository.list_rows('Parceiros'))
+        df_precos = pd.DataFrame(sheets_repository.list_rows('Precos'))
 
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -625,9 +571,10 @@ def app_state_download(request):
 
         output.seek(0)
         resp = HttpResponse(output.read(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        resp['Content-Disposition'] = 'attachment; filename="estado_clientes_parceiros.xlsx"'
+        resp['Content-Disposition'] = 'attachment; filename="clientes_parceiros_precos.xlsx"'
         return resp
     except Exception as e:
+        logger.exception('Falha ao gerar exportação xlsx da planilha')
         return JsonResponse({'error': str(e)}, status=500)
 
 
@@ -658,17 +605,19 @@ def upload_documento(request):
 
 
 def documentos_cliente(request, pk):
-    registro = get_object_or_404(PlanilhaRegistro, pk=pk)
+    registro = sheets_repository.get_row('Clientes', pk)
+    if registro is None:
+        raise Http404('Cliente não encontrado na planilha.')
 
     if request.method == 'GET' and request.GET.get('format') == 'json':
-        documentos = registro.documentos.order_by('-data_envio')
+        documentos = DocumentoCliente.objects.filter(cliente_ref=pk).order_by('-data_envio')
         return JsonResponse({
             'registro': {
-                'id': registro.id,
-                'cliente': registro.cliente,
-                'email': registro.email,
-                'cpf_cnpj': registro.cpf_cnpj,
-                'tipo_certificado': registro.tipo_certificado,
+                'id': registro.get('id', ''),
+                'cliente': registro.get('cliente', ''),
+                'email': registro.get('email', ''),
+                'cpf_cnpj': registro.get('cpf_cnpj', ''),
+                'tipo_certificado': registro.get('tipo_certificado', ''),
             },
             'documentos': [
                 {
@@ -707,7 +656,8 @@ def documentos_cliente(request, pk):
             return redirect('documentos_cliente', pk=pk)
 
         DocumentoCliente.objects.create(
-            registro=registro,
+            cliente_ref=pk,
+            nome_cliente=registro.get('cliente', ''),
             arquivo=arquivo,
             nome_original=arquivo.name,
             tipo_documento=tipo_documento,
@@ -716,7 +666,7 @@ def documentos_cliente(request, pk):
         messages.success(request, f'Documento "{arquivo.name}" enviado com sucesso.')
         return redirect('documentos_cliente', pk=pk)
 
-    documentos = registro.documentos.all()
+    documentos = DocumentoCliente.objects.filter(cliente_ref=pk).order_by('-data_envio')
     return render(request, 'documentos_cliente.html', {
         'registro': registro,
         'documentos': documentos,
@@ -736,7 +686,7 @@ def download_documento(request, doc_id):
 @require_POST
 def excluir_documento(request, doc_id):
     documento = get_object_or_404(DocumentoCliente, pk=doc_id)
-    pk = documento.registro_id
+    pk = documento.cliente_ref or documento.registro_id
     documento.arquivo.delete(save=False)
     documento.delete()
     messages.success(request, 'Documento removido.')
@@ -824,22 +774,19 @@ def _marcar_pagamento_aprovado(pagamento):
             state.save()
 
     # Atualiza registro da planilha quando o id estiver vinculado ao registro importado
-    planilha_pk = _extrair_planilha_pk(pagamento.cliente_ref)
+    planilha_pk = (pagamento.cliente_ref or '').strip()
     if planilha_pk:
-        registro = PlanilhaRegistro.objects.filter(pk=planilha_pk).first()
-        if registro:
-            registro.pago_venda = True
-            registro.save(update_fields=['pago_venda'])
-            try:
-                salvar_no_drive_desde_db(settings.GOOGLE_SHEET_ID)
-            except Exception:
-                # Não interrompe o webhook caso o Drive esteja indisponível, mas
-                # o pagamento foi marcado como aprovado com a planilha desatualizada
-                # — isso precisa ficar visível no log para investigação manual.
-                logger.exception(
-                    'Pagamento %s aprovado e registro %s marcado como pago, mas falhou ao sincronizar com o Drive',
-                    pagamento.pk, planilha_pk,
-                )
+        try:
+            sheets_repository.update_row('Clientes', planilha_pk, {'pago_venda': 'Sim'})
+        except LookupError:
+            pass
+        except Exception:
+            # Não interrompe o webhook caso a planilha esteja indisponível, mas
+            # isso precisa ficar visível no log para investigação manual.
+            logger.exception(
+                'Pagamento %s aprovado, mas falhou ao marcar o registro %s como pago na planilha',
+                pagamento.pk, planilha_pk,
+            )
 
 
 @csrf_exempt

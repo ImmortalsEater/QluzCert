@@ -13,13 +13,9 @@ let clientes = (Array.isArray(storedClientes) && storedClientes.length)
 let parceiros = ((typeof window !== 'undefined' && Array.isArray(window.INITIAL_PARCEIROS) && window.INITIAL_PARCEIROS.length>0)
       ? window.INITIAL_PARCEIROS.slice()
       : (Array.isArray(storedParceiros) ? storedParceiros : []));
-let precos = DB.get('precos')||[
-  {id:1,tipo:'e-CPF A1',validade:'1 ano',preco:150},
-  {id:2,tipo:'e-CPF A3',validade:'3 anos',preco:280},
-  {id:3,tipo:'e-CNPJ A1',validade:'1 ano',preco:200},
-  {id:4,tipo:'e-CNPJ A3',validade:'3 anos',preco:350},
-  {id:5,tipo:'NF-e',validade:'1 ano',preco:120},
-];
+let precos = ((typeof window !== 'undefined' && Array.isArray(window.INITIAL_PRECOS) && window.INITIAL_PRECOS.length>0)
+      ? window.INITIAL_PRECOS.slice()
+      : (Array.isArray(DB.get('precos')) ? DB.get('precos') : []));
 let editingId = null;
 let backendAlertData = (typeof window !== 'undefined' && window.INITIAL_ALERTS) ? window.INITIAL_ALERTS : null;
 
@@ -35,45 +31,6 @@ const KANBAN_COLORS = ['var(--info)','var(--warn)','var(--purple)','var(--teal)'
 function save(){DB.set('clientes',clientes);DB.set('parceiros',parceiros);DB.set('precos',precos);updateBadges()}
 
 function saveLocalOnly(){DB.set('clientes',clientes);DB.set('parceiros',parceiros);DB.set('precos',precos);updateBadges();setStatus('Salvo localmente'); showToast('Salvo localmente','success')}
-
-async function saveServerState(){
-  saveLocalOnly();
-  try {
-    const response = await fetch('/app_state/', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({clientes, parceiros, precos})
-    });
-    if (!response.ok) throw new Error('Falha ao salvar no servidor');
-    const data = await response.json();
-    if (data.saved) { setStatus('Salvo no servidor'); showToast('Salvo no servidor','success'); }
-    else { setStatus('Falha ao salvar no servidor'); showToast('Falha ao salvar no servidor','error'); }
-  } catch (err) {
-    console.error(err);
-    setStatus('Erro ao salvar no servidor');
-    showToast('Erro ao salvar no servidor','error');
-  }
-}
-
-async function saveCloudState(){
-  saveLocalOnly();
-  try {
-    const response = await fetch('/app_state_drive/', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({clientes, parceiros, precos})
-    });
-    if (!response.ok) throw new Error('Falha ao salvar na nuvem');
-    const data = await response.json();
-    if (data.saved && data.drive) { setStatus('Salvo na nuvem'); showToast('Salvo na nuvem','success'); }
-    else if (data.saved) { setStatus('Salvo no servidor, falha na nuvem'); showToast('Salvo no servidor, falha na nuvem','info'); }
-    else { setStatus('Falha ao salvar na nuvem'); showToast('Falha ao salvar na nuvem','error'); }
-  } catch (err) {
-    console.error(err);
-    setStatus('Erro ao salvar na nuvem');
-    showToast('Erro ao salvar na nuvem','error');
-  }
-}
 
 function setStatus(message){
   const status = document.getElementById('save-status');
@@ -121,32 +78,37 @@ function initSaveMenu(){
   const mainBtn = document.getElementById('save-main-btn');
   const menu = document.getElementById('save-menu');
   const btnLocal = document.getElementById('save-local-btn');
-  const btnCloud = document.getElementById('save-cloud-btn');
   if(!mainBtn || !menu) return;
   mainBtn.addEventListener('click', function(e){ e.stopPropagation(); menu.style.display = (menu.style.display==='block'?'none':'block'); });
   // fechar ao clicar fora
   document.addEventListener('click', function(){ if(menu) menu.style.display='none' });
   if(btnLocal) btnLocal.addEventListener('click', function(e){ e.stopPropagation(); menu.style.display='none'; saveLocalOnly(); });
-  if(btnCloud) btnCloud.addEventListener('click', function(e){ e.stopPropagation(); menu.style.display='none'; saveCloudState(); });
   const btnExport = document.getElementById('export-btn');
   if(btnExport) btnExport.addEventListener('click', function(e){ e.stopPropagation(); menu.style.display='none'; exportState(); });
-  // data source bindings
-  const srcSelect = document.getElementById('data-source-select');
-  const syncBtn = document.getElementById('sync-server-btn');
-  if(srcSelect){ srcSelect.value = getDataSource(); srcSelect.addEventListener('change', function(){ setDataSource(this.value); }); }
-  if(syncBtn){ syncBtn.addEventListener('click', function(){ syncBtn.disabled=true; fetchServerState(true).finally(()=>{ syncBtn.disabled=false; }); }); }
-  renderDataSourceIndicator();
+}
+
+async function atualizarPlanilha(){
+  const btn = document.getElementById('atualizar-planilha-btn');
+  if(btn) btn.disabled = true;
+  try{
+    const response = await fetch('/atualizar-planilha/', {
+      method: 'POST',
+      headers: {'X-CSRFToken': getCsrfToken(), 'X-Requested-With': 'XMLHttpRequest'},
+    });
+    if(!response.ok) throw new Error('Falha ao atualizar');
+    showToast('Planilha atualizada, recarregando...', 'success');
+    setTimeout(()=>{ location.hash = 'clientes'; location.reload(); }, 500);
+  }catch(err){
+    console.error(err);
+    showToast('Erro ao atualizar planilha', 'error');
+    if(btn) btn.disabled = false;
+  }
 }
 
 async function exportState(){
-  // envia estado atual para o servidor e força download do arquivo gerado
-  const payload = {clientes, parceiros, precos};
+  // baixa um xlsx gerado a partir dos dados atuais da planilha do Google Sheets
   try{
-    const resp = await fetch('/app_state_download/', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
-    });
+    const resp = await fetch('/app_state_download/');
     // show overlay while generating
     showExportOverlay();
     if(!resp.ok){
@@ -158,7 +120,7 @@ async function exportState(){
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'estado_clientes_parceiros.xlsx';
+    a.download = 'clientes_parceiros_precos.xlsx';
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -255,6 +217,8 @@ function normalizeAlertData(data){
   return {
     counts:{
       total_registros:Number(counts.total_registros || 0),
+      emitidos:Number(counts.emitidos || 0),
+      vencendo_60_dias:Number(counts.vencendo_60_dias || 0),
       renovacoes_urgentes:Number(counts.renovacoes_urgentes || renovacoes.urgentes.length),
       renovacoes_normais:Number(counts.renovacoes_normais || renovacoes.normais.length),
       pagamentos_urgentes:Number(counts.pagamentos_urgentes || pagamentos.urgentes.length),
@@ -301,8 +265,11 @@ function buildLocalAlertData(){
       }
     }
   });
+  const vencendo60 = [...renovacoes.urgentes, ...renovacoes.normais].filter(r=>r.dias<=60).length;
   const counts = {
     total_registros: clientes.length,
+    emitidos: clientes.filter(c=>c.status==='Emitido').length,
+    vencendo_60_dias: vencendo60,
     renovacoes_urgentes: renovacoes.urgentes.length,
     renovacoes_normais: renovacoes.normais.length,
     pagamentos_urgentes: pagamentos.urgentes.length,
@@ -424,20 +391,10 @@ function nav(page){
 function renderSaveActions(){
   const html = `
     <div style="display:flex;align-items:center;gap:10px">
-      <div style="display:flex;align-items:center;gap:8px">
-        <label style="font-size:12px;color:var(--muted)">Fonte:</label>
-        <select id="data-source-select" style="padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--surface)">
-          <option value="server">Servidor</option>
-          <option value="local">Local</option>
-        </select>
-        <button class="btn" id="sync-server-btn" style="padding:6px 10px">Sincronizar</button>
-        <span id="data-source-indicator" style="font-size:12px;color:var(--muted)"></span>
-      </div>
       <div class="save-dropdown" style="position:relative;display:inline-block">
         <button class="btn btn-sm" id="save-main-btn"><i class="ti ti-device-floppy"></i> Salvar <i class="ti ti-chevron-down" style="margin-left:6px;font-size:12px"></i></button>
         <div id="save-menu" style="position:absolute;right:0;top:36px;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,0.06);display:none;min-width:180px;padding:8px;z-index:60">
           <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px" id="save-local-btn">Salvar localmente</button>
-          <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px;margin-top:6px" id="save-cloud-btn">Salvar na nuvem</button>
           <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px;margin-top:6px" id="export-btn">Exportar (.xlsx)</button>
         </div>
       </div>
@@ -446,50 +403,6 @@ function renderSaveActions(){
   `;
   const ta = document.getElementById('topbar-actions');
   if(ta) ta.innerHTML = html;
-}
-
-function getDataSource(){
-  const cached = DB.get('data_source');
-  if(cached) return cached;
-  if(typeof window !== 'undefined' && Array.isArray(window.INITIAL_CLIENTES) && window.INITIAL_CLIENTES.length>0) return 'server';
-  return 'local';
-}
-
-function setDataSource(src){
-  DB.set('data_source', src);
-  renderDataSourceIndicator();
-  if(src==='server') fetchServerState(true);
-}
-
-function renderDataSourceIndicator(){
-  const el = document.getElementById('data-source-indicator');
-  if(!el) return;
-  const src = getDataSource();
-  el.textContent = src==='server' ? 'Usando: servidor' : 'Usando: local';
-}
-
-async function fetchServerState(apply){
-  try{
-    const r = await fetch('/app_state/');
-    if(!r.ok) throw new Error('Falha ao obter estado do servidor');
-    const data = await r.json();
-    if(apply){
-      if (Array.isArray(data.clientes) && data.clientes.length) {
-        clientes = data.clientes;
-      }
-      if (Array.isArray(data.parceiros) && data.parceiros.length) {
-        parceiros = data.parceiros;
-      }
-      if (Array.isArray(data.precos) && data.precos.length) {
-        precos = data.precos;
-      }
-      save();
-      renderClientes(); renderParceiros(); renderTabela(); renderDashboard();
-      syncBackendAlertCounts();
-      showToast('Estado do servidor aplicado','success');
-    }
-    return data;
-  }catch(e){ showToast('Erro ao obter estado do servidor','error'); console.error(e); return null }
 }
 
 function updateBadges(){
@@ -510,22 +423,24 @@ function updateBadges(){
 
 // ==================== DASHBOARD ====================
 function renderDashboard(){
-  const total=clientes.length;
-  const emitidos=clientes.filter(c=>c.status==='Emitido').length;
-  const leads=clientes.filter(c=>c.status==='Novo Lead').length;
-  const vencendo=clientes.filter(c=>c.dataVencimento&&daysUntil(c.dataVencimento)<=60).length;
+  // Total/Emitidos/Renovações vêm da planilha real (Clientes), não do funil de leads local
+  const alertData = getAlertData();
+  const counts = alertData.counts || {};
+  const total = Number(counts.total_registros || 0);
+  const emitidos = Number(counts.emitidos || 0);
+  const vencendo = Number(counts.vencendo_60_dias || 0);
+  const aguardandoEmissao = Math.max(total - emitidos, 0);
  // Lê o valor processado pelo Django na tabela. Se não existir, faz a soma local.
   const faturamento = (typeof window !== 'undefined' && window.INITIAL_FATURAMENTO !== undefined)
     ? Number(window.INITIAL_FATURAMENTO)
     : clientes.filter(c=>c.pago).reduce((s,c)=>s+(parseFloat(c.valorCobrado)||0),0);
 
   document.getElementById('dashboard-metrics').innerHTML=`
-    <div class="metric-card accent"><div class="metric-label">Total de Clientes</div><div class="metric-val">${total}</div><div class="metric-sub">${leads} novos leads</div></div>
+    <div class="metric-card accent"><div class="metric-label">Total de Clientes</div><div class="metric-val">${total}</div><div class="metric-sub">${aguardandoEmissao} aguardando emissão</div></div>
     <div class="metric-card success"><div class="metric-label">Emitidos</div><div class="metric-val">${emitidos}</div><div class="metric-sub">${Math.round(total?emitidos/total*100:0)}% do total</div></div>
     <div class="metric-card warn"><div class="metric-label">Renovações ≤60 dias</div><div class="metric-val">${vencendo}</div><div class="metric-sub">requerem contato</div></div>
     <div class="metric-card"><div class="metric-label">Faturamento Recebido</div><div class="metric-val" style="font-size:18px">${fmtMoney(faturamento)}</div><div class="metric-sub">pagamentos confirmados</div></div>
   `;
-  const alertData = getAlertData();
   const urgentes=[...alertData.renovacoes.urgentes,...alertData.pagamentos.urgentes,...alertData.renovacoes.normais,...alertData.pagamentos.normais]
     .sort((a,b)=>(a.dias??9999)-(b.dias??9999))
     .slice(0,5);
@@ -582,7 +497,7 @@ function renderClientes(){
       <td>${statusBadge(c.status)}</td>
       <td>${parceiroBadge(c.parceiroId)}</td>
       <td>${vBadge}</td>
-      <td><button class="btn btn-sm" onclick="openDetail('${c.id}')"><i class="ti ti-eye"></i></button> <button class="btn btn-sm" onclick="editCliente('${c.id}')"><i class="ti ti-edit"></i></button> <button class="btn btn-sm" onclick="deleteCliente('${c.id}')" style="color:var(--danger)"><i class="ti ti-trash"></i></button></td>
+      <td><button class="btn btn-sm" onclick="openDetail('${c.id}')"><i class="ti ti-eye"></i></button> <button class="btn btn-sm" onclick="editCliente('${c.id}')"><i class="ti ti-edit"></i></button> <button class="btn btn-sm" onclick="openDocumentosCliente('${c.id}')"><i class="ti ti-folder"></i></button> <button class="btn btn-sm btn-danger" onclick="deleteCliente('${c.id}')"><i class="ti ti-trash"></i></button></td>
     </tr>`;
   });
   tbody.innerHTML=tableRows(rows);
@@ -619,7 +534,7 @@ function filterPlanilhaImportada(){
   if(!dataRows.length){
     table.style.display='none';
     if(noMatch){ noMatch.style.display=''; }
-    if(msg) msg.textContent='Nenhuma planilha importada ainda. Use "Sincronizar com o Google Drive".';
+    if(msg) msg.textContent='Nenhum cliente cadastrado na planilha ainda.';
     updateResultCount('planilha-count', 0, 0);
     renderPaginationControls('planilha-pagination', 1, 1, 'goToPlanilhaPage');
     return;
@@ -790,7 +705,7 @@ async function loadDocumentosCliente(clientId){
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
           <a class="btn btn-sm" href="${doc.download_url}" target="_blank" rel="noopener"><i class="ti ti-download"></i> Baixar</a>
-          <button class="btn btn-sm" onclick="deleteDocumentoCliente('${clientId}', ${doc.id})" style="color:var(--danger)"><i class="ti ti-trash"></i></button>
+          <button class="btn btn-sm btn-danger" onclick="deleteDocumentoCliente('${clientId}', ${doc.id})"><i class="ti ti-trash"></i></button>
         </div>
       </div>
     `).join('');
@@ -860,21 +775,53 @@ function renderParceiros(){
   tbody.innerHTML=parceiros.map(p=>{
     const count=clientes.filter(c=>c.parceiroId===p.id).length;
     return`<tr><td><strong>${p.nome}</strong></td><td>${p.tipo||'—'}</td><td>${p.comissao!=null?fmtPercent(p.comissao):'—'}</td><td>${p.contato||'—'}</td><td><span style="font-size:13px;font-weight:700;color:var(--accent)">${count}</span></td>
-    <td><button class="btn btn-sm" onclick="editParceiro('${p.id}')"><i class="ti ti-edit"></i></button> <button class="btn btn-sm" onclick="deleteParceiro('${p.id}')" style="color:var(--danger)"><i class="ti ti-trash"></i></button></td></tr>`;
+    <td><button class="btn btn-sm" onclick="editParceiro('${p.id}')"><i class="ti ti-edit"></i></button> <button class="btn btn-sm btn-danger" onclick="deleteParceiro('${p.id}')"><i class="ti ti-trash"></i></button></td></tr>`;
   }).join('');
 }
 function editParceiro(id){editingId=id;openModal('parceiro')}
-function deleteParceiro(id){if(confirm('Remover parceiro?')){parceiros=parceiros.filter(p=>p.id!==id);save();renderParceiros()}}
+async function deleteParceiro(id){
+  if(!confirm('Remover parceiro?'))return;
+  try{
+    const response=await fetch(`/parceiro/excluir/${id}/`,{
+      method:'POST',
+      headers:{'X-CSRFToken':getCsrfToken(),'X-Requested-With':'XMLHttpRequest'},
+    });
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data.error||'Falha ao remover parceiro');
+    parceiros=parceiros.filter(p=>p.id!==id);
+    renderParceiros();
+    showToast('Parceiro removido','success');
+  }catch(err){
+    console.error(err);
+    showToast(err.message||'Erro ao remover parceiro','error');
+  }
+}
 
 // ==================== TABELA PREÇOS ====================
 function renderTabela(){
   document.getElementById('tabela-tbody').innerHTML=precos.map(p=>`<tr>
     <td><strong>${p.tipo}</strong></td><td>${p.validade}</td><td style="font-weight:700;color:var(--success)">${fmtMoney(p.preco)}</td>
-    <td><button class="btn btn-sm" onclick="editPreco('${p.id}')"><i class="ti ti-edit"></i></button> <button class="btn btn-sm" onclick="deletePreco('${p.id}')" style="color:var(--danger)"><i class="ti ti-trash"></i></button></td>
+    <td><button class="btn btn-sm" onclick="editPreco('${p.id}')"><i class="ti ti-edit"></i></button> <button class="btn btn-sm btn-danger" onclick="deletePreco('${p.id}')"><i class="ti ti-trash"></i></button></td>
   </tr>`).join('');
 }
 function editPreco(id){editingId=id;openModal('preco')}
-function deletePreco(id){if(confirm('Remover?')){precos=precos.filter(p=>p.id!==id);save();renderTabela()}}
+async function deletePreco(id){
+  if(!confirm('Remover?'))return;
+  try{
+    const response=await fetch(`/preco/excluir/${id}/`,{
+      method:'POST',
+      headers:{'X-CSRFToken':getCsrfToken(),'X-Requested-With':'XMLHttpRequest'},
+    });
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data.error||'Falha ao remover preço');
+    precos=precos.filter(p=>p.id!==id);
+    renderTabela();
+    showToast('Preço removido','success');
+  }catch(err){
+    console.error(err);
+    showToast(err.message||'Erro ao remover preço','error');
+  }
+}
 
 // ==================== MODAIS ====================
 let modalTriggerEl=null;
@@ -1155,25 +1102,37 @@ function renderParceiroModal(box){
 }
 // Inicializa comportamentos ao carregar o DOM
 document.addEventListener('DOMContentLoaded', function(){
-  try{ renderSaveActions(); initSaveMenu();
-    // se a fonte padrão for servidor e não há clientes locais, aplica estado do servidor
-    if(getDataSource()==='server' && (!clientes || clientes.length===0)){
-      fetchServerState(true);
-    }
-  }catch(e){}
+  try{ renderSaveActions(); initSaveMenu(); }catch(e){}
 });
 
-function saveParceiro(){
+async function saveParceiro(){
   const nome=document.getElementById('p-nome').value.trim();
   if(!nome){alert('Nome obrigatório');return}
-  const p=editingId?parceiros.find(x=>x.id===editingId):{id:uid()};
-  p.nome=nome;p.tipo=document.getElementById('p-tipo').value;
-  p.telefone=document.getElementById('p-tel').value;p.email=document.getElementById('p-email').value;
-  const comissao=parseFloat(document.getElementById('p-comissao').value);
-  p.comissao=Number.isFinite(comissao)?comissao:null;
-  p.contato=document.getElementById('p-contato').value;
-  if(!editingId)parceiros.push(p);
-  save();closeModal(true);renderParceiros();editingId=null;
+  const payload=new URLSearchParams({
+    nome,
+    tipo:document.getElementById('p-tipo').value,
+    telefone:document.getElementById('p-tel').value,
+    email:document.getElementById('p-email').value,
+    comissao:document.getElementById('p-comissao').value,
+    contato:document.getElementById('p-contato').value,
+  });
+  const url=editingId?`/parceiro/editar/${editingId}/`:'/parceiro/criar/';
+  try{
+    const response=await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRFToken':getCsrfToken(),'X-Requested-With':'XMLHttpRequest'},
+      body:payload.toString(),
+    });
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data.error||'Falha ao salvar parceiro');
+    showToast('Parceiro salvo com sucesso','success');
+    closeModal(true);
+    editingId=null;
+    setTimeout(()=>{ location.reload(); },600);
+  }catch(err){
+    console.error(err);
+    showToast(err.message||'Erro ao salvar parceiro','error');
+  }
 }
 
 function renderPrecoModal(box){
@@ -1193,14 +1152,31 @@ function renderPrecoModal(box){
   </div>`;
 }
 
-function savePreco(){
+async function savePreco(){
   const tipo=document.getElementById('pr-tipo').value.trim();
   if(!tipo){alert('Tipo obrigatório');return}
-  const p=editingId?precos.find(x=>x.id==editingId):{id:uid()};
-  p.tipo=tipo;p.validade=document.getElementById('pr-valid').value;
-  p.preco=parseFloat(document.getElementById('pr-preco').value)||0;
-  if(!editingId)precos.push(p);
-  save();closeModal(true);renderTabela();editingId=null;
+  const payload=new URLSearchParams({
+    tipo,
+    validade:document.getElementById('pr-valid').value,
+    preco:document.getElementById('pr-preco').value,
+  });
+  const url=editingId?`/preco/editar/${editingId}/`:'/preco/criar/';
+  try{
+    const response=await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRFToken':getCsrfToken(),'X-Requested-With':'XMLHttpRequest'},
+      body:payload.toString(),
+    });
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data.error||'Falha ao salvar preço');
+    showToast('Preço salvo com sucesso','success');
+    closeModal(true);
+    editingId=null;
+    setTimeout(()=>{ location.reload(); },600);
+  }catch(err){
+    console.error(err);
+    showToast(err.message||'Erro ao salvar preço','error');
+  }
 }
 
 function renderContatoModal(box,cid){
@@ -1600,27 +1576,7 @@ function openDetail(id){
 function closeDetail(e){if(e===true||e.target===document.getElementById('detail-overlay')){document.getElementById('detail-overlay').classList.remove('open')}}
 
 // ==================== INIT ====================
-async function loadAppState(){
-  try {
-    const response = await fetch('/app_state/');
-    if (response.ok){
-      const data = await response.json();
-      if (Array.isArray(data.clientes) && data.clientes.length) {
-        clientes = data.clientes;
-      }
-      if (Array.isArray(data.parceiros) && data.parceiros.length) {
-        parceiros = data.parceiros;
-      } else if (!parceiros.length && typeof window !== 'undefined' && Array.isArray(window.INITIAL_PARCEIROS) && window.INITIAL_PARCEIROS.length>0) {
-        parceiros = window.INITIAL_PARCEIROS.slice();
-      }
-      if (Array.isArray(data.precos) && data.precos.length) {
-        precos = data.precos;
-      }
-      save();
-    }
-  } catch (err){
-    console.warn('Não foi possível carregar estado do servidor', err);
-  }
+function initApp(){
   renderDashboard();
   renderClientes();
   filterPlanilhaImportada();
@@ -1630,4 +1586,4 @@ async function loadAppState(){
   syncBackendAlertCounts();
 }
 
-loadAppState();
+initApp();

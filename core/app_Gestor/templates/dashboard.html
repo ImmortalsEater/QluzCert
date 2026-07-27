@@ -93,8 +93,8 @@
             <label for="search-cliente" class="sr-only">Buscar cliente por nome, CPF, CNPJ, email ou telefone</label>
             <input type="text" id="search-cliente" placeholder="Buscar por nome, CPF ou CNPJ...">
           </div>
-          <a href="{% url 'sincronizar_drive' %}" class="btn btn-primary"><i class="ti ti-refresh"></i>Sincronizar com Planilha do Drive</a>
-          <button class="btn btn-primary" onclick="openModal('novoCliente', null, this)"><i class="ti ti-plus" aria-hidden="true"></i>Novo Cliente</button>
+          <button class="btn btn-quaternary" id="atualizar-planilha-btn" onclick="atualizarPlanilha()"><i class="ti ti-refresh"></i>Atualizar agora</button>
+          <button class="btn btn-secondary" onclick="openModal('novoCliente', null, this)"><i class="ti ti-plus" aria-hidden="true"></i>Novo Cliente</button>
         </div>
         <div class="table-wrap">
           <div class="table-header" style="position:relative">
@@ -103,6 +103,8 @@
             <div class="column-selector-dropdown" style="margin-left:auto;position:relative">
               <button type="button" class="btn btn-sm" id="column-selector-toggle"><i class="ti ti-columns"></i>Colunas <i class="ti ti-chevron-down chevron" style="margin-left:4px;font-size:11px"></i></button>
               <div class="column-selector-panel" id="column-selector-panel">
+                <label class="column-toggle-label"><input type="checkbox" id="column-toggle-all"> <strong>Selecionar todas</strong></label>
+                <div class="column-selector-divider"></div>
                 {% for col in google_columns %}
                   <label class="column-toggle-label"><input type="checkbox" class="column-toggle" data-col="{{ col.class }}" {% if col.default_visible %}checked{% endif %}> {{ col.label }}</label>
                 {% endfor %}
@@ -112,7 +114,7 @@
           <div class="table-scroll">
             <table class="google-drive-table" id="planilha-table"{% if not google_rows %} style="display:none"{% endif %}>
               <thead><tr>
-                {% for col in google_columns %}<th class="{{ col.class }}"{% if not col.default_visible %} style="display:none"{% endif %}>{{ col.label }}</th>{% endfor %}
+                {% for col in google_columns %}<th class  ="{{ col.class }}"{% if not col.default_visible %} style="display:none"{% endif %}>{{ col.label }}</th>{% endfor %}
                 <th>Ações</th>
               </tr></thead>
               <tbody id="planilha-tbody">
@@ -124,14 +126,14 @@
                     <td>
 
                       <a class="btn btn-sm btn-edit" href="{% url 'editar_google_row' row.id %}"><i class="ti ti-pencil"></i>Editar</a>
-                      {% comment %} Documentos: oculto até a funcionalidade estar pronta {% endcomment %}
+                      <a class="btn btn-sm btn-edit" href="{% url 'documentos_cliente' row.id %}"><i class="ti ti-folder"></i>Documentos</a>
                     </td>
                   </tr>
                 {% endfor %}
               </tbody>
             </table>
           </div>
-          <div id="planilha-no-match" class="empty-state"{% if google_rows %} style="display:none"{% endif %}><i class="ti ti-search-off"></i><p id="planilha-empty-msg">Nenhuma planilha importada ainda. Use "Sincronizar com o Google Drive".</p></div>
+          <div id="planilha-no-match" class="empty-state"{% if google_rows %} style="display:none"{% endif %}><i class="ti ti-search-off"></i><p id="planilha-empty-msg">Nenhum cliente cadastrado na planilha ainda.</p></div>
           <div id="planilha-pagination" class="pagination"></div>
         </div>
         <div class="table-wrap">
@@ -262,6 +264,7 @@
 <script>
   window.INITIAL_CLIENTES = {{ initial_clientes_json|default:'[]'|safe }};
   window.INITIAL_PARCEIROS = {{ initial_parceiros_json|default:'[]'|safe }};
+  window.INITIAL_PRECOS = {{ initial_precos_json|default:'[]'|safe }};
   window.INITIAL_ALERTS = {{ initial_alerts_json|default:'{}'|safe }};
   // Nova linha que puxa o faturamento exato da tabela
   window.INITIAL_FATURAMENTO = {{ faturamento_recebido_json|default:'0'|safe }};
@@ -269,15 +272,40 @@
 <script src="{% static 'js/cert_manager.js' %}"></script>
 <script>
   document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('.column-toggle').forEach(function(toggle) {
+    var columnToggles = document.querySelectorAll('.column-toggle');
+    var toggleAll = document.getElementById('column-toggle-all');
+
+    function syncToggleAll() {
+      if (!toggleAll) return;
+      var checkedCount = 0;
+      columnToggles.forEach(function(t) { if (t.checked) checkedCount++; });
+      toggleAll.checked = checkedCount === columnToggles.length;
+      toggleAll.indeterminate = checkedCount > 0 && checkedCount < columnToggles.length;
+    }
+
+    columnToggles.forEach(function(toggle) {
       toggle.addEventListener('change', function() {
         var col = this.dataset.col;
         var show = this.checked;
         document.querySelectorAll('.' + col).forEach(function(cell) {
           cell.style.display = show ? '' : 'none';
         });
+        syncToggleAll();
       });
     });
+
+    if (toggleAll) {
+      toggleAll.addEventListener('change', function() {
+        var show = this.checked;
+        columnToggles.forEach(function(toggle) {
+          if (toggle.checked !== show) {
+            toggle.checked = show;
+            toggle.dispatchEvent(new Event('change'));
+          }
+        });
+      });
+      syncToggleAll();
+    }
 
     var columnPanel = document.getElementById('column-selector-panel');
     var columnToggleBtn = document.getElementById('column-selector-toggle');
