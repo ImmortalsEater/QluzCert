@@ -245,7 +245,17 @@
   // Nova linha que puxa o faturamento exato da tabela
   window.INITIAL_FATURAMENTO = {{ faturamento_recebido_json|default:'0'|safe }};
 </script>
-<script src="{% static 'js/cert_manager.js' %}"></script>
+<script src="{% static 'js/cert_manager.core.js' %}"></script>
+<script src="{% static 'js/cert_manager.clientes.js' %}"></script>
+<script src="{% static 'js/cert_manager.kanban.js' %}"></script>
+<script src="{% static 'js/cert_manager.renovacoes.js' %}"></script>
+<script src="{% static 'js/cert_manager.parceiros.js' %}"></script>
+<script src="{% static 'js/cert_manager.precos.js' %}"></script>
+<script src="{% static 'js/cert_manager.documentos.js' %}"></script>
+<script src="{% static 'js/cert_manager.modais.js' %}"></script>
+<script src="{% static 'js/cert_manager.pagamentos_contatos.js' %}"></script>
+<script src="{% static 'js/cert_manager.dashboard.js' %}"></script>
+<script src="{% static 'js/cert_manager.init.js' %}"></script>
 <script>
   document.addEventListener('DOMContentLoaded', function() {
     var columnToggles = document.querySelectorAll('.column-toggle');

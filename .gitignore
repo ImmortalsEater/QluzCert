@@ -11,6 +11,12 @@ venv/
 # Django local settings
 db.sqlite3
 
+# Logs
+logs/
+
+# Estáticos coletados (gerado por collectstatic)
+staticfiles/
+
 # Google credentials
 credentials.json
 

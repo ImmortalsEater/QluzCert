@@ -24,6 +24,17 @@ from django.db.models import Sum, Q
 
 logger = logging.getLogger(__name__)
 
+
+def _safe_json_dumps(obj):
+    """json.dumps escapando '<', '>' e '&' como \\uXXXX -- continua JSON
+    válido (esses escapes funcionam dentro de qualquer string JSON), mas
+    impede que um valor vindo da planilha (ex: nome de cliente contendo
+    "</script><script>...") feche a tag <script> onde este JSON é embutido
+    em dashboard.html e injete HTML/JS arbitrário no dashboard."""
+    dumped = json.dumps(obj, default=str)
+    return dumped.replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
+
+
 # Traduz nomes técnicos de coluna (vindos direto do cabeçalho da planilha do
 # Google Drive) para rótulos legíveis. Chave = nome do campo normalizado
 # (minúsculo, sem acentos/pontuação).
@@ -226,6 +237,7 @@ def _build_parceiros_from_source():
             'email': row.get('email', ''),
             'comissao': parse_decimal(row.get('comissao')),
             'contato': row.get('contato', ''),
+            'atualizadoEm': row.get('atualizado_em', ''),
         })
     return parceiros
 
@@ -238,6 +250,7 @@ def _build_precos_from_source():
             'tipo': row.get('tipo', ''),
             'validade': row.get('validade', ''),
             'preco': parse_decimal(row.get('preco')),
+            'atualizadoEm': row.get('atualizado_em', ''),
         })
     return precos
 
@@ -347,8 +360,7 @@ class DashboardView(TemplateView):
         faturamento_db = ( PagamentoCliente.objects.filter(status=PagamentoCliente.STATUS_APPROVED).aggregate(total=Sum("valor"))["total"] or 0)
         faturamento_total = float(faturamento_db)
 
-        import json
-        context['faturamento_recebido_json'] = json.dumps(faturamento_total, default=str)
+        context['faturamento_recebido_json'] = _safe_json_dumps(faturamento_total)
         # ----------------------------------------------------------------------------------------
 
         try:
@@ -388,31 +400,31 @@ class DashboardView(TemplateView):
             }
 
         try:
-            context['initial_clientes_json'] = json.dumps(initial_clientes, default=str)
+            context['initial_clientes_json'] = _safe_json_dumps(initial_clientes)
         except Exception:
             context['initial_clientes_json'] = '[]'
         try:
-            context['initial_parceiros_json'] = json.dumps(initial_parceiros, default=str)
+            context['initial_parceiros_json'] = _safe_json_dumps(initial_parceiros)
         except Exception:
             context['initial_parceiros_json'] = '[]'
         try:
-            context['initial_precos_json'] = json.dumps(initial_precos, default=str)
+            context['initial_precos_json'] = _safe_json_dumps(initial_precos)
         except Exception:
             context['initial_precos_json'] = '[]'
         try:
-            context['initial_leads_json'] = json.dumps(initial_leads, default=str)
+            context['initial_leads_json'] = _safe_json_dumps(initial_leads)
         except Exception:
             context['initial_leads_json'] = '[]'
         try:
-            context['initial_notificacoes_json'] = json.dumps(initial_notificacoes, default=str)
+            context['initial_notificacoes_json'] = _safe_json_dumps(initial_notificacoes)
         except Exception:
             context['initial_notificacoes_json'] = '[]'
         try:
-            context['initial_alerts_json'] = json.dumps(alertas, default=str)
+            context['initial_alerts_json'] = _safe_json_dumps(alertas)
         except Exception:
             context['initial_alerts_json'] = '{}'
         try:
-            context['alert_counts_json'] = json.dumps(alertas.get('counts', {}), default=str)
+            context['alert_counts_json'] = _safe_json_dumps(alertas.get('counts', {}))
         except Exception:
             context['alert_counts_json'] = '{}'
             
@@ -535,12 +547,26 @@ def criar_google_row(request):
 def cliente_excluir(request, pk):
     try:
         sheets_repository.delete_row('Clientes', pk)
-        return JsonResponse({'success': True})
     except LookupError:
         return JsonResponse({'error': 'Cliente não encontrado.'}, status=404)
     except Exception as e:
         logger.exception('Falha ao excluir cliente %s', pk)
         return JsonResponse({'error': str(e)}, status=500)
+
+    # Cliente já foi removido da planilha nesse ponto -- limpa documentos de
+    # identidade (RG/CNH, selfie etc.) e pagamentos associados, que ficariam
+    # órfãos apontando para um cliente_ref que não existe mais em lugar
+    # nenhum. Falha aqui é só logada (não desfaz nem falha a exclusão em si,
+    # que já aconteceu de verdade na planilha).
+    try:
+        for documento in DocumentoCliente.objects.filter(cliente_ref=pk):
+            documento.arquivo.delete(save=False)
+            documento.delete()
+        PagamentoCliente.objects.filter(cliente_ref=pk).delete()
+    except Exception:
+        logger.exception('Cliente %s excluído da planilha, mas falhou ao limpar documentos/pagamentos associados', pk)
+
+    return JsonResponse({'success': True})
 
 
 def contatos_cliente_registro(request, pk):
@@ -627,9 +653,12 @@ def parceiro_editar(request, id):
         if val is not None:
             fields[name] = val
 
+    expected_atualizado_em = request.POST.get('expected_atualizado_em') or None
     try:
-        sheets_repository.update_row('Parceiros', id, fields)
+        sheets_repository.update_row('Parceiros', id, fields, expected_atualizado_em=expected_atualizado_em)
         return JsonResponse({'success': True})
+    except sheets_repository.ConcurrencyError:
+        return JsonResponse({'error': 'Este parceiro foi alterado por outra pessoa. Recarregue e tente novamente.'}, status=409)
     except LookupError:
         return JsonResponse({'error': 'Parceiro não encontrado.'}, status=404)
     except Exception as e:
@@ -680,9 +709,12 @@ def preco_editar(request, id):
         if val is not None:
             fields[name] = val
 
+    expected_atualizado_em = request.POST.get('expected_atualizado_em') or None
     try:
-        sheets_repository.update_row('Precos', id, fields)
+        sheets_repository.update_row('Precos', id, fields, expected_atualizado_em=expected_atualizado_em)
         return JsonResponse({'success': True})
+    except sheets_repository.ConcurrencyError:
+        return JsonResponse({'error': 'Este preço foi alterado por outra pessoa. Recarregue e tente novamente.'}, status=409)
     except LookupError:
         return JsonResponse({'error': 'Preço não encontrado.'}, status=404)
     except Exception as e:
@@ -735,11 +767,33 @@ def app_state_download(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 
+def _validar_arquivo_documento(arquivo):
+    """Retorna uma mensagem de erro se o arquivo não passar nas regras de
+    upload (extensão/tamanho), ou None se estiver tudo certo. Compartilhado
+    entre upload_documento e documentos_cliente para não ter duas regras
+    divergentes (ou uma delas esquecida) validando a mesma coisa."""
+    extensoes_permitidas = getattr(settings, 'UPLOAD_DOCUMENTO_EXTENSOES_PERMITIDAS', ['.pdf', '.jpg', '.jpeg', '.png'])
+    tamanho_maximo_mb = getattr(settings, 'UPLOAD_DOCUMENTO_TAMANHO_MAXIMO_MB', 10)
+    tamanho_maximo_bytes = tamanho_maximo_mb * 1024 * 1024
+    ext = os.path.splitext(arquivo.name)[1].lower()
+
+    if ext not in extensoes_permitidas:
+        return f'Tipo de arquivo não permitido ("{ext}"). Use: {", ".join(extensoes_permitidas)}.'
+    if arquivo.size > tamanho_maximo_bytes:
+        return f'Arquivo muito grande. O limite é {tamanho_maximo_mb}MB.'
+    return None
+
+
 def upload_documento(request):
     if request.method == 'POST':
         arquivo = request.FILES.get('arquivo')
         if not arquivo:
             messages.error(request, 'Selecione um arquivo para envio.')
+            return redirect('upload_documento')
+
+        erro = _validar_arquivo_documento(arquivo)
+        if erro:
+            messages.error(request, erro)
             return redirect('upload_documento')
 
         cliente_ref = request.POST.get('cliente_ref', '').strip()
@@ -784,8 +838,8 @@ def documentos_cliente(request, pk):
                     'tipo_documento_display': doc.get_tipo_documento_display(),
                     'data_envio': doc.data_envio.isoformat() if doc.data_envio else '',
                     'tamanho_bytes': doc.tamanho_bytes,
-                    'download_url': f'/documentos/{doc.id}/download/',
-                    'delete_url': f'/documentos/{doc.id}/excluir/',
+                    'download_url': f'/planilha/{pk}/documentos/{doc.id}/download/',
+                    'delete_url': f'/planilha/{pk}/documentos/{doc.id}/excluir/',
                 }
                 for doc in documentos
             ],
@@ -799,17 +853,9 @@ def documentos_cliente(request, pk):
             messages.error(request, 'Selecione um arquivo antes de enviar.')
             return redirect('documentos_cliente', pk=pk)
 
-        extensoes_permitidas = getattr(settings, 'UPLOAD_DOCUMENTO_EXTENSOES_PERMITIDAS', ['.pdf', '.jpg', '.jpeg', '.png'])
-        tamanho_maximo_mb = getattr(settings, 'UPLOAD_DOCUMENTO_TAMANHO_MAXIMO_MB', 10)
-        tamanho_maximo_bytes = tamanho_maximo_mb * 1024 * 1024
-        ext = os.path.splitext(arquivo.name)[1].lower()
-
-        if ext not in extensoes_permitidas:
-            messages.error(request, f'Tipo de arquivo não permitido ("{ext}"). Use: {", ".join(extensoes_permitidas)}.')
-            return redirect('documentos_cliente', pk=pk)
-
-        if arquivo.size > tamanho_maximo_bytes:
-            messages.error(request, f'Arquivo muito grande. O limite é {tamanho_maximo_mb}MB.')
+        erro = _validar_arquivo_documento(arquivo)
+        if erro:
+            messages.error(request, erro)
             return redirect('documentos_cliente', pk=pk)
 
         DocumentoCliente.objects.create(
@@ -828,11 +874,15 @@ def documentos_cliente(request, pk):
         'registro': registro,
         'documentos': documentos,
         'tipos_documento': DocumentoCliente.TIPO_CHOICES,
+        'pk': pk,
     })
 
 
-def download_documento(request, doc_id):
-    documento = get_object_or_404(DocumentoCliente, pk=doc_id)
+def download_documento(request, pk, doc_id):
+    # cliente_ref=pk exigido aqui evita IDOR: sem essa checagem, doc_id
+    # (PK sequencial) sozinho deixaria baixar documento de identidade
+    # (RG/CNH, selfie) de qualquer cliente só variando o número na URL.
+    documento = get_object_or_404(DocumentoCliente, pk=doc_id, cliente_ref=pk)
     try:
         arquivo = documento.arquivo.open('rb')
     except FileNotFoundError:
@@ -841,9 +891,8 @@ def download_documento(request, doc_id):
 
 
 @require_POST
-def excluir_documento(request, doc_id):
-    documento = get_object_or_404(DocumentoCliente, pk=doc_id)
-    pk = documento.cliente_ref or documento.registro_id
+def excluir_documento(request, pk, doc_id):
+    documento = get_object_or_404(DocumentoCliente, pk=doc_id, cliente_ref=pk)
     documento.arquivo.delete(save=False)
     documento.delete()
     messages.success(request, 'Documento removido.')
@@ -934,7 +983,12 @@ def _marcar_pagamento_aprovado(pagamento):
     planilha_pk = (pagamento.cliente_ref or '').strip()
     if planilha_pk:
         try:
-            sheets_repository.update_row('Clientes', planilha_pk, {'pago_venda': 'Sim'})
+            registro_atual = sheets_repository.get_row('Clientes', planilha_pk)
+            expected_atualizado_em = registro_atual.get('atualizado_em') if registro_atual else None
+            sheets_repository.update_row(
+                'Clientes', planilha_pk, {'pago_venda': 'Sim'},
+                expected_atualizado_em=expected_atualizado_em,
+            )
         except LookupError:
             pass
         except Exception:
