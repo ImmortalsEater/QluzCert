@@ -100,6 +100,24 @@ MIDDLEWARE = [
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/'
 
+# Não há servidor com disco persistente -- login/senha não podem depender do
+# SQLite local sobrevivendo entre execuções. Credenciais vivem na aba
+# 'Usuarios' da planilha (mesma fonte de verdade de Clientes/Parceiros/
+# Preços/Contatos); ver core/app_Gestor/auth_backends.py.
+AUTHENTICATION_BACKENDS = [
+    'core.app_Gestor.auth_backends.SheetsBackend',
+    # Fallback só para permitir `createsuperuser` + /admin/ localmente em
+    # máquina de desenvolvimento -- não afeta o fluxo normal de login, já
+    # que usuários vindos do SheetsBackend sempre têm senha local inutilizável.
+    'django.contrib.auth.backends.ModelBackend',
+]
+
+# Sessão inteira num cookie assinado no navegador em vez da tabela
+# django_session -- sobrevive a reinícios/redeploys sem disco persistente,
+# desde que DJANGO_SECRET_KEY fique estável entre execuções (já exigido
+# acima quando DEBUG=False).
+SESSION_ENGINE = 'django.contrib.sessions.backends.signed_cookies'
+
 ROOT_URLCONF = 'core.urls'
 
 TEMPLATES = [

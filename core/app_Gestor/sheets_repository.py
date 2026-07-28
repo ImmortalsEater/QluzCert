@@ -19,6 +19,7 @@ _TAB_PREFIXES = {
     'Parceiros': 'PAR',
     'Precos': 'PRC',
     'Contatos': 'CTT',
+    'Usuarios': 'USR',
 }
 
 _service = None
