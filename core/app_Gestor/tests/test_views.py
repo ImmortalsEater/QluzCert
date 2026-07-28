@@ -153,10 +153,12 @@ class BuildAlertPayloadTests(ListRowsPatchMixin, SimpleTestCase):
         self.assertEqual(payload['counts']['alertas_totais'], 0)
 
     def test_counts_total_and_emitidos_reflect_the_sheet(self):
+        # "Emitidos" reflete o status do funil (o que o Kanban realmente
+        # atualiza), não o campo certificado_feito -- ver _build_alert_payload.
         self.patch_list_rows({'Clientes': [
-            _clientes_fixture(id='CLI-1', certificado_feito='Sim'),
-            _clientes_fixture(id='CLI-2', certificado_feito='Não'),
-            _clientes_fixture(id='CLI-3', certificado_feito=''),
+            _clientes_fixture(id='CLI-1', status='Emitido'),
+            _clientes_fixture(id='CLI-2', status='Aguardando Pagamento'),
+            _clientes_fixture(id='CLI-3', status='Novo Lead'),
         ]})
 
         payload = views._build_alert_payload()
