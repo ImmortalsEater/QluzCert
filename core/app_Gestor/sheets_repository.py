@@ -6,13 +6,19 @@ from datetime import datetime, timezone
 from django.conf import settings
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+
+# Erros transitórios do Sheets (rate limit / instabilidade momentânea do
+# servidor) que vale a pena tentar de novo em vez de falhar na primeira.
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 _TAB_PREFIXES = {
     'Clientes': 'CLI',
     'Parceiros': 'PAR',
     'Precos': 'PRC',
+    'Contatos': 'CTT',
 }
 
 _service = None
@@ -36,6 +42,24 @@ def _get_service():
     creds = service_account.Credentials.from_service_account_file(creds_path, scopes=SCOPES)
     _service = build('sheets', 'v4', credentials=creds)
     return _service
+
+
+def _execute_with_retry(request, max_retries=3, base_delay=1):
+    """Executa uma requisição da API do Sheets com retry exponencial (1s, 2s,
+    4s) para erros transitórios (429/5xx). Sem isso, qualquer pico de uso
+    (vários usuários salvando ao mesmo tempo, dashboard recarregando
+    alertas) virava um 500 pro usuário na primeira instabilidade momentânea,
+    sem nenhuma tentativa de recuperação."""
+    attempt = 0
+    while True:
+        try:
+            return request.execute()
+        except HttpError as e:
+            status = getattr(e.resp, 'status', None)
+            attempt += 1
+            if status not in _RETRYABLE_STATUS_CODES or attempt > max_retries:
+                raise
+            time.sleep(base_delay * (2 ** (attempt - 1)))
 
 
 def _now_iso():
@@ -77,10 +101,10 @@ def invalidate_cache(tab=None):
 def _read_tab(tab):
     """Leitura sempre fresca (sem cache) da aba inteira. Retorna (header, rows)."""
     service = _get_service()
-    result = service.spreadsheets().values().get(
+    result = _execute_with_retry(service.spreadsheets().values().get(
         spreadsheetId=settings.GOOGLE_SHEET_ID,
         range=tab,
-    ).execute()
+    ))
     values = result.get('values', [])
     if not values:
         return [], []
@@ -129,13 +153,13 @@ def create_row(tab, fields):
     values = [full.get(col, '') for col in header]
 
     service = _get_service()
-    service.spreadsheets().values().append(
+    _execute_with_retry(service.spreadsheets().values().append(
         spreadsheetId=settings.GOOGLE_SHEET_ID,
         range=tab,
         valueInputOption='USER_ENTERED',
         insertDataOption='INSERT_ROWS',
         body={'values': [values]},
-    ).execute()
+    ))
     _invalidate(tab)
     return full
 
@@ -155,19 +179,19 @@ def update_row(tab, row_id, fields, expected_atualizado_em=None):
     last_col = _col_letter(len(header) - 1)
 
     service = _get_service()
-    service.spreadsheets().values().update(
+    _execute_with_retry(service.spreadsheets().values().update(
         spreadsheetId=settings.GOOGLE_SHEET_ID,
         range=f"{tab}!A{sheet_row}:{last_col}{sheet_row}",
         valueInputOption='USER_ENTERED',
         body={'values': [values]},
-    ).execute()
+    ))
     _invalidate(tab)
     return merged
 
 
 def _get_sheet_id_by_title(tab):
     service = _get_service()
-    meta = service.spreadsheets().get(spreadsheetId=settings.GOOGLE_SHEET_ID).execute()
+    meta = _execute_with_retry(service.spreadsheets().get(spreadsheetId=settings.GOOGLE_SHEET_ID))
     for sheet in meta.get('sheets', []):
         props = sheet.get('properties', {})
         if props.get('title') == tab:
@@ -182,7 +206,7 @@ def delete_row(tab, row_id):
 
     sheet_id = _get_sheet_id_by_title(tab)
     service = _get_service()
-    service.spreadsheets().batchUpdate(
+    _execute_with_retry(service.spreadsheets().batchUpdate(
         spreadsheetId=settings.GOOGLE_SHEET_ID,
         body={
             'requests': [{
@@ -196,5 +220,5 @@ def delete_row(tab, row_id):
                 }
             }]
         },
-    ).execute()
+    ))
     _invalidate(tab)

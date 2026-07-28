@@ -38,8 +38,9 @@
     </div>
     <div class="nav-section">Principal</div>
     <div class="nav-item active" onclick="nav('dashboard')"><i class="ti ti-layout-dashboard"></i>Dashboard</div>
-    <div class="nav-item" onclick="nav('clientes')"><i class="ti ti-users"></i>Clientes <span class="nav-badge" id="alert-badge" style="display:none">!</span></div>
     <div class="nav-item" onclick="nav('funil')"><i class="ti ti-layout-kanban"></i>Funil de Atendimento</div>
+    <div class="nav-item" onclick="nav('clientes')"><i class="ti ti-users"></i>Clientes <span class="nav-badge" id="alert-badge" style="display:none">!</span></div>
+    <div class="nav-item" onclick="nav('planilha')"><i class="ti ti-table"></i>Planilha</div>
     <div class="nav-section">Operacional</div>
     <div class="nav-item" onclick="nav('renovacoes')"><i class="ti ti-bell"></i>Renovações <span class="nav-badge" id="ren-badge">0</span></div>
     <div class="nav-item" onclick="nav('pagamentos')"><i class="ti ti-cash"></i>Pagamentos <span class="nav-badge" id="pag-badge">0</span></div>
@@ -52,17 +53,7 @@
   <div id="main">
     <div class="topbar">
       <span class="topbar-title" id="page-title">Dashboard</span>
-      <div class="topbar-actions" id="topbar-actions">
-        <div class="save-dropdown" style="position:relative;display:inline-block">
-          <button class="btn btn-sm" id="save-main-btn"><i class="ti ti-device-floppy"></i> Salvar <i class="ti ti-chevron-down" style="margin-left:6px;font-size:12px"></i></button>
-          <div id="save-menu" style="position:absolute;right:0;top:36px;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,0.06);display:none;min-width:180px;padding:8px;z-index:60">
-            <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px" id="save-local-btn">Salvar localmente</button>
-            <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px;margin-top:6px" id="save-cloud-btn">Salvar na nuvem</button>
-            <button class="btn" style="display:block;width:100%;text-align:left;padding:8px;border-radius:6px;margin-top:6px" id="export-btn">Exportar (.xlsx)</button>
-          </div>
-        </div>
-        <span id="save-status" style="margin-left:12px;font-size:13px;color:var(--muted)"></span>
-      </div>
+      <div class="topbar-actions" id="topbar-actions"></div>
     </div>
     <div id="content">
 
@@ -85,7 +76,7 @@
         </div>
       </div>
 
-      <!-- CLIENTES -->
+      <!-- CLIENTES (visão enxuta, informações mais importantes) -->
       <div id="view-clientes" class="view">
         <div class="section-actions">
           <div class="search-box">
@@ -93,14 +84,41 @@
             <label for="search-cliente" class="sr-only">Buscar cliente por nome, CPF, CNPJ, email ou telefone</label>
             <input type="text" id="search-cliente" placeholder="Buscar por nome, CPF ou CNPJ...">
           </div>
-          <button class="btn btn-quaternary" id="atualizar-planilha-btn" onclick="atualizarPlanilha()"><i class="ti ti-refresh"></i>Atualizar agora</button>
+          <select id="filter-status-clientes" style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface)">
+            <option value="">Todos os status</option>
+            <option>Novo Lead</option><option>Documentação Pendente</option><option>Aguardando Pagamento</option><option>Agendado para Vídeo</option><option>Emitido</option>
+          </select>
           <button class="btn btn-secondary" onclick="openModal('novoCliente', null, this)"><i class="ti ti-plus" aria-hidden="true"></i>Novo Cliente</button>
         </div>
         <div class="table-wrap">
           <div class="table-header" style="position:relative">
+            <h3><i class="ti ti-users"></i>Clientes</h3>
+            <span id="clientes-simples-count" class="result-count" aria-live="polite"></span>
+          </div>
+          <div class="table-scroll">
+            <table class="google-drive-table" id="clientes-simples-table">
+              <thead><tr>
+                <th>Cliente</th><th>Telefone</th><th>Status</th><th>Tipo de Certificado</th><th>Vencimento</th><th>Parceiro</th><th>Ações</th>
+              </tr></thead>
+              <tbody id="clientes-simples-tbody"></tbody>
+            </table>
+          </div>
+          <div id="clientes-simples-no-match" class="empty-state" style="display:none"><i class="ti ti-search-off"></i><p id="clientes-simples-empty-msg">Nenhum cliente cadastrado na planilha ainda.</p></div>
+          <div id="clientes-simples-pagination" class="pagination"></div>
+        </div>
+      </div>
+
+      <!-- PLANILHA (todas as colunas da planilha do Google Drive) -->
+      <div id="view-planilha" class="view">
+        <div class="table-wrap">
+          <div class="table-header" style="position:relative">
             <h3><i class="ti ti-table"></i>Planilha Importada do Google Drive</h3>
             <span id="planilha-count" class="result-count" aria-live="polite"></span>
-            <div class="column-selector-dropdown" style="margin-left:auto;position:relative">
+            <select id="filter-status" style="margin-left:auto;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface)">
+              <option value="">Todos os status</option>
+              <option>Novo Lead</option><option>Documentação Pendente</option><option>Aguardando Pagamento</option><option>Agendado para Vídeo</option><option>Emitido</option>
+            </select>
+            <div class="column-selector-dropdown" style="position:relative">
               <button type="button" class="btn btn-sm" id="column-selector-toggle"><i class="ti ti-columns"></i>Colunas <i class="ti ti-chevron-down chevron" style="margin-left:4px;font-size:11px"></i></button>
               <div class="column-selector-panel" id="column-selector-panel">
                 <label class="column-toggle-label"><input type="checkbox" id="column-toggle-all"> <strong>Selecionar todas</strong></label>
@@ -125,8 +143,10 @@
                     {% endfor %}
                     <td>
 
-                      <a class="btn btn-sm btn-edit" href="{% url 'editar_google_row' row.id %}"><i class="ti ti-pencil"></i>Editar</a>
-                      <a class="btn btn-sm btn-edit" href="{% url 'documentos_cliente' row.id %}"><i class="ti ti-folder"></i>Documentos</a>
+                      <div class="row-actions">
+                        <a class="btn btn-sm btn-edit" href="{% url 'editar_google_row' row.id %}" onclick="event.preventDefault(); navigateIfExists('{{ row.id }}', this.href);" title="Editar" aria-label="Editar"><i class="ti ti-pencil"></i></a>
+                        <button type="button" class="btn btn-sm action-menu-trigger" onclick="openRowActionMenu(event, '{{ row.id }}')" aria-haspopup="true" aria-label="Mais ações"><i class="ti ti-dots-vertical"></i></button>
+                      </div>
                     </td>
                   </tr>
                 {% endfor %}
@@ -136,34 +156,13 @@
           <div id="planilha-no-match" class="empty-state"{% if google_rows %} style="display:none"{% endif %}><i class="ti ti-search-off"></i><p id="planilha-empty-msg">Nenhum cliente cadastrado na planilha ainda.</p></div>
           <div id="planilha-pagination" class="pagination"></div>
         </div>
-        <div class="table-wrap">
-          <div class="table-header" style="justify-content:space-between;flex-wrap:wrap">
-            <h3><i class="ti ti-users"></i>Clientes Cadastrados</h3>
-            <div style="display:flex;align-items:center;gap:10px">
-              <span id="clientes-count" class="result-count" aria-live="polite"></span>
-              <select id="filter-status" style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface)">
-                <option value="">Todos os status</option>
-                <option>Novo Lead</option><option>Documentação Pendente</option><option>Aguardando Pagamento</option><option>Agendado para Vídeo</option><option>Emitido</option>
-              </select>
-            </div>
-          </div>
-          <div class="table-scroll">
-            <table>
-              <thead><tr>
-                <th>Cliente</th><th>CPF/CNPJ</th><th>Tipo Cert.</th><th>Status</th><th>Parceiro</th><th>Vencimento</th><th>Ações</th></tr></thead>
-              <tbody id="clientes-tbody"></tbody>
-            </table>
-          </div>
-          <div id="clientes-empty" class="empty-state" style="display:none"><i class="ti ti-users"></i><p>Nenhum cliente encontrado.</p></div>
-          <div id="clientes-pagination" class="pagination"></div>
-        </div>
       </div>
 
       <!-- FUNIL KANBAN -->
       <div id="view-funil" class="view">
         <div class="section-actions">
-          <button class="btn btn-primary" onclick="openModal('cliente')"><i class="ti ti-plus"></i>Novo Lead</button>
-          <span style="font-size:12px;color:var(--muted);margin-left:4px">Arraste mentalmente os cards ou clique para editar o status</span>
+          <button class="btn btn-primary" onclick="openModal('novoCliente', null, this)"><i class="ti ti-plus"></i>Novo Lead</button>
+          <span style="font-size:12px;color:var(--muted);margin-left:4px">Arraste os cards entre as colunas ou use o seletor para mudar o status</span>
         </div>
         <div class="kanban" id="kanban-board"></div>
       </div>
@@ -253,6 +252,16 @@
   <div class="modal" id="detail-box" style="max-width:780px"></div>
 </div>
 
+<!-- MODAL DE CONFIRMAÇÃO GENÉRICO (substitui window.confirm nativo) -->
+<div class="modal-overlay" id="confirm-overlay" style="z-index:200" onclick="_confirmBackdropClick(event)">
+  <div class="modal" id="confirm-box" style="max-width:420px"></div>
+</div>
+
+<!-- MENU DE AÇÕES DA LINHA (Planilha/Clientes) -- elemento único reaproveitado
+     por todas as linhas via JS, posicionado com position:fixed para não ser
+     cortado pelo overflow:hidden/auto das tabelas (ver openRowActionMenu). -->
+<div id="action-menu-dropdown" class="action-menu-dropdown" role="menu"></div>
+
 <!-- OVERLAY EXPORTAÇÃO -->
 <div id="export-overlay">
   <div class="export-box">
@@ -265,15 +274,41 @@
   window.INITIAL_CLIENTES = {{ initial_clientes_json|default:'[]'|safe }};
   window.INITIAL_PARCEIROS = {{ initial_parceiros_json|default:'[]'|safe }};
   window.INITIAL_PRECOS = {{ initial_precos_json|default:'[]'|safe }};
+  window.INITIAL_LEADS = {{ initial_leads_json|default:'[]'|safe }};
+  window.INITIAL_NOTIFICACOES = {{ initial_notificacoes_json|default:'[]'|safe }};
   window.INITIAL_ALERTS = {{ initial_alerts_json|default:'{}'|safe }};
-  // Nova linha que puxa o faturamento exato da tabela
-  window.INITIAL_FATURAMENTO = {{ faturamento_recebido_json|default:'0'|safe }};
 </script>
-<script src="{% static 'js/cert_manager.js' %}"></script>
+<script src="{% static 'js/cert_manager.core.js' %}"></script>
+<script src="{% static 'js/cert_manager.clientes.js' %}"></script>
+<script src="{% static 'js/cert_manager.kanban.js' %}"></script>
+<script src="{% static 'js/cert_manager.renovacoes.js' %}"></script>
+<script src="{% static 'js/cert_manager.parceiros.js' %}"></script>
+<script src="{% static 'js/cert_manager.precos.js' %}"></script>
+<script src="{% static 'js/cert_manager.documentos.js' %}"></script>
+<script src="{% static 'js/cert_manager.modais.js' %}"></script>
+<script src="{% static 'js/cert_manager.pagamentos_contatos.js' %}"></script>
+<script src="{% static 'js/cert_manager.dashboard.js' %}"></script>
+<script src="{% static 'js/cert_manager.init.js' %}"></script>
 <script>
   document.addEventListener('DOMContentLoaded', function() {
     var columnToggles = document.querySelectorAll('.column-toggle');
     var toggleAll = document.getElementById('column-toggle-all');
+
+    // Aplica a preferência de colunas visíveis salva de uma sessão anterior,
+    // sobrepondo o default_visible vindo do servidor.
+    var savedCols = DB.get('colunas_visiveis');
+    if (savedCols && typeof savedCols === 'object') {
+      columnToggles.forEach(function(toggle) {
+        var col = toggle.dataset.col;
+        if (Object.prototype.hasOwnProperty.call(savedCols, col)) {
+          var show = !!savedCols[col];
+          toggle.checked = show;
+          document.querySelectorAll('.' + col).forEach(function(cell) {
+            cell.style.display = show ? '' : 'none';
+          });
+        }
+      });
+    }
 
     function syncToggleAll() {
       if (!toggleAll) return;
@@ -291,6 +326,9 @@
           cell.style.display = show ? '' : 'none';
         });
         syncToggleAll();
+        var current = DB.get('colunas_visiveis') || {};
+        current[col] = show;
+        DB.set('colunas_visiveis', current);
       });
     });
 
@@ -312,6 +350,11 @@
     if (columnToggleBtn && columnPanel) {
       columnToggleBtn.addEventListener('click', function(e) {
         e.stopPropagation();
+        // Só um popover flutuante aberto por vez: fecha o menu de ações
+        // da linha (⋮) antes de abrir/fechar este, já que cada um usa
+        // stopPropagation() no próprio clique e por isso nunca enxerga o
+        // listener global de fechamento do outro.
+        if (typeof closeActionMenu === 'function') closeActionMenu();
         columnPanel.classList.toggle('open');
       });
       document.addEventListener('click', function(e) {
@@ -324,10 +367,13 @@
     showDjangoMessages();
 
     var searchInput = document.getElementById('search-cliente');
-    var debouncedFilter = debounce(function(){ clientesPage = 1; planilhaPage = 1; renderClientes(); filterPlanilhaImportada(); }, 200);
-    if (searchInput) searchInput.addEventListener('input', debouncedFilter);
+    var debouncedFilterClientes = debounce(function(){ clientesPage = 1; renderClientesSimples(); }, 200);
+    if (searchInput) searchInput.addEventListener('input', debouncedFilterClientes);
+    var statusFilterClientes = document.getElementById('filter-status-clientes');
+    if (statusFilterClientes) statusFilterClientes.addEventListener('change', function(){ clientesPage = 1; renderClientesSimples(); });
+
     var statusFilter = document.getElementById('filter-status');
-    if (statusFilter) statusFilter.addEventListener('change', function(){ clientesPage = 1; renderClientes(); });
+    if (statusFilter) statusFilter.addEventListener('change', function(){ planilhaPage = 1; filterPlanilhaImportada(); });
 
     var initialTab = (location.hash || '').replace('#', '');
     if (initialTab && document.getElementById('view-' + initialTab)) {

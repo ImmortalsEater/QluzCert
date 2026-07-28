@@ -53,7 +53,7 @@
   #app{display:flex;flex:1;min-height:600px}
   
   /* SIDEBAR */
-  #sidebar{width:var(--sidebar-w);background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+  #sidebar{width:var(--sidebar-w);height:100vh;position:sticky;top:0;overflow-y:auto;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
   .sidebar-logo{padding:16px;border-bottom:1px solid var(--border)}
   .logo-txt{font-size:13px;font-weight:700;color:var(--accent);letter-spacing:.5px}
   .logo-sub{font-size:10px;color:var(--muted);margin-top:1px}
@@ -110,6 +110,22 @@
   .column-selector-panel::-webkit-scrollbar-thumb:hover{background:var(--border-strong)}
   .chevron{transition:transform 150ms ease}
   .column-selector-dropdown:has(.column-selector-panel.open) .chevron{transform:rotate(180deg)}
+
+  /* Ações da linha: só Editar fica visível; Documentos/Histórico/Excluir
+     ficam atrás do botão "⋮" (ver openRowActionMenu em cert_manager.core.js).
+     gap:8px garante que a área de toque de 40x40 de cada botão (ver
+     .table-wrap .btn::after) não se sobreponha à do vizinho. */
+  .row-actions{display:inline-flex;align-items:center;gap:8px}
+  #action-menu-dropdown{position:fixed;display:none;flex-direction:column;gap:2px;padding:4px;min-width:180px;background:var(--surface);border-radius:12px;box-shadow:0 1px 1px rgba(0,0,0,.04),0 4px 8px rgba(0,0,0,.06),0 16px 32px rgba(0,0,0,.10);z-index:60}
+  #action-menu-dropdown.open{display:flex}
+  .action-menu-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;font-size:13px;font-family:inherit;color:var(--text);background:none;border:none;text-decoration:none;cursor:pointer;text-align:left;width:100%;transition:background-color 120ms ease}
+  .action-menu-item:hover{background:var(--surface-alt)}
+  .action-menu-item i{font-size:15px;color:var(--muted);width:16px;text-align:center}
+  .action-menu-item-danger{color:var(--danger)}
+  .action-menu-item-danger i{color:var(--danger)}
+  .action-menu-item-danger:hover{background:var(--danger-bg)}
+  .action-menu-divider{height:1px;background:var(--border-strong);margin:4px 6px}
+
   table{width:100%;border-collapse:collapse}
   thead th{background:var(--surface-alt);padding:10px 16px;text-align:left;font-size:11px;font-weight:700;color:var(--muted-strong);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
   tbody tr{border-bottom:1px solid var(--border);transition:background-color 120ms ease}
@@ -174,13 +190,18 @@
   
   /* KANBAN */
   .kanban{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;align-items:start}
-  .kanban-col{background:var(--bg);border-radius:10px;padding:10px}
+  .kanban-col{background:var(--bg);border-radius:10px;padding:10px;transition:background-color .15s;min-height:100vh}
+  .kanban-col.drag-over{background:var(--accent-light)}
   .kanban-col-head{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
-  .kanban-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;cursor:pointer;transition:all .15s}
+  .kanban-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;transition:all .15s;cursor:grab}
   .kanban-card:hover{border-color:var(--border-strong);transform:translateY(-1px)}
+  .kanban-card.dragging{opacity:.5;cursor:grabbing}
+  .kanban-card.drag-over-top{border-top:2px solid var(--accent)}
+  .kanban-card.drag-over-bottom{border-bottom:2px solid var(--accent)}
   .kanban-card-name{font-size:13px;font-weight:600;margin-bottom:4px}
   .kanban-card-sub{font-size:11px;color:var(--muted)}
   .kanban-card-footer{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+  .kanban-status-select{width:100%;margin-top:8px;padding:5px 8px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--surface);color:var(--text);font-family:inherit}
   
   /* ALERTS */
   .alert-list{display:flex;flex-direction:column;gap:8px}
@@ -193,18 +214,7 @@
   .alert-info{flex:1}
   .alert-name{font-size:13px;font-weight:600}
   .alert-detail{font-size:12px;color:var(--muted);margin-top:2px}
-  
-  /* TRIAGEM */
-  .triagem-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;max-width:480px}
-  .triagem-q{font-size:15px;font-weight:600;margin-bottom:14px}
-  .triagem-opts{display:flex;flex-direction:column;gap:8px}
-  .triagem-opt{padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;transition:all .15s;font-size:13px}
-  .triagem-opt:hover{border-color:var(--accent);background:var(--accent-light)}
-  .triagem-opt.selected{border-color:var(--accent);background:var(--accent-light);color:var(--accent);font-weight:600}
-  .triagem-result{background:var(--success-bg);border:1px solid var(--success);border-radius:8px;padding:14px;margin-top:14px;font-size:13px;color:var(--success);font-weight:600}
-  .triagem-result.warn{background:var(--warn-bg);border-color:var(--warn);color:var(--warn)}
-  .triagem-result.info{background:var(--info-bg);border-color:var(--info);color:var(--info)}
-  
+
   /* SEARCH */
   .search-box{display:flex;align-items:center;min-height:40px;border:1px solid var(--border);border-radius:7px;background:var(--surface);overflow:hidden;flex:1;max-width:300px}
   .search-box i{padding:0 10px;color:var(--muted);font-size:16px}
@@ -219,10 +229,6 @@
   .detail-row:last-child{border-bottom:none}
   .detail-row .lbl{color:var(--muted)}
   .detail-row .val{font-weight:500}
-  
-  .kit-box{background:var(--teal-bg);border:1px solid var(--teal);border-radius:8px;padding:14px;margin-top:10px}
-  .kit-box .kit-label{font-size:11px;font-weight:700;color:var(--teal);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
-  .kit-box .kit-row{font-size:13px;color:var(--text);margin-bottom:4px;word-break:break-all}
   
   .progress-steps{display:flex;align-items:center;gap:0;margin:12px 0}
   .step{flex:1;text-align:center;font-size:10px;padding:6px 4px;background:var(--bg);border:1px solid var(--border);color:var(--muted);font-weight:600;position:relative}

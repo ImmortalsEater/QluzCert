@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from .models import DocumentoCliente, PagamentoCliente
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
@@ -20,9 +20,19 @@ from .parsing import parse_date, parse_decimal, bool_from
 import io
 import pandas as pd
 from django.http import HttpResponse
-from django.db.models import Sum, Q
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_json_dumps(obj):
+    """json.dumps escapando '<', '>' e '&' como \\uXXXX -- continua JSON
+    válido (esses escapes funcionam dentro de qualquer string JSON), mas
+    impede que um valor vindo da planilha (ex: nome de cliente contendo
+    "</script><script>...") feche a tag <script> onde este JSON é embutido
+    em dashboard.html e injete HTML/JS arbitrário no dashboard."""
+    dumped = json.dumps(obj, default=str)
+    return dumped.replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
+
 
 # Traduz nomes técnicos de coluna (vindos direto do cabeçalho da planilha do
 # Google Drive) para rótulos legíveis. Chave = nome do campo normalizado
@@ -37,7 +47,6 @@ FRIENDLY_COLUMN_LABELS = {
     'telefone': 'Telefone',
     'email': 'E-mail',
     'parceiroid': 'Parceiro',
-    'origem': 'Origem',
     'status': 'Status',
     'obs': 'Observações',
     'tipocert': 'Tipo de Certificado',
@@ -46,13 +55,6 @@ FRIENDLY_COLUMN_LABELS = {
     'valorcobrado': 'Valor Cobrado',
     'formapag': 'Forma de Pagamento',
     'pago': 'Pago',
-    'tipovalidacao': 'Tipo de Validação',
-    'datavideo': 'Data do Vídeo',
-    'solutilink': 'Link Soluti',
-    'solutichave': 'Chave Soluti',
-    'kitdestinatario': 'Destinatário do Kit',
-    'kitenviado': 'Kit Enviado',
-    'triagem': 'Triagem',
 }
 
 def _normalize_field_key(field_name):
@@ -71,12 +73,16 @@ def _annotate_columns(cols):
     return annotated
 
 
+STATUS_OPCOES = ['Novo Lead', 'Documentação Pendente', 'Aguardando Pagamento', 'Agendado para Vídeo', 'Emitido']
+
+
 CLIENTES_COLUMNS = [
     {'label':'Data da Venda','field':'data_venda','class':'col-data-venda'},
     {'label':'Contador/Parceiro','field':'contador_parceiro','class':'col-contador-parceiro'},
     {'label':'Contador/Contabilidade','field':'contador_contabilidade','class':'col-contador-contabilidade'},
     {'label':'Telefone','field':'telefone1','class':'col-telefone1'},
     {'label':'Cliente','field':'cliente','class':'col-cliente'},
+    {'label':'Status','field':'status','class':'col-status'},
     {'label':'CPF/CNPJ','field':'cpf_cnpj','class':'col-cpf-cnpj'},
     {'label':'email','field':'email','class':'col-email'},
     {'label':'Telefone2','field':'telefone2','class':'col-telefone2'},
@@ -98,6 +104,7 @@ CLIENTES_COLUMNS = [
 ]
 
 _DATE_FIELDS = {'data_venda', 'data_vencimento'}
+_DATETIME_FIELDS = {'atualizado_em'}
 _DECIMAL_FIELDS = {'valor_venda', 'percentual_comissao', 'valor_comissao', 'custo_certificado', 'valor_liquido'}
 _BOOL_FIELDS = {'pago_comissao', 'pago_venda'}
 
@@ -108,6 +115,12 @@ def _format_sheet_cell_value(field, raw):
     if field in _DATE_FIELDS:
         parsed = parse_date(raw)
         return parsed.strftime('%d/%m/%Y') if parsed else raw
+    if field in _DATETIME_FIELDS:
+        try:
+            parsed_dt = datetime.fromisoformat(str(raw))
+            return parsed_dt.strftime('%d/%m/%Y %H:%M')
+        except Exception:
+            return raw
     if field in _DECIMAL_FIELDS:
         parsed = parse_decimal(raw)
         return f"{parsed:.2f}".replace('.', ',') if parsed is not None else raw
@@ -145,8 +158,12 @@ def _build_alert_payload():
     pagamentos_urgentes = []
     pagamentos_normais = []
 
-    rows = sheets_repository.list_rows('Clientes')
-    emitidos = sum(1 for row in rows if bool_from(row.get('certificado_feito')))
+    rows = [r for r in sheets_repository.list_rows('Clientes') if r.get('id')]
+    # "Emitidos" conta pelo status do funil (o que o usuário de fato move no
+    # Kanban), não pelo campo certificado_feito -- esse campo só é editável
+    # manualmente na página de edição completa e na prática nunca é marcado
+    # quando o card é movido para "Emitido" no funil, subcontando o card.
+    emitidos = sum(1 for row in rows if (row.get('status') or '') == 'Emitido')
     vencendo_60_dias = 0
 
     def _base_payload(row, dias_restantes, vencimento):
@@ -204,6 +221,10 @@ def _build_alert_payload():
         'renovacoes_normais': len(renovacoes_normais),
         'pagamentos_urgentes': len(pagamentos_urgentes),
         'pagamentos_normais': len(pagamentos_normais),
+        # Incluído aqui (não só no contexto inicial da DashboardView) para
+        # que syncBackendAlertCounts() também atualize o card de faturamento
+        # ao consultar /alertas/, e não só no primeiro carregamento da página.
+        'faturamento_recebido': _build_faturamento_recebido(),
     }
     counts['alertas_totais'] = (
         counts['renovacoes_urgentes']
@@ -219,6 +240,21 @@ def _build_alert_payload():
     }
 
 
+def _build_faturamento_recebido():
+    """Soma valor_venda das linhas da planilha 'Clientes' cujo pago_venda é
+    verdadeiro. Faturamento é sempre calculado a partir da fonte de dados
+    real (Sheets), não da tabela PagamentoCliente (que reflete só os
+    pagamentos processados via Mercado Pago, um subconjunto)."""
+    total = 0.0
+    for row in sheets_repository.list_rows('Clientes'):
+        if not bool_from(row.get('pago_venda')):
+            continue
+        valor = parse_decimal(row.get('valor_venda'))
+        if valor is not None:
+            total += float(valor)
+    return total
+
+
 def _build_parceiros_from_source():
     parceiros = []
     for row in sheets_repository.list_rows('Parceiros'):
@@ -230,6 +266,7 @@ def _build_parceiros_from_source():
             'email': row.get('email', ''),
             'comissao': parse_decimal(row.get('comissao')),
             'contato': row.get('contato', ''),
+            'atualizadoEm': row.get('atualizado_em', ''),
         })
     return parceiros
 
@@ -242,12 +279,60 @@ def _build_precos_from_source():
             'tipo': row.get('tipo', ''),
             'validade': row.get('validade', ''),
             'preco': parse_decimal(row.get('preco')),
+            'atualizadoEm': row.get('atualizado_em', ''),
         })
     return precos
 
 
+def _build_clientes_leads_from_sheets():
+    leads = []
+    for row in sheets_repository.list_rows('Clientes'):
+        row_id = row.get('id', '')
+        if not row_id:
+            continue
+        vencimento = parse_date(row.get('data_vencimento'))
+        leads.append({
+            'id': row_id,
+            'nome': row.get('cliente', ''),
+            'cpfCnpj': row.get('cpf_cnpj', ''),
+            'status': row.get('status') or 'Novo Lead',
+            'tipoCert': row.get('tipo_certificado', ''),
+            'parceiro': row.get('contador_parceiro', ''),
+            'telefone': row.get('telefone1') or row.get('telefone2') or '',
+            'email': row.get('email', ''),
+            'dataVencimento': vencimento.isoformat() if vencimento else '',
+            'pago': bool_from(row.get('pago_venda')) or bool_from(row.get('pago_comissao')),
+            'atualizadoEm': row.get('atualizado_em', ''),
+        })
+    return leads
+
+
+def _build_notificacoes_recentes(limit=6):
+    clientes_by_id = {row.get('id'): row for row in sheets_repository.list_rows('Clientes')}
+    notificacoes = [row for row in sheets_repository.list_rows('Contatos') if row.get('tipo') == 'notificacao']
+    notificacoes.sort(key=lambda row: row.get('atualizado_em', ''), reverse=True)
+
+    result = []
+    for row in notificacoes[:limit]:
+        cliente = clientes_by_id.get(row.get('cliente_id'), {})
+        result.append({
+            'id': row.get('id', ''),
+            'clienteId': row.get('cliente_id', ''),
+            'nome': cliente.get('cliente') or 'Cliente removido',
+            'titulo': row.get('titulo') or 'Notificação',
+            'texto': row.get('texto', ''),
+            'data': row.get('data') or row.get('atualizado_em', ''),
+        })
+    return result
+
+
 def alertas_dashboard(request):
     return JsonResponse(_build_alert_payload())
+
+
+def verificar_registro_existe(request, pk):
+    existe = sheets_repository.get_row('Clientes', pk) is not None
+    return JsonResponse({'existe': existe})
 
 
 @require_POST
@@ -256,6 +341,52 @@ def atualizar_planilha(request):
     cache em memória e buscar dados frescos direto da API do Google Sheets."""
     sheets_repository.invalidate_cache()
     return JsonResponse({'success': True})
+
+
+@require_POST
+def atualizar_status_cliente(request, pk):
+    novo_status = (request.POST.get('status') or '').strip()
+    if not novo_status:
+        return JsonResponse({'error': 'Informe o novo status.'}, status=400)
+
+    expected_atualizado_em = request.POST.get('expected_atualizado_em') or None
+    try:
+        atualizado = sheets_repository.update_row(
+            'Clientes', pk, {'status': novo_status},
+            expected_atualizado_em=expected_atualizado_em,
+        )
+        return JsonResponse({'success': True, 'atualizado_em': atualizado.get('atualizado_em')})
+    except sheets_repository.ConcurrencyError:
+        return JsonResponse({'error': 'Este registro foi alterado por outra pessoa. Recarregue e tente novamente.'}, status=409)
+    except LookupError:
+        return JsonResponse({'error': 'Registro não encontrado na planilha.'}, status=404)
+    except Exception as e:
+        logger.exception('Falha ao atualizar status do cliente %s', pk)
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+_DETALHE_EDITAVEL_FIELDS = {'cliente', 'telefone1', 'email', 'contador_parceiro', 'tipo_certificado', 'data_vencimento'}
+
+
+@require_POST
+def atualizar_detalhe_cliente(request, pk):
+    fields = {k: v for k, v in request.POST.items() if k in _DETALHE_EDITAVEL_FIELDS}
+    if 'cliente' in fields and not fields['cliente'].strip():
+        return JsonResponse({'error': 'Informe o nome do cliente.'}, status=400)
+
+    expected_atualizado_em = request.POST.get('expected_atualizado_em') or None
+    try:
+        atualizado = sheets_repository.update_row(
+            'Clientes', pk, fields, expected_atualizado_em=expected_atualizado_em,
+        )
+        return JsonResponse({'success': True, 'atualizado_em': atualizado.get('atualizado_em')})
+    except sheets_repository.ConcurrencyError:
+        return JsonResponse({'error': 'Este registro foi alterado por outra pessoa. Recarregue e tente novamente.'}, status=409)
+    except LookupError:
+        return JsonResponse({'error': 'Registro não encontrado na planilha.'}, status=404)
+    except Exception as e:
+        logger.exception('Falha ao atualizar detalhe do cliente %s', pk)
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 class LoginPreviewView(TemplateView):
@@ -282,16 +413,6 @@ class DashboardView(TemplateView):
             logger.exception('Falha ao carregar Clientes da planilha do Google Sheets')
             context['google_columns'], context['google_rows'] = _annotate_columns(CLIENTES_COLUMNS), []
 
-        # --- CORREÇÃO PRECISA: Soma o faturamento diretamente do banco onde pago_venda é True ---
-        from django.db.models import Sum
-
-        faturamento_db = ( PagamentoCliente.objects.filter(status=PagamentoCliente.STATUS_APPROVED).aggregate(total=Sum("valor"))["total"] or 0)
-        faturamento_total = float(faturamento_db)
-
-        import json
-        context['faturamento_recebido_json'] = json.dumps(faturamento_total, default=str)
-        # ----------------------------------------------------------------------------------------
-
         try:
             state = AppState.objects.filter(key='main').first()
             initial_clientes = state.data.get('clientes', []) if state and isinstance(state.data, dict) else []
@@ -309,6 +430,16 @@ class DashboardView(TemplateView):
             initial_precos = []
 
         try:
+            initial_leads = _build_clientes_leads_from_sheets()
+        except Exception:
+            initial_leads = []
+
+        try:
+            initial_notificacoes = _build_notificacoes_recentes()
+        except Exception:
+            initial_notificacoes = []
+
+        try:
             alertas = _build_alert_payload()
         except Exception:
             logger.exception('Falha ao montar alertas a partir da planilha do Google Sheets')
@@ -319,23 +450,31 @@ class DashboardView(TemplateView):
             }
 
         try:
-            context['initial_clientes_json'] = json.dumps(initial_clientes, default=str)
+            context['initial_clientes_json'] = _safe_json_dumps(initial_clientes)
         except Exception:
             context['initial_clientes_json'] = '[]'
         try:
-            context['initial_parceiros_json'] = json.dumps(initial_parceiros, default=str)
+            context['initial_parceiros_json'] = _safe_json_dumps(initial_parceiros)
         except Exception:
             context['initial_parceiros_json'] = '[]'
         try:
-            context['initial_precos_json'] = json.dumps(initial_precos, default=str)
+            context['initial_precos_json'] = _safe_json_dumps(initial_precos)
         except Exception:
             context['initial_precos_json'] = '[]'
         try:
-            context['initial_alerts_json'] = json.dumps(alertas, default=str)
+            context['initial_leads_json'] = _safe_json_dumps(initial_leads)
+        except Exception:
+            context['initial_leads_json'] = '[]'
+        try:
+            context['initial_notificacoes_json'] = _safe_json_dumps(initial_notificacoes)
+        except Exception:
+            context['initial_notificacoes_json'] = '[]'
+        try:
+            context['initial_alerts_json'] = _safe_json_dumps(alertas)
         except Exception:
             context['initial_alerts_json'] = '{}'
         try:
-            context['alert_counts_json'] = json.dumps(alertas.get('counts', {}), default=str)
+            context['alert_counts_json'] = _safe_json_dumps(alertas.get('counts', {}))
         except Exception:
             context['alert_counts_json'] = '{}'
             
@@ -346,24 +485,36 @@ def editar_google_row(request, pk):
         raise Http404('Registro não encontrado na planilha.')
 
     if request.method == 'POST':
-        fields = {}
+        nome = request.POST.get('cliente', '').strip()
+        if not nome:
+            messages.error(request, 'Informe o nome do cliente.')
+            return redirect('editar_google_row', pk=pk)
 
-        cliente = request.POST.get('cliente')
-        if cliente:
-            fields['cliente'] = cliente
-
-        email = request.POST.get('email')
-        if email:
-            fields['email'] = email
-
-        valor_comissao = request.POST.get('valor_comissao')
-        if valor_comissao:
-            try:
-                fields['valor_comissao'] = str(float(valor_comissao.replace(',', '.')))
-            except ValueError:
-                pass
-
-        fields['pago_comissao'] = 'Sim' if request.POST.get('pago_comissao') in ['Sim', 'on', 'true', 'True'] else 'Não'
+        fields = {
+            'cliente': nome,
+            'status': request.POST.get('status', ''),
+            'cpf_cnpj': request.POST.get('cpf_cnpj', ''),
+            'email': request.POST.get('email', ''),
+            'telefone1': request.POST.get('telefone1', ''),
+            'telefone2': request.POST.get('telefone2', ''),
+            'contador_parceiro': request.POST.get('contador_parceiro', ''),
+            'contador_contabilidade': request.POST.get('contador_contabilidade', ''),
+            'tipo_certificado': request.POST.get('tipo_certificado', ''),
+            'forma_pagamento': request.POST.get('forma_pagamento', ''),
+            'banco': request.POST.get('banco', ''),
+            'chave_pix': request.POST.get('chave_pix', ''),
+            'data_venda': request.POST.get('data_venda', ''),
+            'data_vencimento': request.POST.get('data_vencimento', ''),
+            'valor_venda': request.POST.get('valor_venda', ''),
+            'percentual_comissao': request.POST.get('percentual_comissao', ''),
+            'valor_comissao': request.POST.get('valor_comissao', ''),
+            'pago_venda': request.POST.get('pago_venda', 'Não'),
+            'pago_comissao': request.POST.get('pago_comissao', 'Não'),
+            'certificado_feito': request.POST.get('certificado_feito', 'Não'),
+            'venda': request.POST.get('venda', ''),
+            'custo_certificado': request.POST.get('custo_certificado', ''),
+            'valor_liquido': request.POST.get('valor_liquido', ''),
+        }
 
         expected_atualizado_em = request.POST.get('expected_atualizado_em') or None
         try:
@@ -379,8 +530,36 @@ def editar_google_row(request, pk):
 
         return redirect(f"{reverse('dashboard')}#clientes")
 
-    registro_view = {**registro, 'pago_comissao': bool_from(registro.get('pago_comissao'))}
-    return render(request, 'google_edit.html', {'registro': registro_view})
+    registro_view = {
+        **registro,
+        'pago_comissao': bool_from(registro.get('pago_comissao')),
+        'pago_venda': bool_from(registro.get('pago_venda')),
+        'certificado_feito': bool_from(registro.get('certificado_feito')),
+    }
+    try:
+        parceiros = _build_parceiros_from_source()
+    except Exception:
+        parceiros = []
+    try:
+        precos = _build_precos_from_source()
+    except Exception:
+        precos = []
+
+    # Preserva o valor atual no <select> mesmo se não bater com nenhum
+    # parceiro/tipo cadastrado (nome digitado antes dessa mudança, ou
+    # cadastro removido depois) -- sem isso, salvar sem tocar no campo
+    # apagaria silenciosamente o valor.
+    if registro_view.get('contador_parceiro') and registro_view['contador_parceiro'] not in {p['nome'] for p in parceiros}:
+        parceiros = parceiros + [{'nome': registro_view['contador_parceiro']}]
+    if registro_view.get('tipo_certificado') and registro_view['tipo_certificado'] not in {p['tipo'] for p in precos}:
+        precos = precos + [{'tipo': registro_view['tipo_certificado'], 'validade': ''}]
+
+    return render(request, 'google_edit.html', {
+        'registro': registro_view,
+        'status_opcoes': STATUS_OPCOES,
+        'parceiros': parceiros,
+        'precos': precos,
+    })
 
 
 def criar_google_row(request):
@@ -395,6 +574,7 @@ def criar_google_row(request):
 
         fields = {
             'cliente': nome,
+            'status': request.POST.get('status', 'Novo Lead'),
             'cpf_cnpj': request.POST.get('cpf_cnpj', ''),
             'email': request.POST.get('email', ''),
             'telefone1': request.POST.get('telefone1', ''),
@@ -436,6 +616,82 @@ def criar_google_row(request):
     return render(request, 'google_create.html')
 
 
+@require_POST
+def cliente_excluir(request, pk):
+    try:
+        sheets_repository.delete_row('Clientes', pk)
+    except LookupError:
+        return JsonResponse({'error': 'Cliente não encontrado.'}, status=404)
+    except Exception as e:
+        logger.exception('Falha ao excluir cliente %s', pk)
+        return JsonResponse({'error': str(e)}, status=500)
+
+    # Cliente já foi removido da planilha nesse ponto -- limpa documentos de
+    # identidade (RG/CNH, selfie etc.) e pagamentos associados, que ficariam
+    # órfãos apontando para um cliente_ref que não existe mais em lugar
+    # nenhum. Falha aqui é só logada (não desfaz nem falha a exclusão em si,
+    # que já aconteceu de verdade na planilha).
+    try:
+        for documento in DocumentoCliente.objects.filter(cliente_ref=pk):
+            documento.arquivo.delete(save=False)
+            documento.delete()
+        PagamentoCliente.objects.filter(cliente_ref=pk).delete()
+    except Exception:
+        logger.exception('Cliente %s excluído da planilha, mas falhou ao limpar documentos/pagamentos associados', pk)
+
+    return JsonResponse({'success': True})
+
+
+def contatos_cliente_registro(request, pk):
+    cliente = sheets_repository.get_row('Clientes', pk)
+    if cliente is None:
+        return JsonResponse({'error': 'Cliente não encontrado na planilha.'}, status=404)
+
+    if request.method == 'GET':
+        contatos = [row for row in sheets_repository.list_rows('Contatos') if row.get('cliente_id') == pk]
+        contatos.sort(key=lambda row: row.get('atualizado_em', ''), reverse=True)
+        return JsonResponse({
+            'cliente': {
+                'nome': cliente.get('cliente', ''),
+                'telefone': cliente.get('telefone1') or cliente.get('telefone2') or '',
+                'email': cliente.get('email', ''),
+                'tipoCert': cliente.get('tipo_certificado', ''),
+            },
+            'contatos': contatos,
+        })
+
+    if request.method == 'POST':
+        tipo = request.POST.get('tipo', 'contato')
+        fields = {
+            'cliente_id': pk,
+            'tipo': tipo,
+            'data': request.POST.get('data', ''),
+            'canal': request.POST.get('canal', ''),
+            'resultado': request.POST.get('resultado', ''),
+            'produto': request.POST.get('produto', ''),
+            'agendamento': request.POST.get('agendamento', ''),
+            'titulo': request.POST.get('titulo', ''),
+            'texto': request.POST.get('texto', ''),
+            'status': request.POST.get('status', ''),
+        }
+        try:
+            registro = sheets_repository.create_row('Contatos', fields)
+        except Exception as e:
+            logger.exception('Falha ao registrar contato para o cliente %s', pk)
+            return JsonResponse({'error': str(e)}, status=500)
+
+        novo_status_funil = request.POST.get('novo_status_funil')
+        if novo_status_funil:
+            try:
+                sheets_repository.update_row('Clientes', pk, {'status': novo_status_funil})
+            except Exception:
+                logger.exception('Falha ao atualizar status do funil junto do contato %s', pk)
+
+        return JsonResponse({'success': True, 'id': registro.get('id')})
+
+    return HttpResponseBadRequest('Método não permitido')
+
+
 def parceiro_criar(request):
     if request.method != 'POST':
         return HttpResponseBadRequest('Método não permitido')
@@ -470,9 +726,12 @@ def parceiro_editar(request, id):
         if val is not None:
             fields[name] = val
 
+    expected_atualizado_em = request.POST.get('expected_atualizado_em') or None
     try:
-        sheets_repository.update_row('Parceiros', id, fields)
+        sheets_repository.update_row('Parceiros', id, fields, expected_atualizado_em=expected_atualizado_em)
         return JsonResponse({'success': True})
+    except sheets_repository.ConcurrencyError:
+        return JsonResponse({'error': 'Este parceiro foi alterado por outra pessoa. Recarregue e tente novamente.'}, status=409)
     except LookupError:
         return JsonResponse({'error': 'Parceiro não encontrado.'}, status=404)
     except Exception as e:
@@ -523,9 +782,12 @@ def preco_editar(request, id):
         if val is not None:
             fields[name] = val
 
+    expected_atualizado_em = request.POST.get('expected_atualizado_em') or None
     try:
-        sheets_repository.update_row('Precos', id, fields)
+        sheets_repository.update_row('Precos', id, fields, expected_atualizado_em=expected_atualizado_em)
         return JsonResponse({'success': True})
+    except sheets_repository.ConcurrencyError:
+        return JsonResponse({'error': 'Este preço foi alterado por outra pessoa. Recarregue e tente novamente.'}, status=409)
     except LookupError:
         return JsonResponse({'error': 'Preço não encontrado.'}, status=404)
     except Exception as e:
@@ -578,11 +840,33 @@ def app_state_download(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 
+def _validar_arquivo_documento(arquivo):
+    """Retorna uma mensagem de erro se o arquivo não passar nas regras de
+    upload (extensão/tamanho), ou None se estiver tudo certo. Compartilhado
+    entre upload_documento e documentos_cliente para não ter duas regras
+    divergentes (ou uma delas esquecida) validando a mesma coisa."""
+    extensoes_permitidas = getattr(settings, 'UPLOAD_DOCUMENTO_EXTENSOES_PERMITIDAS', ['.pdf', '.jpg', '.jpeg', '.png'])
+    tamanho_maximo_mb = getattr(settings, 'UPLOAD_DOCUMENTO_TAMANHO_MAXIMO_MB', 10)
+    tamanho_maximo_bytes = tamanho_maximo_mb * 1024 * 1024
+    ext = os.path.splitext(arquivo.name)[1].lower()
+
+    if ext not in extensoes_permitidas:
+        return f'Tipo de arquivo não permitido ("{ext}"). Use: {", ".join(extensoes_permitidas)}.'
+    if arquivo.size > tamanho_maximo_bytes:
+        return f'Arquivo muito grande. O limite é {tamanho_maximo_mb}MB.'
+    return None
+
+
 def upload_documento(request):
     if request.method == 'POST':
         arquivo = request.FILES.get('arquivo')
         if not arquivo:
             messages.error(request, 'Selecione um arquivo para envio.')
+            return redirect('upload_documento')
+
+        erro = _validar_arquivo_documento(arquivo)
+        if erro:
+            messages.error(request, erro)
             return redirect('upload_documento')
 
         cliente_ref = request.POST.get('cliente_ref', '').strip()
@@ -627,8 +911,8 @@ def documentos_cliente(request, pk):
                     'tipo_documento_display': doc.get_tipo_documento_display(),
                     'data_envio': doc.data_envio.isoformat() if doc.data_envio else '',
                     'tamanho_bytes': doc.tamanho_bytes,
-                    'download_url': f'/documentos/{doc.id}/download/',
-                    'delete_url': f'/documentos/{doc.id}/excluir/',
+                    'download_url': f'/planilha/{pk}/documentos/{doc.id}/download/',
+                    'delete_url': f'/planilha/{pk}/documentos/{doc.id}/excluir/',
                 }
                 for doc in documentos
             ],
@@ -642,17 +926,9 @@ def documentos_cliente(request, pk):
             messages.error(request, 'Selecione um arquivo antes de enviar.')
             return redirect('documentos_cliente', pk=pk)
 
-        extensoes_permitidas = getattr(settings, 'UPLOAD_DOCUMENTO_EXTENSOES_PERMITIDAS', ['.pdf', '.jpg', '.jpeg', '.png'])
-        tamanho_maximo_mb = getattr(settings, 'UPLOAD_DOCUMENTO_TAMANHO_MAXIMO_MB', 10)
-        tamanho_maximo_bytes = tamanho_maximo_mb * 1024 * 1024
-        ext = os.path.splitext(arquivo.name)[1].lower()
-
-        if ext not in extensoes_permitidas:
-            messages.error(request, f'Tipo de arquivo não permitido ("{ext}"). Use: {", ".join(extensoes_permitidas)}.')
-            return redirect('documentos_cliente', pk=pk)
-
-        if arquivo.size > tamanho_maximo_bytes:
-            messages.error(request, f'Arquivo muito grande. O limite é {tamanho_maximo_mb}MB.')
+        erro = _validar_arquivo_documento(arquivo)
+        if erro:
+            messages.error(request, erro)
             return redirect('documentos_cliente', pk=pk)
 
         DocumentoCliente.objects.create(
@@ -671,11 +947,15 @@ def documentos_cliente(request, pk):
         'registro': registro,
         'documentos': documentos,
         'tipos_documento': DocumentoCliente.TIPO_CHOICES,
+        'pk': pk,
     })
 
 
-def download_documento(request, doc_id):
-    documento = get_object_or_404(DocumentoCliente, pk=doc_id)
+def download_documento(request, pk, doc_id):
+    # cliente_ref=pk exigido aqui evita IDOR: sem essa checagem, doc_id
+    # (PK sequencial) sozinho deixaria baixar documento de identidade
+    # (RG/CNH, selfie) de qualquer cliente só variando o número na URL.
+    documento = get_object_or_404(DocumentoCliente, pk=doc_id, cliente_ref=pk)
     try:
         arquivo = documento.arquivo.open('rb')
     except FileNotFoundError:
@@ -684,9 +964,8 @@ def download_documento(request, doc_id):
 
 
 @require_POST
-def excluir_documento(request, doc_id):
-    documento = get_object_or_404(DocumentoCliente, pk=doc_id)
-    pk = documento.cliente_ref or documento.registro_id
+def excluir_documento(request, pk, doc_id):
+    documento = get_object_or_404(DocumentoCliente, pk=doc_id, cliente_ref=pk)
     documento.arquivo.delete(save=False)
     documento.delete()
     messages.success(request, 'Documento removido.')
@@ -777,7 +1056,12 @@ def _marcar_pagamento_aprovado(pagamento):
     planilha_pk = (pagamento.cliente_ref or '').strip()
     if planilha_pk:
         try:
-            sheets_repository.update_row('Clientes', planilha_pk, {'pago_venda': 'Sim'})
+            registro_atual = sheets_repository.get_row('Clientes', planilha_pk)
+            expected_atualizado_em = registro_atual.get('atualizado_em') if registro_atual else None
+            sheets_repository.update_row(
+                'Clientes', planilha_pk, {'pago_venda': 'Sim'},
+                expected_atualizado_em=expected_atualizado_em,
+            )
         except LookupError:
             pass
         except Exception:

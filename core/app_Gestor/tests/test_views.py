@@ -1,9 +1,10 @@
+import json
 import tempfile
 from datetime import date, timedelta
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, SimpleTestCase, TestCase, override_settings
+from django.test import Client, RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
 from core.app_Gestor import sheets_repository as repo
@@ -21,6 +22,7 @@ CLIENTE_ROW = {
     'contador_contabilidade': '',
     'telefone1': '(11) 99999-0000',
     'cliente': 'Ana Silva',
+    'status': 'Novo Lead',
     'cpf_cnpj': '111.222.333-44',
     'email': 'ana@example.com',
     'telefone2': '',
@@ -79,6 +81,9 @@ class FormatSheetCellValueTests(SimpleTestCase):
     def test_unknown_field_passes_through(self):
         self.assertEqual(views._format_sheet_cell_value('cliente', 'Ana Silva'), 'Ana Silva')
 
+    def test_status_field_passes_through(self):
+        self.assertEqual(views._format_sheet_cell_value('status', 'Emitido'), 'Emitido')
+
 
 class BuildDashboardFromSheetsTests(ListRowsPatchMixin, SimpleTestCase):
 
@@ -92,6 +97,8 @@ class BuildDashboardFromSheetsTests(ListRowsPatchMixin, SimpleTestCase):
         self.assertEqual(len(rows[0]['cells']), len(cols))
         cliente_cell = rows[0]['cells'][cols.index(next(c for c in cols if c['field'] == 'cliente'))]
         self.assertEqual(cliente_cell['value'], 'Ana Silva')
+        status_cell = rows[0]['cells'][cols.index(next(c for c in cols if c['field'] == 'status'))]
+        self.assertEqual(status_cell['value'], 'Novo Lead')
 
     def test_row_without_id_is_skipped(self):
         self.patch_list_rows({'Clientes': [_clientes_fixture(id='')]})
@@ -108,6 +115,34 @@ class BuildDashboardFromSheetsTests(ListRowsPatchMixin, SimpleTestCase):
         self.assertEqual(rows, [])
 
 
+class BuildClientesLeadsFromSheetsTests(ListRowsPatchMixin, SimpleTestCase):
+
+    def test_maps_sheet_row_to_lead_dict(self):
+        self.patch_list_rows({'Clientes': [_clientes_fixture()]})
+
+        leads = views._build_clientes_leads_from_sheets()
+
+        self.assertEqual(len(leads), 1)
+        self.assertEqual(leads[0]['id'], 'CLI-aaaaaaaa')
+        self.assertEqual(leads[0]['nome'], 'Ana Silva')
+        self.assertEqual(leads[0]['status'], 'Novo Lead')
+        self.assertEqual(leads[0]['dataVencimento'], '2024-06-01')
+
+    def test_status_falls_back_to_novo_lead_when_blank(self):
+        self.patch_list_rows({'Clientes': [_clientes_fixture(status='')]})
+
+        leads = views._build_clientes_leads_from_sheets()
+
+        self.assertEqual(leads[0]['status'], 'Novo Lead')
+
+    def test_row_without_id_is_skipped(self):
+        self.patch_list_rows({'Clientes': [_clientes_fixture(id='')]})
+
+        leads = views._build_clientes_leads_from_sheets()
+
+        self.assertEqual(leads, [])
+
+
 class BuildAlertPayloadTests(ListRowsPatchMixin, SimpleTestCase):
 
     def test_row_without_vencimento_is_ignored(self):
@@ -118,10 +153,12 @@ class BuildAlertPayloadTests(ListRowsPatchMixin, SimpleTestCase):
         self.assertEqual(payload['counts']['alertas_totais'], 0)
 
     def test_counts_total_and_emitidos_reflect_the_sheet(self):
+        # "Emitidos" reflete o status do funil (o que o Kanban realmente
+        # atualiza), não o campo certificado_feito -- ver _build_alert_payload.
         self.patch_list_rows({'Clientes': [
-            _clientes_fixture(id='CLI-1', certificado_feito='Sim'),
-            _clientes_fixture(id='CLI-2', certificado_feito='Não'),
-            _clientes_fixture(id='CLI-3', certificado_feito=''),
+            _clientes_fixture(id='CLI-1', status='Emitido'),
+            _clientes_fixture(id='CLI-2', status='Aguardando Pagamento'),
+            _clientes_fixture(id='CLI-3', status='Novo Lead'),
         ]})
 
         payload = views._build_alert_payload()
@@ -213,6 +250,7 @@ class BuildParceirosFromSourceTests(ListRowsPatchMixin, SimpleTestCase):
         self.assertEqual(parceiros, [{
             'id': 'PAR-aaaaaaaa', 'nome': 'Escritorio A', 'tipo': 'Contador',
             'telefone': '(11) 90000-0000', 'email': 'a@x.com', 'comissao': 10.5, 'contato': 'Fulano',
+            'atualizadoEm': '',
         }])
 
 
@@ -225,10 +263,26 @@ class BuildPrecosFromSourceTests(ListRowsPatchMixin, SimpleTestCase):
 
         precos = views._build_precos_from_source()
 
-        self.assertEqual(precos, [{'id': 'PRC-aaaaaaaa', 'tipo': 'e-CPF A1', 'validade': '1 ano', 'preco': 150.0}])
+        self.assertEqual(precos, [{'id': 'PRC-aaaaaaaa', 'tipo': 'e-CPF A1', 'validade': '1 ano', 'preco': 150.0, 'atualizadoEm': ''}])
 
 
 @override_settings(GOOGLE_SHEET_ID='fake-sheet-id')
+class SafeJsonDumpsTests(SimpleTestCase):
+
+    def test_escapes_angle_brackets_and_ampersand(self):
+        result = views._safe_json_dumps({'nome': '</script><script>alert(1)</script>&'})
+
+        self.assertNotIn('<', result)
+        self.assertNotIn('>', result)
+        self.assertNotIn('&', result)
+        self.assertEqual(json.loads(result), {'nome': '</script><script>alert(1)</script>&'})
+
+    def test_still_valid_json_for_plain_values(self):
+        result = views._safe_json_dumps({'a': 1, 'b': 'texto normal'})
+
+        self.assertEqual(json.loads(result), {'a': 1, 'b': 'texto normal'})
+
+
 class DashboardViewTests(ListRowsPatchMixin, TestCase):
 
     def setUp(self):
@@ -245,6 +299,20 @@ class DashboardViewTests(ListRowsPatchMixin, TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.context['google_rows']), 1)
+
+    def test_malicious_client_name_cannot_break_out_of_script_tag(self):
+        payload = '</script><script>window.__xss=1</script>'
+        self.patch_list_rows({
+            'Clientes': [_clientes_fixture(cliente=payload)],
+            'Parceiros': [],
+            'Precos': [],
+        })
+
+        response = self.client.get(reverse('dashboard'))
+
+        content = response.content.decode('utf-8')
+        self.assertNotIn('</script><script>window.__xss', content)
+        self.assertIn('\\u003c/script\\u003e', content)
 
     def test_degrades_gracefully_when_sheets_repository_fails(self):
         patcher = patch.object(repo, 'list_rows', side_effect=Exception('planilha indisponivel'))
@@ -290,6 +358,60 @@ class AtualizarPlanilhaViewTests(TestCase):
         self.assertEqual(repo._cache, {})
 
 
+class AtualizarStatusClienteTests(TestCase):
+
+    def test_requires_post(self):
+        response = self.client.get(reverse('atualizar_status_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}))
+        self.assertEqual(response.status_code, 405)
+
+    def test_post_without_status_returns_400(self):
+        response = self.client.post(reverse('atualizar_status_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}), {})
+        self.assertEqual(response.status_code, 400)
+
+    def test_post_success_updates_row(self):
+        with patch.object(repo, 'update_row', return_value=_clientes_fixture(status='Emitido', atualizado_em='2024-02-01T00:00:00+00:00')) as mock_update:
+            response = self.client.post(
+                reverse('atualizar_status_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'status': 'Emitido', 'expected_atualizado_em': '2024-01-01T00:00:00+00:00'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['success'])
+        self.assertEqual(data['atualizado_em'], '2024-02-01T00:00:00+00:00')
+        mock_update.assert_called_once_with(
+            'Clientes', 'CLI-aaaaaaaa', {'status': 'Emitido'},
+            expected_atualizado_em='2024-01-01T00:00:00+00:00',
+        )
+
+    def test_post_not_found_returns_404(self):
+        with patch.object(repo, 'update_row', side_effect=LookupError('sumiu')):
+            response = self.client.post(
+                reverse('atualizar_status_cliente', kwargs={'pk': 'CLI-nope'}),
+                {'status': 'Emitido'},
+            )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_post_concurrency_conflict_returns_409(self):
+        with patch.object(repo, 'update_row', side_effect=repo.ConcurrencyError('conflito')):
+            response = self.client.post(
+                reverse('atualizar_status_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'status': 'Emitido'},
+            )
+
+        self.assertEqual(response.status_code, 409)
+
+    def test_post_generic_failure_returns_500(self):
+        with patch.object(repo, 'update_row', side_effect=Exception('planilha fora do ar')):
+            response = self.client.post(
+                reverse('atualizar_status_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'status': 'Emitido'},
+            )
+
+        self.assertEqual(response.status_code, 500)
+
+
 @override_settings(GOOGLE_SHEET_ID='fake-sheet-id')
 class EditarGoogleRowViewTests(TestCase):
 
@@ -322,16 +444,58 @@ class EditarGoogleRowViewTests(TestCase):
         self.assertEqual(fields['cliente'], 'Ana Silva Atualizada')
         self.assertEqual(fields['pago_comissao'], 'Sim')
 
-    def test_post_invalid_valor_comissao_is_silently_ignored(self):
+    def test_post_status_is_sent_when_provided(self):
         with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
              patch.object(repo, 'update_row') as mock_update:
             self.client.post(
                 reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
-                {'valor_comissao': 'não é número', 'pago_comissao': 'Não'},
+                {'cliente': 'Ana Silva', 'status': 'Emitido', 'pago_comissao': 'Não'},
             )
 
         tab, pk, fields = mock_update.call_args.args
-        self.assertNotIn('valor_comissao', fields)
+        self.assertEqual(fields['status'], 'Emitido')
+
+    def test_post_without_status_sends_empty_string(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'update_row') as mock_update:
+            self.client.post(
+                reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'cliente': 'Ana Silva', 'pago_comissao': 'Não'},
+            )
+
+        tab, pk, fields = mock_update.call_args.args
+        self.assertEqual(fields['status'], '')
+
+    def test_post_without_cliente_shows_error_and_does_not_update(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'update_row') as mock_update:
+            response = self.client.post(
+                reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'cliente': '', 'pago_comissao': 'Não'},
+                follow=True,
+            )
+
+        mock_update.assert_not_called()
+        messages = [str(m) for m in response.context['messages']]
+        self.assertTrue(any('nome do cliente' in m for m in messages))
+
+    def test_post_sends_full_field_set_including_new_fields(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'update_row') as mock_update:
+            self.client.post(
+                reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {
+                    'cliente': 'Ana Silva', 'cpf_cnpj': '111.222.333-44', 'telefone1': '(11) 90000-0000',
+                    'tipo_certificado': 'e-CPF A1', 'custo_certificado': '50.00', 'valor_liquido': '100.00',
+                    'certificado_feito': 'Sim', 'pago_venda': 'Sim', 'pago_comissao': 'Não',
+                },
+            )
+
+        tab, pk, fields = mock_update.call_args.args
+        self.assertEqual(fields['cpf_cnpj'], '111.222.333-44')
+        self.assertEqual(fields['custo_certificado'], '50.00')
+        self.assertEqual(fields['certificado_feito'], 'Sim')
+        self.assertEqual(fields['pago_venda'], 'Sim')
 
     def test_post_generic_failure_shows_error_message(self):
         with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
@@ -339,7 +503,7 @@ class EditarGoogleRowViewTests(TestCase):
              patch.object(repo, 'list_rows', return_value=[]):
             response = self.client.post(
                 reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
-                {'pago_comissao': 'Sim'},
+                {'cliente': 'Ana Silva', 'pago_comissao': 'Sim'},
                 follow=True,
             )
 
@@ -352,7 +516,7 @@ class EditarGoogleRowViewTests(TestCase):
              patch.object(repo, 'list_rows', return_value=[]):
             response = self.client.post(
                 reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
-                {'pago_comissao': 'Sim', 'expected_atualizado_em': 'stale'},
+                {'cliente': 'Ana Silva', 'pago_comissao': 'Sim', 'expected_atualizado_em': 'stale'},
                 follow=True,
             )
 
@@ -364,7 +528,7 @@ class EditarGoogleRowViewTests(TestCase):
              patch.object(repo, 'update_row', side_effect=LookupError('sumiu')):
             response = self.client.post(
                 reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
-                {'pago_comissao': 'Sim'},
+                {'cliente': 'Ana Silva', 'pago_comissao': 'Sim'},
             )
 
         self.assertEqual(response.status_code, 404)
@@ -401,6 +565,16 @@ class CriarGoogleRowViewTests(TestCase):
         self.assertEqual(tab, 'Clientes')
         self.assertEqual(fields['cliente'], 'Novo Cliente')
         self.assertEqual(fields['email'], 'novo@example.com')
+        self.assertEqual(fields['status'], 'Novo Lead')
+
+    def test_post_status_default_is_overridden_when_provided(self):
+        with patch.object(repo, 'create_row') as mock_create:
+            self.client.post(reverse('criar_google_row'), {
+                'cliente': 'Novo Cliente', 'status': 'Emitido',
+            })
+
+        tab, fields = mock_create.call_args.args
+        self.assertEqual(fields['status'], 'Emitido')
 
     def test_post_success_ajax_returns_json(self):
         with patch.object(repo, 'create_row'):
@@ -432,6 +606,182 @@ class CriarGoogleRowViewTests(TestCase):
 
         messages = [str(m) for m in response.context['messages']]
         self.assertTrue(any('sem credenciais' in m for m in messages))
+
+
+class ClienteExcluirViewTests(TestCase):
+
+    def test_requires_post(self):
+        response = self.client.get(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
+        self.assertEqual(response.status_code, 405)
+
+    def test_success(self):
+        with patch.object(repo, 'delete_row') as mock_delete:
+            response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
+
+        self.assertEqual(response.status_code, 200)
+        mock_delete.assert_called_once_with('Clientes', 'CLI-aaaaaaaa')
+
+    def test_not_found_returns_404(self):
+        with patch.object(repo, 'delete_row', side_effect=LookupError('nao existe')):
+            response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-nope'}))
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_failure_returns_500(self):
+        with patch.object(repo, 'delete_row', side_effect=Exception('falhou')):
+            response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
+
+        self.assertEqual(response.status_code, 500)
+
+    @override_settings(MEDIA_ROOT=_MEDIA_ROOT)
+    def test_success_also_deletes_associated_documentos_and_pagamentos(self):
+        arquivo = SimpleUploadedFile('doc.pdf', b'conteudo', content_type='application/pdf')
+        doc = DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', arquivo=arquivo, nome_original='doc.pdf', tamanho_bytes=8)
+        PagamentoCliente.objects.create(
+            cliente_ref='CLI-aaaaaaaa', nome_cliente='Ana Silva', email_cliente='ana@example.com',
+            valor=100, descricao='Certificado',
+        )
+        outro_doc = DocumentoCliente.objects.create(cliente_ref='CLI-outrocliente', nome_original='outro.pdf', tamanho_bytes=1)
+
+        with patch.object(repo, 'delete_row'):
+            response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(DocumentoCliente.objects.filter(pk=doc.pk).exists())
+        self.assertEqual(PagamentoCliente.objects.filter(cliente_ref='CLI-aaaaaaaa').count(), 0)
+        self.assertTrue(DocumentoCliente.objects.filter(pk=outro_doc.pk).exists())
+
+    def test_cleanup_failure_does_not_fail_the_request(self):
+        with patch.object(repo, 'delete_row'), \
+             patch.object(DocumentoCliente.objects, 'filter', side_effect=Exception('erro de banco')):
+            response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
+
+        self.assertEqual(response.status_code, 200)
+
+
+class ContatosClienteRegistroTests(TestCase):
+
+    def test_get_404_when_cliente_missing(self):
+        with patch.object(repo, 'get_row', return_value=None):
+            response = self.client.get(reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-nope'}))
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_get_lists_only_contatos_for_this_cliente(self):
+        contatos = [
+            {'id': 'CTT-1', 'cliente_id': 'CLI-aaaaaaaa', 'tipo': 'contato', 'atualizado_em': '2024-01-02'},
+            {'id': 'CTT-2', 'cliente_id': 'CLI-outro', 'tipo': 'contato', 'atualizado_em': '2024-01-03'},
+        ]
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'list_rows', return_value=contatos):
+            response = self.client.get(reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-aaaaaaaa'}))
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual([c['id'] for c in data['contatos']], ['CTT-1'])
+
+    def test_post_creates_contato_row(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'create_row', return_value={'id': 'CTT-novo'}) as mock_create:
+            response = self.client.post(
+                reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'tipo': 'contato', 'canal': 'WhatsApp', 'texto': 'Cliente confirmou interesse'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'success': True, 'id': 'CTT-novo'})
+        tab, fields = mock_create.call_args.args
+        self.assertEqual(tab, 'Contatos')
+        self.assertEqual(fields['cliente_id'], 'CLI-aaaaaaaa')
+        self.assertEqual(fields['canal'], 'WhatsApp')
+
+    def test_post_notificacao_does_not_touch_status_without_novo_status_funil(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'create_row', return_value={'id': 'CTT-novo'}), \
+             patch.object(repo, 'update_row') as mock_update:
+            self.client.post(
+                reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'tipo': 'notificacao', 'titulo': 'Pagamento registrado', 'texto': 'Pagamento confirmado'},
+            )
+
+        mock_update.assert_not_called()
+
+    def test_post_with_novo_status_funil_updates_cliente_status(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'create_row', return_value={'id': 'CTT-novo'}), \
+             patch.object(repo, 'update_row') as mock_update:
+            self.client.post(
+                reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'tipo': 'contato', 'canal': 'Ligação', 'novo_status_funil': 'Emitido'},
+            )
+
+        mock_update.assert_called_once_with('Clientes', 'CLI-aaaaaaaa', {'status': 'Emitido'})
+
+    def test_post_404_when_cliente_missing(self):
+        with patch.object(repo, 'get_row', return_value=None):
+            response = self.client.post(reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-nope'}), {})
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_put_method_not_allowed(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()):
+            response = self.client.put(reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-aaaaaaaa'}))
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_post_create_row_failure_returns_500(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'create_row', side_effect=Exception('planilha fora do ar')):
+            response = self.client.post(
+                reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'tipo': 'contato', 'texto': 'teste'},
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertIn('planilha fora do ar', response.json()['error'])
+
+    def test_post_still_succeeds_when_status_update_fails(self):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'create_row', return_value={'id': 'CTT-novo'}), \
+             patch.object(repo, 'update_row', side_effect=Exception('falhou')):
+            response = self.client.post(
+                reverse('contatos_cliente_registro', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'tipo': 'contato', 'novo_status_funil': 'Emitido'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'success': True, 'id': 'CTT-novo'})
+
+
+class BuildNotificacoesRecentesTests(ListRowsPatchMixin, SimpleTestCase):
+
+    def test_only_includes_tipo_notificacao_sorted_by_atualizado_em(self):
+        self.patch_list_rows({
+            'Clientes': [_clientes_fixture(id='CLI-aaaaaaaa', cliente='Ana Silva')],
+            'Contatos': [
+                {'id': 'CTT-1', 'cliente_id': 'CLI-aaaaaaaa', 'tipo': 'contato', 'atualizado_em': '2024-01-05'},
+                {'id': 'CTT-2', 'cliente_id': 'CLI-aaaaaaaa', 'tipo': 'notificacao', 'titulo': 'Pagamento registrado', 'texto': 'Confirmado', 'data': '2024-01-01', 'atualizado_em': '2024-01-01'},
+                {'id': 'CTT-3', 'cliente_id': 'CLI-aaaaaaaa', 'tipo': 'notificacao', 'titulo': 'Lembrete', 'texto': 'Renovação próxima', 'data': '2024-01-04', 'atualizado_em': '2024-01-04'},
+            ],
+        })
+
+        result = views._build_notificacoes_recentes()
+
+        self.assertEqual([r['id'] for r in result], ['CTT-3', 'CTT-2'])
+        self.assertEqual(result[0]['nome'], 'Ana Silva')
+
+    def test_limit_caps_number_of_results(self):
+        self.patch_list_rows({
+            'Clientes': [_clientes_fixture()],
+            'Contatos': [
+                {'id': f'CTT-{i}', 'cliente_id': 'CLI-aaaaaaaa', 'tipo': 'notificacao', 'atualizado_em': f'2024-01-{i:02d}'}
+                for i in range(1, 10)
+            ],
+        })
+
+        result = views._build_notificacoes_recentes(limit=3)
+
+        self.assertEqual(len(result), 3)
 
 
 @override_settings(GOOGLE_SHEET_ID='fake-sheet-id')
@@ -491,6 +841,21 @@ class ParceiroViewsTests(TestCase):
             response = self.client.post(reverse('parceiro_editar', kwargs={'id': 'PAR-aaaaaaaa'}), {'nome': 'X'})
 
         self.assertEqual(response.status_code, 500)
+
+    def test_editar_forwards_expected_atualizado_em(self):
+        with patch.object(repo, 'update_row') as mock_update:
+            self.client.post(
+                reverse('parceiro_editar', kwargs={'id': 'PAR-aaaaaaaa'}),
+                {'nome': 'X', 'expected_atualizado_em': '2024-01-01T00:00:00+00:00'},
+            )
+
+        mock_update.assert_called_once_with('Parceiros', 'PAR-aaaaaaaa', {'nome': 'X'}, expected_atualizado_em='2024-01-01T00:00:00+00:00')
+
+    def test_editar_concurrency_conflict_returns_409(self):
+        with patch.object(repo, 'update_row', side_effect=repo.ConcurrencyError('conflito')):
+            response = self.client.post(reverse('parceiro_editar', kwargs={'id': 'PAR-aaaaaaaa'}), {'nome': 'X'})
+
+        self.assertEqual(response.status_code, 409)
 
     def test_excluir_requires_post(self):
         response = self.client.get(reverse('parceiro_excluir', kwargs={'id': 'PAR-aaaaaaaa'}))
@@ -571,6 +936,21 @@ class PrecoViewsTests(TestCase):
             response = self.client.post(reverse('preco_editar', kwargs={'id': 'PRC-aaaaaaaa'}), {'preco': '1'})
 
         self.assertEqual(response.status_code, 500)
+
+    def test_editar_forwards_expected_atualizado_em(self):
+        with patch.object(repo, 'update_row') as mock_update:
+            self.client.post(
+                reverse('preco_editar', kwargs={'id': 'PRC-aaaaaaaa'}),
+                {'preco': '199', 'expected_atualizado_em': '2024-01-01T00:00:00+00:00'},
+            )
+
+        mock_update.assert_called_once_with('Precos', 'PRC-aaaaaaaa', {'preco': '199'}, expected_atualizado_em='2024-01-01T00:00:00+00:00')
+
+    def test_editar_concurrency_conflict_returns_409(self):
+        with patch.object(repo, 'update_row', side_effect=repo.ConcurrencyError('conflito')):
+            response = self.client.post(reverse('preco_editar', kwargs={'id': 'PRC-aaaaaaaa'}), {'preco': '1'})
+
+        self.assertEqual(response.status_code, 409)
 
     def test_excluir_requires_post(self):
         response = self.client.get(reverse('preco_excluir', kwargs={'id': 'PRC-aaaaaaaa'}))
@@ -717,11 +1097,63 @@ class UploadDocumentoViewTests(TestCase):
         self.assertEqual(doc.nome_cliente, 'Ana Silva')
         self.assertEqual(doc.observacao, 'via balcao')
 
+    def test_post_rejects_disallowed_extension(self):
+        arquivo = SimpleUploadedFile('malware.exe', b'conteudo', content_type='application/octet-stream')
+
+        response = self.client.post(reverse('upload_documento'), {'arquivo': arquivo}, follow=True)
+
+        self.assertEqual(DocumentoCliente.objects.count(), 0)
+        messages = [str(m) for m in response.context['messages']]
+        self.assertTrue(any('não permitido' in m for m in messages))
+
+    def test_post_rejects_file_over_size_limit(self):
+        conteudo_grande = b'x' * (11 * 1024 * 1024)
+        arquivo = SimpleUploadedFile('doc.pdf', conteudo_grande, content_type='application/pdf')
+
+        response = self.client.post(reverse('upload_documento'), {'arquivo': arquivo}, follow=True)
+
+        self.assertEqual(DocumentoCliente.objects.count(), 0)
+        messages = [str(m) for m in response.context['messages']]
+        self.assertTrue(any('muito grande' in m for m in messages))
+
+
+class ValidarArquivoDocumentoTests(SimpleTestCase):
+
+    def test_disallowed_extension_returns_error_message(self):
+        arquivo = SimpleUploadedFile('script.js', b'x', content_type='text/javascript')
+
+        erro = views._validar_arquivo_documento(arquivo)
+
+        self.assertIsNotNone(erro)
+        self.assertIn('não permitido', erro)
+
+    def test_oversized_file_returns_error_message(self):
+        arquivo = SimpleUploadedFile('doc.pdf', b'x' * (11 * 1024 * 1024), content_type='application/pdf')
+
+        erro = views._validar_arquivo_documento(arquivo)
+
+        self.assertIsNotNone(erro)
+        self.assertIn('muito grande', erro)
+
+    def test_valid_file_returns_none(self):
+        arquivo = SimpleUploadedFile('doc.pdf', b'conteudo pequeno', content_type='application/pdf')
+
+        self.assertIsNone(views._validar_arquivo_documento(arquivo))
+
 
 class DownloadExcluirDocumentoViewTests(TestCase):
 
     def test_download_404_when_missing(self):
-        response = self.client.get(reverse('download_documento', kwargs={'doc_id': 999999}))
+        response = self.client.get(reverse('download_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': 999999}))
+        self.assertEqual(response.status_code, 404)
+
+    def test_download_404_when_cliente_ref_does_not_match_pk_in_url(self):
+        # IDOR: doc_id sozinho nao basta -- o pk na URL precisa bater com o
+        # cliente_ref real do documento, senao 404 mesmo com doc_id valido.
+        doc = DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', nome_original='doc.pdf', tamanho_bytes=1)
+
+        response = self.client.get(reverse('download_documento', kwargs={'pk': 'CLI-outrocliente', 'doc_id': doc.id}))
+
         self.assertEqual(response.status_code, 404)
 
     def test_download_404_when_file_missing_from_disk(self):
@@ -731,7 +1163,7 @@ class DownloadExcluirDocumentoViewTests(TestCase):
         doc.arquivo.name = 'documentos_clientes/nao-existe/fake.pdf'
         doc.save(update_fields=['arquivo'])
 
-        response = self.client.get(reverse('download_documento', kwargs={'doc_id': doc.id}))
+        response = self.client.get(reverse('download_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': doc.id}))
 
         self.assertEqual(response.status_code, 404)
 
@@ -742,7 +1174,7 @@ class DownloadExcluirDocumentoViewTests(TestCase):
             cliente_ref='CLI-aaaaaaaa', arquivo=arquivo, nome_original='doc.pdf', tamanho_bytes=8,
         )
 
-        response = self.client.get(reverse('download_documento', kwargs={'doc_id': doc.id}))
+        response = self.client.get(reverse('download_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': doc.id}))
 
         self.assertEqual(response.status_code, 200)
         self.assertIn('doc.pdf', response['Content-Disposition'])
@@ -750,13 +1182,21 @@ class DownloadExcluirDocumentoViewTests(TestCase):
 
     def test_excluir_requires_post(self):
         doc = DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', nome_original='doc.pdf', tamanho_bytes=1)
-        response = self.client.get(reverse('excluir_documento', kwargs={'doc_id': doc.id}))
+        response = self.client.get(reverse('excluir_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': doc.id}))
         self.assertEqual(response.status_code, 405)
 
-    def test_excluir_redirects_using_cliente_ref(self):
+    def test_excluir_404_when_cliente_ref_does_not_match_pk_in_url(self):
         doc = DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', nome_original='doc.pdf', tamanho_bytes=1)
 
-        response = self.client.post(reverse('excluir_documento', kwargs={'doc_id': doc.id}))
+        response = self.client.post(reverse('excluir_documento', kwargs={'pk': 'CLI-outrocliente', 'doc_id': doc.id}))
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(DocumentoCliente.objects.count(), 1)
+
+    def test_excluir_redirects_using_pk_from_url(self):
+        doc = DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', nome_original='doc.pdf', tamanho_bytes=1)
+
+        response = self.client.post(reverse('excluir_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': doc.id}))
 
         self.assertRedirects(
             response, reverse('documentos_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}), fetch_redirect_response=False,
@@ -820,10 +1260,14 @@ class MarcarPagamentoAprovadoTests(TestCase):
     def test_updates_sheet_row_when_cliente_ref_present(self):
         pagamento = self._make_pagamento()
 
-        with patch.object(repo, 'update_row') as mock_update:
+        with patch.object(repo, 'get_row', return_value={'id': 'CLI-aaaaaaaa', 'atualizado_em': '2024-01-01T00:00:00+00:00'}), \
+             patch.object(repo, 'update_row') as mock_update:
             views._marcar_pagamento_aprovado(pagamento)
 
-        mock_update.assert_called_once_with('Clientes', 'CLI-aaaaaaaa', {'pago_venda': 'Sim'})
+        mock_update.assert_called_once_with(
+            'Clientes', 'CLI-aaaaaaaa', {'pago_venda': 'Sim'},
+            expected_atualizado_em='2024-01-01T00:00:00+00:00',
+        )
 
     def test_does_nothing_to_sheet_when_cliente_ref_blank(self):
         pagamento = self._make_pagamento(cliente_ref='')
@@ -836,21 +1280,160 @@ class MarcarPagamentoAprovadoTests(TestCase):
     def test_swallows_lookup_error(self):
         pagamento = self._make_pagamento()
 
-        with patch.object(repo, 'update_row', side_effect=LookupError('sumiu')):
+        with patch.object(repo, 'get_row', return_value=None), \
+             patch.object(repo, 'update_row', side_effect=LookupError('sumiu')):
             views._marcar_pagamento_aprovado(pagamento)
 
     def test_swallows_generic_exception(self):
         pagamento = self._make_pagamento()
 
-        with patch.object(repo, 'update_row', side_effect=Exception('planilha fora do ar')):
+        with patch.object(repo, 'get_row', return_value=None), \
+             patch.object(repo, 'update_row', side_effect=Exception('planilha fora do ar')):
             views._marcar_pagamento_aprovado(pagamento)
 
     def test_marks_matching_cliente_as_paid_in_app_state_blob(self):
         AppState.objects.create(key='main', data={'clientes': [{'id': 'CLI-aaaaaaaa', 'pago': False}]})
         pagamento = self._make_pagamento()
 
-        with patch.object(repo, 'update_row'):
+        with patch.object(repo, 'get_row', return_value=None), \
+             patch.object(repo, 'update_row'):
             views._marcar_pagamento_aprovado(pagamento)
 
         state = AppState.objects.get(key='main')
         self.assertTrue(state.data['clientes'][0]['pago'])
+
+
+# NOTA: criar_pagamento_pix e webhook_mercado_pago não têm nenhuma rota em
+# core/urls.py hoje (import presente, sem path() correspondente) -- por isso
+# são testadas aqui via RequestFactory chamando a view diretamente, não por
+# reverse()/self.client. Além disso, ambas chamam gerar_pagamento_mercado_pago
+# / consultar_pagamento_mercado_pago, que não existem em lugar nenhum do
+# código (nem em services.py, mesmo antes da migração pra Sheets) -- o
+# pagamento PIX real está quebrado hoje. Os testes abaixo travam o
+# comportamento ATUAL (erro 500/400 nesse ponto), não o comportamento
+# desejado -- servem para não deixar isso regredir silenciosamente até que
+# alguém implemente as duas funções de verdade.
+class CriarPagamentoPixViewTests(TestCase):
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_requires_post(self):
+        request = self.factory.get('/criar-pagamento-pix/')
+        response = views.criar_pagamento_pix(request)
+        self.assertEqual(response.status_code, 400)
+
+    def test_invalid_json_body_returns_400(self):
+        request = self.factory.post('/criar-pagamento-pix/', data='not-json', content_type='application/json')
+        response = views.criar_pagamento_pix(request)
+        self.assertEqual(response.status_code, 400)
+
+    def test_valor_zero_or_negative_returns_400(self):
+        request = self.factory.post('/criar-pagamento-pix/', {'valor': '0', 'email_cliente': 'ana@example.com'})
+        response = views.criar_pagamento_pix(request)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Valor inválido', json.loads(response.content)['error'])
+
+    def test_missing_email_returns_400(self):
+        request = self.factory.post('/criar-pagamento-pix/', {'valor': '100'})
+        response = views.criar_pagamento_pix(request)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('email_cliente', json.loads(response.content)['error'])
+
+    def test_valid_payload_currently_fails_missing_helper(self):
+        request = self.factory.post('/criar-pagamento-pix/', {'valor': '100', 'email_cliente': 'ana@example.com'})
+        response = views.criar_pagamento_pix(request)
+        self.assertEqual(response.status_code, 500)
+        self.assertIn('gerar_pagamento_mercado_pago', json.loads(response.content)['error'])
+
+    def test_invalid_valor_string_defaults_to_zero_and_returns_400(self):
+        request = self.factory.post('/criar-pagamento-pix/', {'valor': 'abc', 'email_cliente': 'ana@example.com'})
+        response = views.criar_pagamento_pix(request)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Valor inválido', json.loads(response.content)['error'])
+
+    def test_success_path_with_mocked_helper_creates_pagamento(self):
+        # gerar_pagamento_mercado_pago não existe de verdade (ver nota da classe) --
+        # este teste documenta o contrato esperado (shape do retorno) e confirma
+        # que o resto da view (criação do PagamentoCliente, resposta JSON) já
+        # funciona corretamente assumindo que a função venha a ser implementada.
+        fake_payment = {
+            'id': 123456,
+            'status': 'pending',
+            'point_of_interaction': {'transaction_data': {'qr_code_base64': 'ZmFrZQ==', 'qr_code': '00020126'}},
+        }
+        with patch.object(views, 'gerar_pagamento_mercado_pago', return_value=fake_payment, create=True):
+            request = self.factory.post('/criar-pagamento-pix/', {
+                'valor': '150', 'email_cliente': 'ana@example.com', 'nome_cliente': 'Ana Silva', 'cliente_ref': 'CLI-aaaaaaaa',
+            })
+            response = views.criar_pagamento_pix(request)
+
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content)
+        self.assertEqual(data['gateway_payment_id'], '123456')
+        self.assertEqual(data['qr_code_base64'], 'ZmFrZQ==')
+        pagamento = PagamentoCliente.objects.get(pk=data['pagamento_id'])
+        self.assertEqual(pagamento.cliente_ref, 'CLI-aaaaaaaa')
+        self.assertEqual(pagamento.status, PagamentoCliente.STATUS_PENDING)
+
+
+class WebhookMercadoPagoViewTests(TestCase):
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_requires_post(self):
+        request = self.factory.get('/webhook-mercado-pago/')
+        response = views.webhook_mercado_pago(request)
+        self.assertEqual(response.status_code, 405)
+
+    def test_ignores_non_payment_topic(self):
+        request = self.factory.post('/webhook-mercado-pago/?topic=merchant_order&id=123')
+        response = views.webhook_mercado_pago(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content)['status'], 'ignored')
+
+    def test_ignores_when_payment_id_missing(self):
+        request = self.factory.post('/webhook-mercado-pago/?topic=payment')
+        response = views.webhook_mercado_pago(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content)['status'], 'ignored')
+
+    def test_payment_topic_currently_fails_missing_helper(self):
+        request = self.factory.post('/webhook-mercado-pago/?topic=payment&id=123')
+        response = views.webhook_mercado_pago(request)
+        self.assertEqual(response.status_code, 400)
+        data = json.loads(response.content)
+        self.assertEqual(data['status'], 'error')
+        self.assertIn('consultar_pagamento_mercado_pago', data['message'])
+
+    def test_extracts_payment_id_from_json_body_when_no_query_param(self):
+        body = json.dumps({'action': 'payment.updated', 'data': {'id': '999'}})
+        request = self.factory.post('/webhook-mercado-pago/', data=body, content_type='application/json')
+        response = views.webhook_mercado_pago(request)
+        # Sem payment_id/topic na query string, o body é usado -- ainda cai no
+        # mesmo bug de consultar_pagamento_mercado_pago ausente, mas confirma
+        # que a extração do id a partir do body funcionou (não foi "ignored").
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(json.loads(response.content)['status'], 'error')
+
+    def test_approved_payment_updates_pagamento_and_marks_approved(self):
+        pagamento = PagamentoCliente.objects.create(
+            cliente_ref='CLI-aaaaaaaa', nome_cliente='Ana Silva', email_cliente='ana@example.com',
+            valor=100, descricao='Certificado', gateway_payment_id='123',
+        )
+        fake_payment_info = {'status': 'approved'}
+        with patch.object(views, 'consultar_pagamento_mercado_pago', return_value=fake_payment_info, create=True), \
+             patch.object(repo, 'get_row', return_value={'id': 'CLI-aaaaaaaa', 'atualizado_em': '2024-01-01T00:00:00+00:00'}), \
+             patch.object(repo, 'update_row') as mock_update:
+            request = self.factory.post('/webhook-mercado-pago/?topic=payment&id=123')
+            response = views.webhook_mercado_pago(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content)['status'], 'success')
+        pagamento.refresh_from_db()
+        self.assertEqual(pagamento.status, PagamentoCliente.STATUS_APPROVED)
+        mock_update.assert_called_once_with(
+            'Clientes', 'CLI-aaaaaaaa', {'pago_venda': 'Sim'},
+            expected_atualizado_em='2024-01-01T00:00:00+00:00',
+        )

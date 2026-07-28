@@ -2,10 +2,41 @@ import re
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
+from googleapiclient.errors import HttpError
 
 from core.app_Gestor import sheets_repository as repo
 
 _RANGE_RE = re.compile(r'^([^!]+)!A(\d+):[A-Z]+\d+$')
+
+
+class _FakeHttpResp:
+    """httplib2.Response é dict-like -- HttpError acessa .get()/.reason dele."""
+    def __init__(self, status):
+        self.status = status
+        self.reason = f'status {status}'
+
+    def get(self, key, default=None):
+        return default
+
+
+def _http_error(status):
+    return HttpError(_FakeHttpResp(status), b'{}')
+
+
+class _FlakyExecutable:
+    """Simula uma requisição que falha N vezes com um HttpError antes de
+    ter sucesso (ou falha sempre, se fail_times for grande o suficiente)."""
+    def __init__(self, fail_times, status=429, result=None):
+        self.fail_times = fail_times
+        self.status = status
+        self.result = result if result is not None else {'ok': True}
+        self.calls = 0
+
+    def execute(self):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise _http_error(self.status)
+        return self.result
 
 
 class _FakeExecutable:
@@ -371,3 +402,60 @@ class GetServiceTests(SimpleTestCase):
         self.assertIs(first, fake_service)
         self.assertIs(second, fake_service)
         mock_build.assert_called_once()
+
+
+class ExecuteWithRetryTests(SimpleTestCase):
+
+    def test_succeeds_immediately_without_error(self):
+        request = _FlakyExecutable(fail_times=0)
+
+        result = repo._execute_with_retry(request)
+
+        self.assertEqual(result, {'ok': True})
+        self.assertEqual(request.calls, 1)
+
+    def test_retries_on_429_and_eventually_succeeds(self):
+        request = _FlakyExecutable(fail_times=2, status=429)
+
+        with patch.object(repo.time, 'sleep') as mock_sleep:
+            result = repo._execute_with_retry(request)
+
+        self.assertEqual(result, {'ok': True})
+        self.assertEqual(request.calls, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    def test_retries_on_503(self):
+        request = _FlakyExecutable(fail_times=1, status=503)
+
+        with patch.object(repo.time, 'sleep'):
+            result = repo._execute_with_retry(request)
+
+        self.assertEqual(result, {'ok': True})
+
+    def test_gives_up_after_max_retries(self):
+        request = _FlakyExecutable(fail_times=99, status=429)
+
+        with patch.object(repo.time, 'sleep'):
+            with self.assertRaises(HttpError):
+                repo._execute_with_retry(request, max_retries=3)
+
+        self.assertEqual(request.calls, 4)  # tentativa inicial + 3 retries
+
+    def test_does_not_retry_non_transient_status(self):
+        request = _FlakyExecutable(fail_times=1, status=404)
+
+        with patch.object(repo.time, 'sleep') as mock_sleep:
+            with self.assertRaises(HttpError):
+                repo._execute_with_retry(request)
+
+        self.assertEqual(request.calls, 1)
+        mock_sleep.assert_not_called()
+
+    def test_backoff_delay_doubles_each_attempt(self):
+        request = _FlakyExecutable(fail_times=2, status=500)
+
+        with patch.object(repo.time, 'sleep') as mock_sleep:
+            repo._execute_with_retry(request, base_delay=1)
+
+        mock_sleep.assert_any_call(1)
+        mock_sleep.assert_any_call(2)

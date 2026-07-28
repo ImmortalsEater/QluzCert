@@ -3,12 +3,19 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.coverage
 
 # Virtual environment
 venv/
 
 # Django local settings
 db.sqlite3
+
+# Logs
+logs/
+
+# Estáticos coletados (gerado por collectstatic)
+staticfiles/
 
 # Google credentials
 credentials.json

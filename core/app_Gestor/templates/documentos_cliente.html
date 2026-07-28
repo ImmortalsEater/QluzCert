@@ -62,8 +62,8 @@
               <td style="padding:8px 4px;">{{ doc.data_envio|date:"d/m/Y H:i" }}</td>
               <td style="padding:8px 4px;">{{ doc.tamanho_bytes|filesizeformat }}</td>
               <td style="padding:8px 4px;display:flex;gap:8px;">
-                <a class="btn btn-sm" href="{% url 'download_documento' doc.id %}">Baixar</a>
-                <form method="post" action="{% url 'excluir_documento' doc.id %}" onsubmit="return confirm('Remover este documento?');">
+                <a class="btn btn-sm" href="{% url 'download_documento' pk doc.id %}">Baixar</a>
+                <form method="post" action="{% url 'excluir_documento' pk doc.id %}" onsubmit="return confirm('Remover este documento?');">
                   {% csrf_token %}
                   <button type="submit" class="btn btn-sm btn-danger">Excluir</button>
                 </form>

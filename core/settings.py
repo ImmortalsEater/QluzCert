@@ -20,13 +20,23 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-z^rr$agfkxt=k$!4*5)q&%u7-6p^y5fi*wn-085gu-&yqpaiyl'
+# SECURITY WARNING: keep the secret key used in production secret! Defina a
+# variável de ambiente DJANGO_SECRET_KEY em produção -- o valor abaixo é só
+# um fallback de desenvolvimento (por isso o prefixo "django-insecure-").
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-z^rr$agfkxt=k$!4*5)q&%u7-6p^y5fi*wn-085gu-&yqpaiyl',
+)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# SECURITY WARNING: don't run with debug turned on in production! Defina
+# DJANGO_DEBUG=False (via variável de ambiente) ao publicar fora da rede
+# interna -- o padrão continua True para não quebrar o fluxo local de
+# desenvolvimento (runserver) de quem não configurou a variável.
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = []
+# Defina DJANGO_ALLOWED_HOSTS como uma lista separada por vírgula
+# (ex: "qcert.empresa.com,10.0.0.5") ao publicar com DEBUG=False.
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if h.strip()]
 
 
 # Application definition
@@ -118,6 +128,23 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Cache-busting (hash de conteúdo no nome do arquivo) só em produção -- exige
+# rodar `collectstatic` antes de servir. Em dev (DEBUG=True) mantém o storage
+# padrão pra não exigir esse passo extra em quem só roda `runserver`.
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': (
+            'django.contrib.staticfiles.storage.StaticFilesStorage'
+            if DEBUG else
+            'core.storage.NonStrictManifestStaticFilesStorage'
+        ),
+    },
+}
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
@@ -142,6 +169,9 @@ GOOGLE_SHEETS_CACHE_TTL_SECONDS = int(os.getenv('GOOGLE_SHEETS_CACHE_TTL_SECONDS
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+LOGS_DIR = BASE_DIR / 'logs'
+os.makedirs(LOGS_DIR, exist_ok=True)
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -156,19 +186,26 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'default',
         },
+        'file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOGS_DIR / 'qcert.log',
+            'maxBytes': 5 * 1024 * 1024,
+            'backupCount': 5,
+            'formatter': 'default',
+        },
     },
     'root': {
-        'handlers': ['console'],
+        'handlers': ['console', 'file'],
         'level': 'WARNING',
     },
     'loggers': {
         'core': {
-            'handlers': ['console'],
+            'handlers': ['console', 'file'],
             'level': 'INFO',
             'propagate': False,
         },
         'django': {
-            'handlers': ['console'],
+            'handlers': ['console', 'file'],
             'level': 'WARNING',
             'propagate': False,
         },
