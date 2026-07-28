@@ -13,18 +13,59 @@ function openModal(type, extraId, triggerEl){
   if(type==='preco')renderPrecoModal(box);
   if(type==='contato')renderContatoModal(box,extraId||editingId);
   if(type==='pagamento')renderPagamentoModal(box,extraId||editingId);
+  markModalFieldsPristine(box);
   const firstField=box.querySelector('input,select,textarea')||box.querySelector('button');
   if(firstField)firstField.focus();
 }
-function closeModal(e){
-  if(e.target===document.getElementById('modal-overlay')||e===true){
-    document.getElementById('modal-overlay').classList.remove('open');
-    editingId=null;
-    if(modalTriggerEl&&typeof modalTriggerEl.focus==='function')modalTriggerEl.focus();
-    modalTriggerEl=null;
+
+// Grava o valor/estado inicial de cada campo do modal em data-attributes,
+// para que isFormDirty() consiga detectar alterações reais do usuário em
+// vez de comparar contra string vazia (o que marcaria qualquer edição
+// pré-preenchida como "suja" assim que o modal abre).
+function markModalFieldsPristine(container){
+  container.querySelectorAll('input, select, textarea').forEach(el=>{
+    if(el.type === 'checkbox' || el.type === 'radio'){ el.dataset.initialChecked = String(el.checked); }
+    else { el.dataset.initialValue = el.value || ''; }
+  });
+}
+function isFormDirty(containerSelector){
+  const box = document.querySelector(containerSelector);
+  if(!box) return false;
+  const fields = box.querySelectorAll('input, select, textarea');
+  for(const el of fields){
+    if(el.type === 'checkbox' || el.type === 'radio'){
+      if(el.dataset.initialChecked !== undefined && el.checked !== (el.dataset.initialChecked === 'true')) return true;
+      continue;
+    }
+    if((el.value || '').trim() !== (el.dataset.initialValue || '').trim()) return true;
   }
+  return false;
+}
+
+async function closeModal(e){
+  const overlay = document.getElementById('modal-overlay');
+  const isBackdropClick = e && e.target === overlay;
+  if(e !== true && !isBackdropClick) return;
+  if(isBackdropClick && isFormDirty('#modal-box')){
+    const ok = await askConfirm('Existem alterações não salvas neste formulário. Deseja descartá-las?', {title:'Descartar alterações?', confirmLabel:'Descartar', danger:true});
+    if(!ok) return;
+  }
+  overlay.classList.remove('open');
+  editingId=null;
+  if(modalTriggerEl&&typeof modalTriggerEl.focus==='function')modalTriggerEl.focus();
+  modalTriggerEl=null;
 }
 function handleModalKeydown(e){
+  const confirmOverlay=document.getElementById('confirm-overlay');
+  if(confirmOverlay&&confirmOverlay.classList.contains('open')){
+    if(e.key==='Escape'){_resolveConfirm(false)}
+    return;
+  }
+  const detailOverlay=document.getElementById('detail-overlay');
+  if(detailOverlay&&detailOverlay.classList.contains('open')){
+    if(e.key==='Escape'){closeDetail(true)}
+    return;
+  }
   const overlay=document.getElementById('modal-overlay');
   if(!overlay||!overlay.classList.contains('open'))return;
   if(e.key==='Escape'){closeModal(true);return}
@@ -137,16 +178,26 @@ function renderNovoClienteModal(box){
           <div class="field"><label for="ng-email">E-mail</label><input id="ng-email" name="email" type="email" placeholder="email@exemplo.com" autocomplete="email"></div>
           <div class="field"><label for="ng-tel1">Telefone</label><input id="ng-tel1" name="telefone1" type="tel" placeholder="(00) 00000-0000" inputmode="tel" autocomplete="tel"></div>
           <div class="field"><label for="ng-tel2">Telefone 2</label><input id="ng-tel2" name="telefone2" type="tel" placeholder="(00) 00000-0000" inputmode="tel" autocomplete="tel"></div>
-          <div class="field"><label for="ng-parceiro">Contador/Parceiro</label><input id="ng-parceiro" name="contador_parceiro" autocomplete="off"></div>
+          <div class="field"><label for="ng-parceiro">Contador/Parceiro</label>
+            <select id="ng-parceiro" name="contador_parceiro">
+              <option value="">Nenhum / Direto</option>
+              ${parceiros.map(p=>`<option value="${escapeHtml(p.nome)}">${escapeHtml(p.nome)}</option>`).join('')}
+            </select>
+          </div>
           <div class="field"><label for="ng-contabilidade">Contador/Contabilidade</label><input id="ng-contabilidade" name="contador_contabilidade" autocomplete="off"></div>
         </div>
       </fieldset>
       <fieldset class="modal-fieldset">
         <legend>Certificado &amp; Venda</legend>
         <div class="form-grid">
-          <div class="field"><label for="ng-tipo">Tipo de Certificado</label><input id="ng-tipo" name="tipo_certificado" placeholder="Ex: e-CPF A1" autocomplete="off"></div>
+          <div class="field"><label for="ng-tipo">Tipo de Certificado</label>
+            <select id="ng-tipo" name="tipo_certificado">
+              <option value="">Selecione...</option>
+              ${precos.map(p=>`<option value="${escapeHtml(p.tipo)}" data-validade="${escapeHtml(p.validade||'')}">${escapeHtml(p.tipo)} — ${p.preco!=null?fmtMoney(p.preco):'—'}</option>`).join('')}
+            </select>
+          </div>
           <div class="field"><label for="ng-datavenda">Data da Venda</label><input id="ng-datavenda" name="data_venda" type="date"></div>
-          <div class="field"><label for="ng-datavenc">Data de Vencimento</label><input id="ng-datavenc" name="data_vencimento" type="date"></div>
+          <div class="field"><label for="ng-datavenc">Data de Vencimento</label><input id="ng-datavenc" name="data_vencimento" type="date" readonly></div>
           <div class="field"><label for="ng-valorvenda">Valor da Venda (R$)</label><input id="ng-valorvenda" name="valor_venda" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0,00"></div>
           <div class="field"><label for="ng-percentual">Percentual de Comissão (%)</label><input id="ng-percentual" name="percentual_comissao" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0,00"></div>
           <div class="field"><label for="ng-valorcomissao">Valor da Comissão (R$)</label><input id="ng-valorcomissao" name="valor_comissao" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0,00"></div>
@@ -168,6 +219,20 @@ function renderNovoClienteModal(box){
     <button class="btn" onclick="closeModal(true)">Cancelar</button>
     <button class="btn btn-primary" id="ng-save-btn" onclick="document.getElementById('novo-cliente-form').requestSubmit()"><i class="ti ti-device-floppy" aria-hidden="true"></i> Salvar Cliente</button>
   </div>`;
+  document.getElementById('ng-cpfcnpj').addEventListener('input', function(){ this.value = maskCpfCnpj(this.value); });
+  document.getElementById('ng-tel1').addEventListener('input', function(){ this.value = maskTelefone(this.value); });
+  document.getElementById('ng-tel2').addEventListener('input', function(){ this.value = maskTelefone(this.value); });
+  function _recalcularVencimentoNovoCliente(){
+    const tipoSel = document.getElementById('ng-tipo');
+    const dataVenda = document.getElementById('ng-datavenda').value;
+    const vencInput = document.getElementById('ng-datavenc');
+    if(!dataVenda){ vencInput.value=''; return; }
+    const opt = tipoSel.options[tipoSel.selectedIndex];
+    const dias = parseValidadeToDays(opt && opt.dataset.validade) ?? 365;
+    vencInput.value = addDays(dataVenda, dias);
+  }
+  document.getElementById('ng-tipo').addEventListener('change', _recalcularVencimentoNovoCliente);
+  document.getElementById('ng-datavenda').addEventListener('change', _recalcularVencimentoNovoCliente);
 }
 
 async function saveNovoCliente(event){
@@ -223,17 +288,138 @@ function saveCliente(){
 }
 
 // ==================== DETAIL ====================
-// A visão de detalhe local (renderizada a partir do array `clientes`/
-// localStorage) foi substituída pela página real de edição (editar_google_row),
-// que já mostra e edita todos os campos vindos da planilha. Esta função existe
-// apenas como fallback caso algum ponto futuro volte a chamar openDetail(id)
-// diretamente.
+// Modal de detalhe do card do Kanban, com edição inline. Opera sobre `leads`
+// (dados ao vivo do Sheets), não sobre o antigo array `clientes` local -- os
+// campos disponíveis são só os que _build_clientes_leads_from_sheets expõe;
+// dados financeiros/documentos completos ficam no link "Ver cadastro completo".
+let detailEditMode = false;
+
 function openDetail(id){
-  const pk = getPlanilhaPkFromClientId(id);
-  if(!pk){
-    showToast('Detalhes disponíveis apenas para clientes sincronizados da planilha','info');
-    return;
-  }
-  location.href = `/planilha/editar/${pk}/`;
+  const lead = leads.find(l => String(l.id) === String(id));
+  if(!lead){ showToast('Registro não encontrado', 'error'); return; }
+  detailEditMode = false;
+  renderDetailView(lead);
+  document.getElementById('detail-overlay').classList.add('open');
 }
-function closeDetail(e){if(e===true||e.target===document.getElementById('detail-overlay')){document.getElementById('detail-overlay').classList.remove('open')}}
+
+function renderDetailView(lead){
+  const box = document.getElementById('detail-box');
+  const si = STATUS_LIST.indexOf(lead.status);
+  const steps = STATUS_LIST.map((s,i)=>`<div class="step${i<si?' done':i===si?' current':''}">${escapeHtml(s)}</div>`).join('');
+  box.innerHTML = `
+  <div class="modal-head">
+    <div>
+      <h2 id="modal-dialog-title">${escapeHtml(lead.nome)}</h2>
+      <div style="font-size:12px;color:var(--muted);margin-top:2px">Atualizado em ${fmtDateTime(lead.atualizadoEm)}</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-sm" onclick="enterDetailEditMode('${lead.id}')"><i class="ti ti-edit"></i> Editar</button>
+      <button class="btn btn-sm" onclick="closeDetail(true)" aria-label="Fechar"><i class="ti ti-x" aria-hidden="true"></i></button>
+    </div>
+  </div>
+  <div class="modal-body">
+    <div class="progress-steps">${steps}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div class="detail-section">
+        <h4>Dados Pessoais</h4>
+        <div class="detail-row"><span class="lbl">Telefone</span><span class="val">${escapeHtml(lead.telefone)||'—'}</span></div>
+        <div class="detail-row"><span class="lbl">E-mail</span><span class="val">${escapeHtml(lead.email)||'—'}</span></div>
+        <div class="detail-row"><span class="lbl">Parceiro</span><span class="val">${lead.parceiro?escapeHtml(lead.parceiro):'Sem parceiro'}</span></div>
+      </div>
+      <div class="detail-section">
+        <h4>Certificado</h4>
+        <div class="detail-row"><span class="lbl">Tipo</span><span class="val">${escapeHtml(lead.tipoCert)||'—'}</span></div>
+        <div class="detail-row"><span class="lbl">Vencimento</span><span class="val">${lead.dataVencimento?fmtDate(lead.dataVencimento):'—'}</span></div>
+        <div class="detail-row"><span class="lbl">Pagamento</span><span class="val" style="color:${lead.pago?'var(--success)':'var(--danger)'}">${lead.pago?'Confirmado':'Pendente'}</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn" onclick="closeDetail(true)">Fechar</button>
+    <a class="btn" href="/planilha/editar/${lead.id}/" onclick="event.preventDefault(); navigateIfExists('${lead.id}', this.href);">Ver cadastro completo</a>
+  </div>`;
+  markModalFieldsPristine(box);
+}
+
+function enterDetailEditMode(id){
+  const lead = leads.find(l => String(l.id) === String(id));
+  if(!lead) return;
+  detailEditMode = true;
+  const box = document.getElementById('detail-box');
+  box.innerHTML = `
+  <div class="modal-head">
+    <h2 id="modal-dialog-title">Editar: ${escapeHtml(lead.nome)}</h2>
+    <button class="btn btn-sm" onclick="closeDetail(true)" aria-label="Fechar"><i class="ti ti-x" aria-hidden="true"></i></button>
+  </div>
+  <div class="modal-body">
+    <div class="form-grid">
+      <div class="field form-full"><label for="de-nome">Nome</label><input id="de-nome" value="${escapeHtml(lead.nome)}"></div>
+      <div class="field"><label for="de-telefone">Telefone</label><input id="de-telefone" value="${escapeHtml(lead.telefone)}"></div>
+      <div class="field"><label for="de-email">E-mail</label><input id="de-email" value="${escapeHtml(lead.email)}"></div>
+      <div class="field"><label for="de-parceiro">Parceiro</label>
+        <select id="de-parceiro"><option value="">Nenhum</option>
+          ${parceiros.map(p=>`<option value="${escapeHtml(p.nome)}"${lead.parceiro===p.nome?' selected':''}>${escapeHtml(p.nome)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label for="de-tipo">Tipo de Certificado</label>
+        <select id="de-tipo"><option value="">Selecione...</option>
+          ${precos.map(p=>`<option value="${escapeHtml(p.tipo)}"${lead.tipoCert===p.tipo?' selected':''}>${escapeHtml(p.tipo)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label for="de-venc">Data de Vencimento</label><input id="de-venc" type="date" value="${lead.dataVencimento||''}"></div>
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button class="btn" onclick="renderDetailView(leads.find(l=>String(l.id)==='${lead.id}'))">Cancelar</button>
+    <button class="btn btn-primary" id="de-save-btn" onclick="saveDetailInline('${lead.id}')"><i class="ti ti-device-floppy"></i> Salvar</button>
+  </div>`;
+  markModalFieldsPristine(box);
+}
+
+async function saveDetailInline(id){
+  const lead = leads.find(l => String(l.id) === String(id));
+  const btn = document.getElementById('de-save-btn');
+  const payload = new URLSearchParams({
+    cliente: document.getElementById('de-nome').value.trim(),
+    telefone1: document.getElementById('de-telefone').value,
+    email: document.getElementById('de-email').value,
+    contador_parceiro: document.getElementById('de-parceiro').value,
+    tipo_certificado: document.getElementById('de-tipo').value,
+    data_vencimento: document.getElementById('de-venc').value,
+    expected_atualizado_em: lead?.atualizadoEm || '',
+  });
+  if(btn) btn.disabled = true;
+  try{
+    const data = await apiFetch(`/planilha/${id}/detalhe/`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: payload.toString(),
+      errorMessage: 'Falha ao salvar alterações',
+    });
+    Object.assign(lead, {
+      nome: payload.get('cliente'), telefone: payload.get('telefone1'), email: payload.get('email'),
+      parceiro: payload.get('contador_parceiro'), tipoCert: payload.get('tipo_certificado'),
+      dataVencimento: payload.get('data_vencimento'), atualizadoEm: data.atualizado_em,
+    });
+    showToast('Cliente atualizado', 'success');
+    detailEditMode = false;
+    renderDetailView(lead);
+    renderKanban();
+  }catch(err){
+    showToast(err.message || 'Erro ao salvar', 'error');
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+}
+
+async function closeDetail(e){
+  const overlay = document.getElementById('detail-overlay');
+  const isBackdropClick = e && e.target === overlay;
+  if(e !== true && !isBackdropClick) return;
+  if(isBackdropClick && detailEditMode && isFormDirty('#detail-box')){
+    const ok = await askConfirm('Existem alterações não salvas. Deseja descartá-las?', {title:'Descartar alterações?', confirmLabel:'Descartar', danger:true});
+    if(!ok) return;
+  }
+  overlay.classList.remove('open');
+  detailEditMode = false;
+}
