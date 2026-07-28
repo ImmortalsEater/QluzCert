@@ -536,7 +536,30 @@ def editar_google_row(request, pk):
         'pago_venda': bool_from(registro.get('pago_venda')),
         'certificado_feito': bool_from(registro.get('certificado_feito')),
     }
-    return render(request, 'google_edit.html', {'registro': registro_view, 'status_opcoes': STATUS_OPCOES})
+    try:
+        parceiros = _build_parceiros_from_source()
+    except Exception:
+        parceiros = []
+    try:
+        precos = _build_precos_from_source()
+    except Exception:
+        precos = []
+
+    # Preserva o valor atual no <select> mesmo se não bater com nenhum
+    # parceiro/tipo cadastrado (nome digitado antes dessa mudança, ou
+    # cadastro removido depois) -- sem isso, salvar sem tocar no campo
+    # apagaria silenciosamente o valor.
+    if registro_view.get('contador_parceiro') and registro_view['contador_parceiro'] not in {p['nome'] for p in parceiros}:
+        parceiros = parceiros + [{'nome': registro_view['contador_parceiro']}]
+    if registro_view.get('tipo_certificado') and registro_view['tipo_certificado'] not in {p['tipo'] for p in precos}:
+        precos = precos + [{'tipo': registro_view['tipo_certificado'], 'validade': ''}]
+
+    return render(request, 'google_edit.html', {
+        'registro': registro_view,
+        'status_opcoes': STATUS_OPCOES,
+        'parceiros': parceiros,
+        'precos': precos,
+    })
 
 
 def criar_google_row(request):
