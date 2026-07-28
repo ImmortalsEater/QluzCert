@@ -221,6 +221,10 @@ def _build_alert_payload():
         'renovacoes_normais': len(renovacoes_normais),
         'pagamentos_urgentes': len(pagamentos_urgentes),
         'pagamentos_normais': len(pagamentos_normais),
+        # Incluído aqui (não só no contexto inicial da DashboardView) para
+        # que syncBackendAlertCounts() também atualize o card de faturamento
+        # ao consultar /alertas/, e não só no primeiro carregamento da página.
+        'faturamento_recebido': _build_faturamento_recebido(),
     }
     counts['alertas_totais'] = (
         counts['renovacoes_urgentes']
@@ -407,16 +411,6 @@ class DashboardView(TemplateView):
         except Exception:
             logger.exception('Falha ao carregar Clientes da planilha do Google Sheets')
             context['google_columns'], context['google_rows'] = _annotate_columns(CLIENTES_COLUMNS), []
-
-        # Faturamento é somado a partir da planilha (Sheets), a mesma fonte
-        # usada pelo resto do dashboard/tabela -- ver _build_faturamento_recebido.
-        try:
-            faturamento_total = _build_faturamento_recebido()
-        except Exception:
-            logger.exception('Falha ao calcular faturamento a partir da planilha do Google Sheets')
-            faturamento_total = 0.0
-
-        context['faturamento_recebido_json'] = _safe_json_dumps(faturamento_total)
 
         try:
             state = AppState.objects.filter(key='main').first()
