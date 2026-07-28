@@ -108,6 +108,10 @@ function editCliente(id){
     showToast('Edição disponível apenas para clientes sincronizados da planilha','info');
     return;
   }
-  location.href = `/planilha/editar/${pk}/`;
+  navigateIfExists(pk, `/planilha/editar/${pk}/`);
 }
-function deleteCliente(id){if(confirm('Remover este cliente?')){clientes=clientes.filter(c=>c.id!==id);save();renderClientes();renderDashboard()}}
+async function deleteCliente(id){
+  const ok = await askConfirm('Remover este cliente?', {title:'Remover cliente', confirmLabel:'Remover'});
+  if(!ok) return;
+  clientes=clientes.filter(c=>c.id!==id); save(); renderClientes(); renderDashboard();
+}
