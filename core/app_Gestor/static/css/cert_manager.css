@@ -110,6 +110,22 @@
   .column-selector-panel::-webkit-scrollbar-thumb:hover{background:var(--border-strong)}
   .chevron{transition:transform 150ms ease}
   .column-selector-dropdown:has(.column-selector-panel.open) .chevron{transform:rotate(180deg)}
+
+  /* Ações da linha: só Editar fica visível; Documentos/Histórico/Excluir
+     ficam atrás do botão "⋮" (ver openRowActionMenu em cert_manager.core.js).
+     gap:8px garante que a área de toque de 40x40 de cada botão (ver
+     .table-wrap .btn::after) não se sobreponha à do vizinho. */
+  .row-actions{display:inline-flex;align-items:center;gap:8px}
+  #action-menu-dropdown{position:fixed;display:none;flex-direction:column;gap:2px;padding:4px;min-width:180px;background:var(--surface);border-radius:12px;box-shadow:0 1px 1px rgba(0,0,0,.04),0 4px 8px rgba(0,0,0,.06),0 16px 32px rgba(0,0,0,.10);z-index:60}
+  #action-menu-dropdown.open{display:flex}
+  .action-menu-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;font-size:13px;font-family:inherit;color:var(--text);background:none;border:none;text-decoration:none;cursor:pointer;text-align:left;width:100%;transition:background-color 120ms ease}
+  .action-menu-item:hover{background:var(--surface-alt)}
+  .action-menu-item i{font-size:15px;color:var(--muted);width:16px;text-align:center}
+  .action-menu-item-danger{color:var(--danger)}
+  .action-menu-item-danger i{color:var(--danger)}
+  .action-menu-item-danger:hover{background:var(--danger-bg)}
+  .action-menu-divider{height:1px;background:var(--border-strong);margin:4px 6px}
+
   table{width:100%;border-collapse:collapse}
   thead th{background:var(--surface-alt);padding:10px 16px;text-align:left;font-size:11px;font-weight:700;color:var(--muted-strong);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
   tbody tr{border-bottom:1px solid var(--border);transition:background-color 120ms ease}
