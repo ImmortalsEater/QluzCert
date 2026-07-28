@@ -118,8 +118,8 @@
                     {% endfor %}
                     <td>
 
-                      <a class="btn btn-sm btn-edit" href="{% url 'editar_google_row' row.id %}"><i class="ti ti-pencil"></i>Editar</a>
-                      <a class="btn btn-sm btn-edit" href="{% url 'documentos_cliente' row.id %}"><i class="ti ti-folder"></i>Documentos</a>
+                      <a class="btn btn-sm btn-edit" href="{% url 'editar_google_row' row.id %}" onclick="event.preventDefault(); navigateIfExists('{{ row.id }}', this.href);"><i class="ti ti-pencil"></i>Editar</a>
+                      <a class="btn btn-sm btn-edit" href="{% url 'documentos_cliente' row.id %}" onclick="event.preventDefault(); navigateIfExists('{{ row.id }}', this.href);"><i class="ti ti-folder"></i>Documentos</a>
                       <button type="button" class="btn btn-sm" onclick="openHistoricoCliente('{{ row.id }}')"><i class="ti ti-history"></i>Histórico</button>
                       <button type="button" class="btn btn-sm btn-danger" onclick="deletePlanilhaCliente('{{ row.id }}')"><i class="ti ti-trash"></i>Excluir</button>
                     </td>
@@ -227,6 +227,11 @@
   <div class="modal" id="detail-box" style="max-width:780px"></div>
 </div>
 
+<!-- MODAL DE CONFIRMAÇÃO GENÉRICO (substitui window.confirm nativo) -->
+<div class="modal-overlay" id="confirm-overlay" style="z-index:200" onclick="_confirmBackdropClick(event)">
+  <div class="modal" id="confirm-box" style="max-width:420px"></div>
+</div>
+
 <!-- OVERLAY EXPORTAÇÃO -->
 <div id="export-overlay">
   <div class="export-box">
@@ -261,6 +266,22 @@
     var columnToggles = document.querySelectorAll('.column-toggle');
     var toggleAll = document.getElementById('column-toggle-all');
 
+    // Aplica a preferência de colunas visíveis salva de uma sessão anterior,
+    // sobrepondo o default_visible vindo do servidor.
+    var savedCols = DB.get('colunas_visiveis');
+    if (savedCols && typeof savedCols === 'object') {
+      columnToggles.forEach(function(toggle) {
+        var col = toggle.dataset.col;
+        if (Object.prototype.hasOwnProperty.call(savedCols, col)) {
+          var show = !!savedCols[col];
+          toggle.checked = show;
+          document.querySelectorAll('.' + col).forEach(function(cell) {
+            cell.style.display = show ? '' : 'none';
+          });
+        }
+      });
+    }
+
     function syncToggleAll() {
       if (!toggleAll) return;
       var checkedCount = 0;
@@ -277,6 +298,9 @@
           cell.style.display = show ? '' : 'none';
         });
         syncToggleAll();
+        var current = DB.get('colunas_visiveis') || {};
+        current[col] = show;
+        DB.set('colunas_visiveis', current);
       });
     });
 
