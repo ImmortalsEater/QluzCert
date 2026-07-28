@@ -53,6 +53,7 @@ async function savePreco(){
     onSuccess: () => {
       closeModal(true);
       editingId=null;
+      location.hash='tabela';
       setTimeout(()=>{ location.reload(); },600);
     },
   });
