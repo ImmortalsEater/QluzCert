@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from .models import DocumentoCliente, PagamentoCliente
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
@@ -20,7 +20,6 @@ from .parsing import parse_date, parse_decimal, bool_from
 import io
 import pandas as pd
 from django.http import HttpResponse
-from django.db.models import Sum, Q
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +104,7 @@ CLIENTES_COLUMNS = [
 ]
 
 _DATE_FIELDS = {'data_venda', 'data_vencimento'}
+_DATETIME_FIELDS = {'atualizado_em'}
 _DECIMAL_FIELDS = {'valor_venda', 'percentual_comissao', 'valor_comissao', 'custo_certificado', 'valor_liquido'}
 _BOOL_FIELDS = {'pago_comissao', 'pago_venda'}
 
@@ -115,6 +115,12 @@ def _format_sheet_cell_value(field, raw):
     if field in _DATE_FIELDS:
         parsed = parse_date(raw)
         return parsed.strftime('%d/%m/%Y') if parsed else raw
+    if field in _DATETIME_FIELDS:
+        try:
+            parsed_dt = datetime.fromisoformat(str(raw))
+            return parsed_dt.strftime('%d/%m/%Y %H:%M')
+        except Exception:
+            return raw
     if field in _DECIMAL_FIELDS:
         parsed = parse_decimal(raw)
         return f"{parsed:.2f}".replace('.', ',') if parsed is not None else raw
@@ -152,7 +158,7 @@ def _build_alert_payload():
     pagamentos_urgentes = []
     pagamentos_normais = []
 
-    rows = sheets_repository.list_rows('Clientes')
+    rows = [r for r in sheets_repository.list_rows('Clientes') if r.get('id')]
     emitidos = sum(1 for row in rows if bool_from(row.get('certificado_feito')))
     vencendo_60_dias = 0
 
@@ -224,6 +230,21 @@ def _build_alert_payload():
         'renovacoes': {'urgentes': renovacoes_urgentes, 'normais': renovacoes_normais},
         'pagamentos': {'urgentes': pagamentos_urgentes, 'normais': pagamentos_normais},
     }
+
+
+def _build_faturamento_recebido():
+    """Soma valor_venda das linhas da planilha 'Clientes' cujo pago_venda é
+    verdadeiro. Faturamento é sempre calculado a partir da fonte de dados
+    real (Sheets), não da tabela PagamentoCliente (que reflete só os
+    pagamentos processados via Mercado Pago, um subconjunto)."""
+    total = 0.0
+    for row in sheets_repository.list_rows('Clientes'):
+        if not bool_from(row.get('pago_venda')):
+            continue
+        valor = parse_decimal(row.get('valor_venda'))
+        if valor is not None:
+            total += float(valor)
+    return total
 
 
 def _build_parceiros_from_source():
@@ -300,6 +321,11 @@ def alertas_dashboard(request):
     return JsonResponse(_build_alert_payload())
 
 
+def verificar_registro_existe(request, pk):
+    existe = sheets_repository.get_row('Clientes', pk) is not None
+    return JsonResponse({'existe': existe})
+
+
 @require_POST
 def atualizar_planilha(request):
     """Força a próxima leitura das abas Clientes/Parceiros/Precos a ignorar o
@@ -330,6 +356,30 @@ def atualizar_status_cliente(request, pk):
         return JsonResponse({'error': str(e)}, status=500)
 
 
+_DETALHE_EDITAVEL_FIELDS = {'cliente', 'telefone1', 'email', 'contador_parceiro', 'tipo_certificado', 'data_vencimento'}
+
+
+@require_POST
+def atualizar_detalhe_cliente(request, pk):
+    fields = {k: v for k, v in request.POST.items() if k in _DETALHE_EDITAVEL_FIELDS}
+    if 'cliente' in fields and not fields['cliente'].strip():
+        return JsonResponse({'error': 'Informe o nome do cliente.'}, status=400)
+
+    expected_atualizado_em = request.POST.get('expected_atualizado_em') or None
+    try:
+        atualizado = sheets_repository.update_row(
+            'Clientes', pk, fields, expected_atualizado_em=expected_atualizado_em,
+        )
+        return JsonResponse({'success': True, 'atualizado_em': atualizado.get('atualizado_em')})
+    except sheets_repository.ConcurrencyError:
+        return JsonResponse({'error': 'Este registro foi alterado por outra pessoa. Recarregue e tente novamente.'}, status=409)
+    except LookupError:
+        return JsonResponse({'error': 'Registro não encontrado na planilha.'}, status=404)
+    except Exception as e:
+        logger.exception('Falha ao atualizar detalhe do cliente %s', pk)
+        return JsonResponse({'error': str(e)}, status=500)
+
+
 class LoginPreviewView(TemplateView):
     template_name = 'login.html'
 
@@ -354,14 +404,15 @@ class DashboardView(TemplateView):
             logger.exception('Falha ao carregar Clientes da planilha do Google Sheets')
             context['google_columns'], context['google_rows'] = _annotate_columns(CLIENTES_COLUMNS), []
 
-        # --- CORREÇÃO PRECISA: Soma o faturamento diretamente do banco onde pago_venda é True ---
-        from django.db.models import Sum
-
-        faturamento_db = ( PagamentoCliente.objects.filter(status=PagamentoCliente.STATUS_APPROVED).aggregate(total=Sum("valor"))["total"] or 0)
-        faturamento_total = float(faturamento_db)
+        # Faturamento é somado a partir da planilha (Sheets), a mesma fonte
+        # usada pelo resto do dashboard/tabela -- ver _build_faturamento_recebido.
+        try:
+            faturamento_total = _build_faturamento_recebido()
+        except Exception:
+            logger.exception('Falha ao calcular faturamento a partir da planilha do Google Sheets')
+            faturamento_total = 0.0
 
         context['faturamento_recebido_json'] = _safe_json_dumps(faturamento_total)
-        # ----------------------------------------------------------------------------------------
 
         try:
             state = AppState.objects.filter(key='main').first()
