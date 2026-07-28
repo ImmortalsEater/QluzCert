@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', function(){
 function initApp(){
   renderDashboard();
   renderClientes();
+  renderClientesSimples();
   filterPlanilhaImportada();
   renderParceiros();
   renderTabela();
