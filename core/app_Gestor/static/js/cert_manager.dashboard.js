@@ -66,10 +66,11 @@ function renderDashboard(){
   const emitidos = Number(counts.emitidos || 0);
   const vencendo = Number(counts.vencendo_60_dias || 0);
   const aguardandoEmissao = Math.max(total - emitidos, 0);
- // Lê o valor processado pelo Django na tabela. Se não existir, faz a soma local.
-  const faturamento = (typeof window !== 'undefined' && window.INITIAL_FATURAMENTO !== undefined)
-    ? Number(window.INITIAL_FATURAMENTO)
-    : clientes.filter(c=>c.pago).reduce((s,c)=>s+(parseFloat(c.valorCobrado)||0),0);
+  // Mesma fonte dos demais cards (counts, vinda do backend via /alertas/ ou
+  // do INITIAL_ALERTS embutido no carregamento inicial) -- assim o card
+  // atualiza junto com os outros a cada syncBackendAlertCounts(), em vez de
+  // depender de um valor injetado uma única vez no carregamento da página.
+  const faturamento = Number(counts.faturamento_recebido || 0);
 
   document.getElementById('dashboard-metrics').innerHTML=`
     <div class="metric-card accent"><div class="metric-label">Total de Clientes</div><div class="metric-val">${total}</div><div class="metric-sub">${aguardandoEmissao} aguardando emissão</div></div>
