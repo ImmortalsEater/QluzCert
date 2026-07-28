@@ -180,6 +180,8 @@
   .kanban-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;transition:all .15s;cursor:grab}
   .kanban-card:hover{border-color:var(--border-strong);transform:translateY(-1px)}
   .kanban-card.dragging{opacity:.5;cursor:grabbing}
+  .kanban-card.drag-over-top{border-top:2px solid var(--accent)}
+  .kanban-card.drag-over-bottom{border-bottom:2px solid var(--accent)}
   .kanban-card-name{font-size:13px;font-weight:600;margin-bottom:4px}
   .kanban-card-sub{font-size:11px;color:var(--muted)}
   .kanban-card-footer{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
