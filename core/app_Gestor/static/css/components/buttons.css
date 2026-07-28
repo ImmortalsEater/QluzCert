@@ -122,16 +122,11 @@
   color: #fff;
   border-color: var(--accent);
   font-weight: 600;
-  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 120ms var(--ease-out-strong), box-shadow 150ms ease;
 }
 
 .btn-primary:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
-  /* Deliberate exception to "no box-shadow on in-flow controls" (see
-     DESIGN.md Elevation & Depth) -- the one button meant to read as THE
-     page's primary action gets a hover cue the others don't. */
-  box-shadow: 0 4px 12px rgba(6, 81, 148, 0.25);
 }
 
 /* ---------- Semantic (soft) ---------- */
