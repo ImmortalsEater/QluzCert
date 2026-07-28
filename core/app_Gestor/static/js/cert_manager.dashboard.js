@@ -1,6 +1,7 @@
 const PAGE_CONFIG = {
   dashboard:{title:'Dashboard', render:renderDashboard},
-  clientes:{title:'Clientes', render:filterPlanilhaImportada},
+  clientes:{title:'Clientes', render:renderClientesSimples},
+  planilha:{title:'Planilha', render:filterPlanilhaImportada},
   funil:{title:'Funil de Atendimento', render:renderKanban},
   renovacoes:{title:'Alertas de Renovação', render:renderRenovacoes},
   pagamentos:{title:'Alertas de Pagamento', render:renderInadimplencia},
