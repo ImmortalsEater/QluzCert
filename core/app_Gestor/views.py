@@ -294,6 +294,7 @@ def _build_clientes_leads_from_sheets():
         leads.append({
             'id': row_id,
             'nome': row.get('cliente', ''),
+            'cpfCnpj': row.get('cpf_cnpj', ''),
             'status': row.get('status') or 'Novo Lead',
             'tipoCert': row.get('tipo_certificado', ''),
             'parceiro': row.get('contador_parceiro', ''),
