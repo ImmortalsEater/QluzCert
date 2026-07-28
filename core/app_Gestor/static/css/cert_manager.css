@@ -54,8 +54,9 @@
   
   /* SIDEBAR */
   #sidebar{width:var(--sidebar-w);height:100vh;position:sticky;top:0;overflow-y:auto;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
-  .sidebar-logo{padding:16px;border-bottom:1px solid var(--border)}
-  .logo-txt{font-size:13px;font-weight:700;color:var(--accent);letter-spacing:.5px}
+  .sidebar-logo{padding:16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+  .logo-mark{height:24px;width:auto;flex-shrink:0}
+  .logo-txt{font-size:13px;font-weight:700;color:var(--accent);letter-spacing:.5px;white-space:nowrap}
   .logo-sub{font-size:10px;color:var(--muted);margin-top:1px}
   .nav-section{padding:12px 8px 4px;font-size:10px;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase}
   .nav-section~.nav-section{margin:8px 12px 0;padding:12px 0 4px;border-top:1px solid var(--border)}
