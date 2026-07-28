@@ -91,12 +91,12 @@ function renderDashboard(){
     <tr style="border-bottom:1px solid var(--border)">
       <td style="padding:10px 16px;font-size:13px">${escapeHtml(l.nome)}</td>
       <td style="padding:10px 16px">${statusBadge(l.status)}</td>
-      <td style="padding:10px 16px;color:var(--muted);font-size:12px">${fmtDate(l.atualizadoEm)}</td>
+      <td style="padding:10px 16px;color:var(--muted);font-size:12px">${fmtDateTime(l.atualizadoEm)}</td>
     </tr>`).join('')}</table>`;
   const panel=document.getElementById('dashboard-notificados');
   if(panel){
     panel.innerHTML = notificacoesRecentes.length ? `<table style="width:100%;border-collapse:collapse">${notificacoesRecentes.map(n=>`
-      <tr onclick="location.href='/planilha/editar/${n.clienteId}/'" style="cursor:pointer;border-bottom:1px solid var(--border)">
+      <tr onclick="navigateIfExists('${n.clienteId}', '/planilha/editar/${n.clienteId}/')" style="cursor:pointer;border-bottom:1px solid var(--border)">
         <td style="padding:10px 16px;font-size:13px"><strong>${escapeHtml(n.nome)}</strong></td>
         <td style="padding:10px 16px;color:var(--muted);font-size:12px">${escapeHtml(n.titulo)}${n.texto?` — ${escapeHtml(n.texto)}`:''}</td>
         <td style="padding:10px 16px;color:var(--muted);font-size:12px">${fmtDate(n.data)}</td>
