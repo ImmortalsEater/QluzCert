@@ -76,12 +76,17 @@ function initSaveMenu(){
   const menu = document.getElementById('save-menu');
   const btnLocal = document.getElementById('save-local-btn');
   if(!mainBtn || !menu) return;
-  mainBtn.addEventListener('click', function(e){ e.stopPropagation(); menu.style.display = (menu.style.display==='block'?'none':'block'); });
-  // fechar ao clicar fora
-  document.addEventListener('click', function(){ if(menu) menu.style.display='none' });
-  if(btnLocal) btnLocal.addEventListener('click', function(e){ e.stopPropagation(); menu.style.display='none'; saveLocalOnly(); });
+  mainBtn.addEventListener('click', function(e){
+    e.stopPropagation();
+    const wasOpen = menu.classList.contains('open');
+    closeActionMenu();
+    document.getElementById('column-selector-panel')?.classList.remove('open');
+    menu.classList.toggle('open', !wasOpen);
+  });
+  document.addEventListener('click', function(){ menu.classList.remove('open'); });
+  if(btnLocal) btnLocal.addEventListener('click', function(e){ e.stopPropagation(); menu.classList.remove('open'); saveLocalOnly(); });
   const btnExport = document.getElementById('export-btn');
-  if(btnExport) btnExport.addEventListener('click', function(e){ e.stopPropagation(); menu.style.display='none'; exportState(); });
+  if(btnExport) btnExport.addEventListener('click', function(e){ e.stopPropagation(); menu.classList.remove('open'); exportState(); });
 }
 
 async function atualizarPlanilha(){
@@ -393,7 +398,7 @@ function renderAlertCard(item, kind){
       <div class="alert-name">${escapeHtml(item.nome)}</div>
       <div class="alert-detail">${detail}</div>
     </div>
-    <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();${actionFn}">${actionLabel}</button>
+    <button class="btn btn-sm btn-edit" onclick="event.stopPropagation();${actionFn}">${actionLabel}</button>
   </div>`;
 }
 
@@ -558,9 +563,10 @@ function openRowActionMenu(e, id){
   const wasOpenForThisRow = menu.classList.contains('open') && menu.dataset.forId === id;
   closeActionMenu();
   // Só um popover flutuante aberto por vez: o painel de colunas da Planilha
-  // também usa stopPropagation() no próprio botão, então nunca vê o clique
-  // que abriria este menu -- fecha ele explicitamente aqui.
+  // e o menu "Salvar" também usam stopPropagation() no próprio botão, então
+  // nunca veem o clique que abriria este menu -- fecha os dois aqui.
   document.getElementById('column-selector-panel')?.classList.remove('open');
+  document.getElementById('save-menu')?.classList.remove('open');
   if(wasOpenForThisRow) return;
 
   menu.dataset.forId = id;
