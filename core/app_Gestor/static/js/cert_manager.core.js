@@ -557,6 +557,10 @@ function openRowActionMenu(e, id){
   if(!menu) return;
   const wasOpenForThisRow = menu.classList.contains('open') && menu.dataset.forId === id;
   closeActionMenu();
+  // Só um popover flutuante aberto por vez: o painel de colunas da Planilha
+  // também usa stopPropagation() no próprio botão, então nunca vê o clique
+  // que abriria este menu -- fecha ele explicitamente aqui.
+  document.getElementById('column-selector-panel')?.classList.remove('open');
   if(wasOpenForThisRow) return;
 
   menu.dataset.forId = id;
