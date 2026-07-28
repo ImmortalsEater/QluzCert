@@ -1,27 +1,12 @@
 // ==================== CLIENTES ====================
 // A tabela "Clientes Cadastrados" (client-side, array local `clientes`) foi
-// removida -- a view Clientes agora tem só a tabela vinda do Sheets
-// (#planilha-tbody, ver filterPlanilhaImportada). renderClientes() é mantida
-// como no-op porque o fluxo antigo do modal rico (saveCliente, registrarContato
-// etc., fora do escopo desta migração) ainda a chama após salvar.
+// removida -- hoje existem duas views vindas do Sheets: a Planilha
+// (#planilha-tbody, todas as colunas, ver filterPlanilhaImportada) e a
+// Clientes (#clientes-simples-tbody, colunas essenciais, ver
+// renderClientesSimples). renderClientes() é mantida como no-op porque o
+// fluxo antigo do modal rico (saveCliente, registrarContato etc., fora do
+// escopo desta migração) ainda a chama após salvar.
 function renderClientes(){}
-
-// Colunas de identificação da tabela "Planilha Importada" são localizadas pelo texto do
-// cabeçalho (não pela classe CSS): a classe de cada coluna é derivada do cabeçalho real da
-// planilha em tempo de sincronização (ver normalize_header em core/app/services.py) e pode
-// variar a cada sync (ex: "CPF/CNPJ" vira col-cpfcnpj, não col-cpf-cnpj).
-const PLANILHA_SEARCH_KEYWORDS = ['cliente','nome','cpf','cnpj','email','e-mail','telefone','celular','whatsapp'];
-let _planilhaSearchColIndexes = null;
-function getPlanilhaSearchColIndexes(){
-  if(_planilhaSearchColIndexes) return _planilhaSearchColIndexes;
-  const ths = Array.from(document.querySelectorAll('#planilha-table thead th'));
-  _planilhaSearchColIndexes = ths.reduce((acc, th, i)=>{
-    const text = th.textContent.toLowerCase();
-    if(PLANILHA_SEARCH_KEYWORDS.some(k=>text.includes(k))) acc.push(i);
-    return acc;
-  }, []);
-  return _planilhaSearchColIndexes;
-}
 
 // Decora a célula de status (texto cru vindo do Django) com o badge colorido
 // já usado no Kanban -- feito client-side para não precisar marcar a célula
@@ -37,7 +22,6 @@ function decoratePlanilhaStatusBadges(){
 }
 
 function filterPlanilhaImportada(){
-  const q=normalizeQuery(document.getElementById('search-cliente')?.value);
   const statusFilterVal=document.getElementById('filter-status')?.value||'';
   const tbody=document.getElementById('planilha-tbody');
   const table=document.getElementById('planilha-table');
@@ -56,14 +40,9 @@ function filterPlanilhaImportada(){
     return;
   }
 
-  const cols=getPlanilhaSearchColIndexes();
   const matches=dataRows.filter(row=>{
-    const cells=row.querySelectorAll('td');
-    const text=cols.map(i=>cells[i]?.textContent||'').join(' ').toLowerCase();
-    const searchOk=!q||text.includes(q);
     const statusCell=row.querySelector('td.col-status');
-    const statusOk=!statusFilterVal||(statusCell?.dataset.decorated===statusFilterVal);
-    return searchOk&&statusOk;
+    return !statusFilterVal||(statusCell?.dataset.decorated===statusFilterVal);
   });
 
   const totalPages=Math.max(1,Math.ceil(matches.length/ROWS_PER_PAGE));
@@ -77,9 +56,9 @@ function filterPlanilhaImportada(){
   updateResultCount('planilha-count', matches.length, dataRows.length);
   table.style.display='';
   if(noMatch){
-    if(q&&!matches.length){
+    if(statusFilterVal&&!matches.length){
       noMatch.style.display='';
-      if(msg) msg.textContent='Nenhum cliente encontrado para essa busca.';
+      if(msg) msg.textContent='Nenhum cliente encontrado para esse filtro.';
     } else {
       noMatch.style.display='none';
     }
@@ -88,13 +67,81 @@ function filterPlanilhaImportada(){
 }
 function goToPlanilhaPage(n){planilhaPage=n;filterPlanilhaImportada()}
 
+// ==================== CLIENTES (visão enxuta) ====================
+// Diferente da Planilha (server-rendered com todas as colunas), esta tabela
+// é montada no cliente a partir de `leads` (mesmos dados do Kanban), só com
+// os campos mais usados no dia a dia.
+function renderClientesSimples(){
+  const q=normalizeQuery(document.getElementById('search-cliente')?.value);
+  const statusFilterVal=document.getElementById('filter-status-clientes')?.value||'';
+  const tbody=document.getElementById('clientes-simples-tbody');
+  const table=document.getElementById('clientes-simples-table');
+  const noMatch=document.getElementById('clientes-simples-no-match');
+  const msg=document.getElementById('clientes-simples-empty-msg');
+  if(!tbody||!table) return;
+
+  if(!leads.length){
+    table.style.display='none';
+    if(noMatch){ noMatch.style.display=''; }
+    if(msg) msg.textContent='Nenhum cliente cadastrado na planilha ainda.';
+    updateResultCount('clientes-simples-count', 0, 0);
+    renderPaginationControls('clientes-simples-pagination', 1, 1, 'goToClientesPage');
+    return;
+  }
+
+  const matches=leads.filter(l=>{
+    const haystack=`${l.nome||''} ${l.telefone||''} ${l.email||''} ${l.cpfCnpj||''}`.toLowerCase();
+    const searchOk=!q||haystack.includes(q);
+    const statusOk=!statusFilterVal||l.status===statusFilterVal;
+    return searchOk&&statusOk;
+  });
+
+  const totalPages=Math.max(1,Math.ceil(matches.length/ROWS_PER_PAGE));
+  if(clientesPage>totalPages) clientesPage=totalPages;
+  if(clientesPage<1) clientesPage=1;
+  const pageStart=(clientesPage-1)*ROWS_PER_PAGE;
+  const pageItems=matches.slice(pageStart,pageStart+ROWS_PER_PAGE);
+
+  tbody.innerHTML=pageItems.map(l=>`<tr>
+    <td>${escapeHtml(l.nome)}</td>
+    <td>${escapeHtml(l.telefone)||'—'}</td>
+    <td>${statusBadge(l.status)}</td>
+    <td>${escapeHtml(l.tipoCert)||'—'}</td>
+    <td>${l.dataVencimento?fmtDate(l.dataVencimento):'—'}</td>
+    <td>${l.parceiro?escapeHtml(l.parceiro):'—'}</td>
+    <td>
+      <a class="btn btn-sm btn-edit" href="/planilha/editar/${l.id}/" onclick="event.preventDefault(); navigateIfExists('${l.id}', this.href);"><i class="ti ti-pencil"></i>Editar</a>
+      <a class="btn btn-sm btn-edit" href="/planilha/${l.id}/documentos/" onclick="event.preventDefault(); navigateIfExists('${l.id}', this.href);"><i class="ti ti-folder"></i>Documentos</a>
+      <button type="button" class="btn btn-sm" onclick="openHistoricoCliente('${l.id}')"><i class="ti ti-history"></i>Histórico</button>
+      <button type="button" class="btn btn-sm btn-danger" onclick="deletePlanilhaCliente('${l.id}')"><i class="ti ti-trash"></i>Excluir</button>
+    </td>
+  </tr>`).join('');
+
+  updateResultCount('clientes-simples-count', matches.length, leads.length);
+  table.style.display='';
+  if(noMatch){
+    if((q||statusFilterVal)&&!matches.length){
+      noMatch.style.display='';
+      if(msg) msg.textContent='Nenhum cliente encontrado para essa busca.';
+    } else {
+      noMatch.style.display='none';
+    }
+  }
+  renderPaginationControls('clientes-simples-pagination', clientesPage, totalPages, 'goToClientesPage');
+}
+function goToClientesPage(n){clientesPage=n;renderClientesSimples()}
+
 async function deletePlanilhaCliente(id){
   await crudDelete({
     url: `/planilha/${id}/excluir/`,
     confirmMsg: 'Remover este cliente da planilha? Essa ação não pode ser desfeita.',
     successMsg: 'Cliente removido da planilha',
     errorMsg: 'Erro ao remover cliente',
-    onSuccess: () => { location.hash='clientes'; location.reload(); },
+    onSuccess: () => {
+      // Volta pra mesma aba de onde a exclusão partiu (Clientes ou Planilha).
+      location.hash=(getCurrentViewId()||'view-clientes').replace('view-','');
+      location.reload();
+    },
   });
 }
 
