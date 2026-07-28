@@ -64,6 +64,7 @@ async function saveParceiro(){
     onSuccess: () => {
       closeModal(true);
       editingId=null;
+      location.hash='parceiros';
       setTimeout(()=>{ location.reload(); },600);
     },
   });
