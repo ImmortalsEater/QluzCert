@@ -23,6 +23,7 @@
 
 :root {
   --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-out-mechanical: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ---------- Base ---------- */
@@ -90,6 +91,12 @@
   background: transparent;
   color: var(--accent);
   border-color: var(--accent);
+  /* No fill = no particular emphasis (see button-default in DESIGN.md) --
+     radius nests with the rounded.lg (10px) containers this tier usually
+     sits in, and the press feels quicker/more mechanical, fitting a
+     scanned-all-day operator control rather than a marketing CTA. */
+  border-radius: 10px;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 100ms var(--ease-out-mechanical);
 }
 
 .btn-outline:hover,
