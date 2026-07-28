@@ -32,7 +32,14 @@
           <div class="field"><label for="id-email">E-mail</label><input id="id-email" name="email" type="email" value="{{ registro.email }}" placeholder="email@exemplo.com" autocomplete="email"></div>
           <div class="field"><label for="id-tel1">Telefone</label><input id="id-tel1" name="telefone1" type="tel" value="{{ registro.telefone1 }}" placeholder="(00) 00000-0000" inputmode="tel" autocomplete="tel"></div>
           <div class="field"><label for="id-tel2">Telefone 2</label><input id="id-tel2" name="telefone2" type="tel" value="{{ registro.telefone2 }}" placeholder="(00) 00000-0000" inputmode="tel" autocomplete="tel"></div>
-          <div class="field"><label for="id-parceiro">Contador/Parceiro</label><input id="id-parceiro" name="contador_parceiro" value="{{ registro.contador_parceiro }}" autocomplete="off"></div>
+          <div class="field"><label for="id-parceiro">Contador/Parceiro</label>
+            <select id="id-parceiro" name="contador_parceiro">
+              <option value="">Nenhum / Direto</option>
+              {% for p in parceiros %}
+                <option value="{{ p.nome }}" {% if p.nome == registro.contador_parceiro %}selected{% endif %}>{{ p.nome }}</option>
+              {% endfor %}
+            </select>
+          </div>
           <div class="field"><label for="id-contabilidade">Contador/Contabilidade</label><input id="id-contabilidade" name="contador_contabilidade" value="{{ registro.contador_contabilidade }}" autocomplete="off"></div>
           <div class="field"><label for="id-status">Status do Atendimento</label>
             <select id="id-status" name="status">
@@ -46,9 +53,16 @@
       <fieldset class="modal-fieldset">
         <legend>Certificado &amp; Venda</legend>
         <div class="form-grid">
-          <div class="field"><label for="id-tipo">Tipo de Certificado</label><input id="id-tipo" name="tipo_certificado" value="{{ registro.tipo_certificado }}" placeholder="Ex: e-CPF A1" autocomplete="off"></div>
+          <div class="field"><label for="id-tipo">Tipo de Certificado</label>
+            <select id="id-tipo" name="tipo_certificado">
+              <option value="">Selecione...</option>
+              {% for p in precos %}
+                <option value="{{ p.tipo }}" data-validade="{{ p.validade }}" {% if p.tipo == registro.tipo_certificado %}selected{% endif %}>{{ p.tipo }}</option>
+              {% endfor %}
+            </select>
+          </div>
           <div class="field"><label for="id-datavenda">Data da Venda</label><input id="id-datavenda" name="data_venda" type="date" value="{{ registro.data_venda }}"></div>
-          <div class="field"><label for="id-datavenc">Data de Vencimento</label><input id="id-datavenc" name="data_vencimento" type="date" value="{{ registro.data_vencimento }}"></div>
+          <div class="field"><label for="id-datavenc">Data de Vencimento</label><input id="id-datavenc" name="data_vencimento" type="date" value="{{ registro.data_vencimento }}" readonly></div>
           <div class="field"><label for="id-valorvenda">Valor da Venda (R$)</label><input id="id-valorvenda" name="valor_venda" type="number" step="0.01" min="0" inputmode="decimal" value="{{ registro.valor_venda }}" placeholder="0,00"></div>
           <div class="field"><label for="id-percentual">Percentual de Comissão (%)</label><input id="id-percentual" name="percentual_comissao" type="number" step="0.01" min="0" inputmode="decimal" value="{{ registro.percentual_comissao }}" placeholder="0,00"></div>
           <div class="field"><label for="id-valorcomissao">Valor da Comissão (R$)</label><input id="id-valorcomissao" name="valor_comissao" type="number" step="0.01" min="0" inputmode="decimal" value="{{ registro.valor_comissao }}" placeholder="0,00"></div>
@@ -89,5 +103,28 @@
       </div>
     </form>
   </div>
+  <script src="{% static 'js/cert_manager.core.js' %}"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function(){
+      var cpf = document.getElementById('id-cpf');
+      var tel1 = document.getElementById('id-tel1');
+      var tel2 = document.getElementById('id-tel2');
+      if(cpf){ cpf.value = maskCpfCnpj(cpf.value); cpf.addEventListener('input', function(){ this.value = maskCpfCnpj(this.value); }); }
+      if(tel1){ tel1.value = maskTelefone(tel1.value); tel1.addEventListener('input', function(){ this.value = maskTelefone(this.value); }); }
+      if(tel2){ tel2.value = maskTelefone(tel2.value); tel2.addEventListener('input', function(){ this.value = maskTelefone(this.value); }); }
+
+      var tipoSel = document.getElementById('id-tipo');
+      var dataVenda = document.getElementById('id-datavenda');
+      var dataVenc = document.getElementById('id-datavenc');
+      function recalcularVencimento(){
+        if(!dataVenda.value) return;
+        var opt = tipoSel.options[tipoSel.selectedIndex];
+        var dias = parseValidadeToDays(opt && opt.dataset.validade) ?? 365;
+        dataVenc.value = addDays(dataVenda.value, dias);
+      }
+      if(tipoSel) tipoSel.addEventListener('change', recalcularVencimento);
+      if(dataVenda) dataVenda.addEventListener('change', recalcularVencimento);
+    });
+  </script>
 </body>
 </html>
