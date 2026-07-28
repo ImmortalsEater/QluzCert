@@ -57,7 +57,7 @@ async function loadDocumentosCliente(clientId){
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
           <a class="btn btn-sm" href="${doc.download_url}" target="_blank" rel="noopener"><i class="ti ti-download"></i> Baixar</a>
-          <button class="btn btn-sm btn-danger" onclick="deleteDocumentoCliente('${clientId}', '${doc.delete_url}')" aria-label="Excluir documento"><i class="ti ti-trash" aria-hidden="true"></i></button>
+          ${window.IS_ADMIN ? `<button class="btn btn-sm btn-danger" onclick="deleteDocumentoCliente('${clientId}', '${doc.delete_url}')" aria-label="Excluir documento"><i class="ti ti-trash" aria-hidden="true"></i></button>` : ''}
         </div>
       </div>
     `).join('');

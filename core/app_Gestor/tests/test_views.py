@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.test import TestCase as DjangoTestCase
@@ -22,12 +23,19 @@ _TEST_USER_PASSWORD = 'qcert-test-pass-123'
 class TestCase(DjangoTestCase):
     """`TestCase` com login automático -- todas as views exigem login desde
     que o `LoginRequiredMiddleware` foi ligado; sem isso, todo teste que usa
-    `self.client` cairia num redirect pra /login/ em vez de exercitar a view."""
+    `self.client` cairia num redirect pra /login/ em vez de exercitar a view.
+
+    O usuário é admin (is_superuser=True) por padrão: estes testes cobrem
+    lógica de negócio, não a fronteira de permissão em si (ver
+    PermissionRequiredTests para os testes de vendedor sendo bloqueado)."""
 
     def _pre_setup(self):
         super()._pre_setup()
         User = get_user_model()
-        user = User.objects.create_user(username=_TEST_USER_USERNAME, password=_TEST_USER_PASSWORD)
+        user = User.objects.create_user(
+            username=_TEST_USER_USERNAME, password=_TEST_USER_PASSWORD,
+            is_superuser=True, is_staff=True,
+        )
         self.client.force_login(user)
 
 
@@ -1455,12 +1463,19 @@ class WebhookMercadoPagoViewTests(TestCase):
 
 class LoginRequiredTests(DjangoTestCase):
     """Usa a TestCase original do Django (sem login automático) porque estes
-    testes precisam controlar o estado de autenticação eles mesmos."""
+    testes precisam controlar o estado de autenticação eles mesmos.
+
+    O login real passa pelo SheetsBackend (core/app_Gestor/auth_backends.py),
+    que busca usuário/senha na aba 'Usuarios' da planilha em vez do banco
+    local -- por isso `repo.list_rows('Usuarios')` é mockado aqui em vez de
+    usar a senha do `auth_user` local diretamente."""
 
     def setUp(self):
-        self.user = get_user_model().objects.create_user(
-            username=_TEST_USER_USERNAME, password=_TEST_USER_PASSWORD,
-        )
+        self.user = get_user_model().objects.create_user(username=_TEST_USER_USERNAME)
+        usuarios_rows = [{'username': _TEST_USER_USERNAME, 'password': make_password(_TEST_USER_PASSWORD)}]
+        patcher = patch.object(repo, 'list_rows', side_effect=lambda tab: usuarios_rows if tab == 'Usuarios' else [])
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_protected_route_redirects_anonymous_to_login(self):
         response = self.client.get(reverse('dashboard'))
@@ -1502,3 +1517,93 @@ class LoginRequiredTests(DjangoTestCase):
         self.assertRedirects(response, reverse('login'))
         response = self.client.get(reverse('dashboard'))
         self.assertRedirects(response, f"{reverse('login')}?next={reverse('dashboard')}")
+
+    def test_login_with_tipo_admin_grants_is_superuser(self):
+        usuarios_rows = [{'username': 'chefe', 'password': make_password('senha123'), 'tipo': 'admin'}]
+        with patch.object(repo, 'list_rows', side_effect=lambda tab: usuarios_rows if tab == 'Usuarios' else []):
+            self.client.post(reverse('login'), {'username': 'chefe', 'password': 'senha123'})
+
+        user = get_user_model().objects.get(username='chefe')
+        self.assertTrue(user.is_superuser)
+        self.assertTrue(user.is_staff)
+
+    def test_login_with_tipo_vendedor_does_not_grant_is_superuser(self):
+        usuarios_rows = [{'username': 'vendedor1', 'password': make_password('senha123'), 'tipo': 'vendedor'}]
+        with patch.object(repo, 'list_rows', side_effect=lambda tab: usuarios_rows if tab == 'Usuarios' else []):
+            self.client.post(reverse('login'), {'username': 'vendedor1', 'password': 'senha123'})
+
+        user = get_user_model().objects.get(username='vendedor1')
+        self.assertFalse(user.is_superuser)
+        self.assertFalse(user.is_staff)
+
+    def test_tipo_change_in_sheet_takes_effect_on_next_login(self):
+        User = get_user_model()
+        existing = User.objects.create_user(username='promovido', is_superuser=False, is_staff=False)
+        usuarios_rows = [{'username': 'promovido', 'password': make_password('senha123'), 'tipo': 'admin'}]
+
+        with patch.object(repo, 'list_rows', side_effect=lambda tab: usuarios_rows if tab == 'Usuarios' else []):
+            self.client.post(reverse('login'), {'username': 'promovido', 'password': 'senha123'})
+
+        existing.refresh_from_db()
+        self.assertTrue(existing.is_superuser)
+
+
+class PermissionRequiredTests(DjangoTestCase):
+    """Endpoints admin-only (excluir, Parceiros, Preços) devem bloquear um
+    usuário vendedor (is_superuser=False) e liberar um admin."""
+
+    def setUp(self):
+        User = get_user_model()
+        self.vendedor = User.objects.create_user(username='vendedor-perm', is_superuser=False, is_staff=False)
+        self.admin = User.objects.create_user(username='admin-perm', is_superuser=True, is_staff=True)
+
+    def test_vendedor_blocked_from_cliente_excluir(self):
+        self.client.force_login(self.vendedor)
+        response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_allowed_on_cliente_excluir(self):
+        self.client.force_login(self.admin)
+        with patch.object(repo, 'delete_row') as mock_delete:
+            response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
+        self.assertEqual(response.status_code, 200)
+        mock_delete.assert_called_once()
+
+    def test_vendedor_blocked_from_parceiro_criar(self):
+        self.client.force_login(self.vendedor)
+        response = self.client.post(reverse('parceiro_criar'), {'nome': 'Escritorio X'})
+        self.assertEqual(response.status_code, 403)
+
+    def test_vendedor_blocked_from_parceiro_excluir(self):
+        self.client.force_login(self.vendedor)
+        response = self.client.post(reverse('parceiro_excluir', kwargs={'id': 'PAR-aaaaaaaa'}))
+        self.assertEqual(response.status_code, 403)
+
+    def test_vendedor_blocked_from_preco_criar(self):
+        self.client.force_login(self.vendedor)
+        response = self.client.post(reverse('preco_criar'), {'tipo': 'e-CPF A1'})
+        self.assertEqual(response.status_code, 403)
+
+    def test_vendedor_blocked_from_preco_excluir(self):
+        self.client.force_login(self.vendedor)
+        response = self.client.post(reverse('preco_excluir', kwargs={'id': 'PRC-aaaaaaaa'}))
+        self.assertEqual(response.status_code, 403)
+
+    def test_vendedor_blocked_from_excluir_documento(self):
+        doc = DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', nome_original='doc.pdf', tamanho_bytes=1)
+        self.client.force_login(self.vendedor)
+        response = self.client.post(reverse('excluir_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': doc.id}))
+        self.assertEqual(response.status_code, 403)
+
+    def test_vendedor_still_allowed_on_cliente_edit(self):
+        # Editar cliente (não excluir) continua liberado pro vendedor -- só
+        # exclusão e as áreas de Preços/Parceiros são admin-only.
+        self.client.force_login(self.vendedor)
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'update_row') as mock_update:
+            response = self.client.post(
+                reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'cliente': 'Ana Silva', 'pago_comissao': 'Sim'},
+            )
+        self.assertRedirects(response, reverse('dashboard') + '#clientes', fetch_redirect_response=False)
+        mock_update.assert_called_once()

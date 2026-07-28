@@ -1,11 +1,12 @@
 from datetime import date, datetime
+from functools import wraps
 from .models import DocumentoCliente, PagamentoCliente
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
 from django.views.generic import TemplateView
 from django.contrib import messages
 from django.utils.decorators import method_decorator
-from django.http import JsonResponse, HttpResponseBadRequest, FileResponse, Http404
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden, FileResponse, Http404
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
@@ -22,6 +23,20 @@ import pandas as pd
 from django.http import HttpResponse
 
 logger = logging.getLogger(__name__)
+
+
+def admin_required(view_func):
+    """Bloqueia a view pra quem não é admin. `request.user.is_superuser` é
+    definido a partir da coluna 'tipo' da aba Usuarios da planilha em cada
+    login -- ver core/app_Gestor/auth_backends.py."""
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_superuser:
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return JsonResponse({'error': 'Permissão negada.'}, status=403)
+            return HttpResponseForbidden('Permissão negada.')
+        return view_func(request, *args, **kwargs)
+    return wrapper
 
 
 def _safe_json_dumps(obj):
@@ -616,6 +631,7 @@ def criar_google_row(request):
     return render(request, 'google_create.html')
 
 
+@admin_required
 @require_POST
 def cliente_excluir(request, pk):
     try:
@@ -692,6 +708,7 @@ def contatos_cliente_registro(request, pk):
     return HttpResponseBadRequest('Método não permitido')
 
 
+@admin_required
 def parceiro_criar(request):
     if request.method != 'POST':
         return HttpResponseBadRequest('Método não permitido')
@@ -716,6 +733,7 @@ def parceiro_criar(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 
+@admin_required
 def parceiro_editar(request, id):
     if request.method != 'POST':
         return HttpResponseBadRequest('Método não permitido')
@@ -739,6 +757,7 @@ def parceiro_editar(request, id):
         return JsonResponse({'error': str(e)}, status=500)
 
 
+@admin_required
 @require_POST
 def parceiro_excluir(request, id):
     try:
@@ -751,6 +770,7 @@ def parceiro_excluir(request, id):
         return JsonResponse({'error': str(e)}, status=500)
 
 
+@admin_required
 def preco_criar(request):
     if request.method != 'POST':
         return HttpResponseBadRequest('Método não permitido')
@@ -772,6 +792,7 @@ def preco_criar(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 
+@admin_required
 def preco_editar(request, id):
     if request.method != 'POST':
         return HttpResponseBadRequest('Método não permitido')
@@ -795,6 +816,7 @@ def preco_editar(request, id):
         return JsonResponse({'error': str(e)}, status=500)
 
 
+@admin_required
 @require_POST
 def preco_excluir(request, id):
     try:
@@ -963,6 +985,7 @@ def download_documento(request, pk, doc_id):
     return FileResponse(arquivo, as_attachment=True, filename=documento.nome_original or os.path.basename(documento.arquivo.name))
 
 
+@admin_required
 @require_POST
 def excluir_documento(request, pk, doc_id):
     documento = get_object_or_404(DocumentoCliente, pk=doc_id, cliente_ref=pk)

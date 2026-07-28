@@ -385,6 +385,7 @@ function getCurrentViewId(){
 
 function renderAlertCard(item, kind){
   const isPayment = kind === 'pagamento';
+  if(isPayment && !window.IS_ADMIN) return '';
   const iconClass = isPayment ? 'ti ti-receipt-2' : 'ti ti-certificate';
   const accentClass = item.dias < 0 ? 'red' : 'yellow';
   const actionLabel = isPayment ? 'Abrir Pagamento' : 'Registrar Contato';
@@ -573,8 +574,10 @@ function openRowActionMenu(e, id){
   menu.innerHTML = `
     <a href="/planilha/${id}/documentos/" class="action-menu-item" role="menuitem" onclick="event.preventDefault(); closeActionMenu(); navigateIfExists('${id}', this.href);"><i class="ti ti-folder"></i>Documentos</a>
     <button type="button" class="action-menu-item" role="menuitem" onclick="closeActionMenu(); openHistoricoCliente('${id}')"><i class="ti ti-history"></i>Histórico</button>
+    ${window.IS_ADMIN ? `
     <div class="action-menu-divider"></div>
     <button type="button" class="action-menu-item action-menu-item-danger" role="menuitem" onclick="closeActionMenu(); deletePlanilhaCliente('${id}')"><i class="ti ti-trash"></i>Excluir</button>
+    ` : ''}
   `;
 
   const btn = e.currentTarget;
