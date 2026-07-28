@@ -270,6 +270,7 @@ function normalizeAlertData(data){
       pagamentos_urgentes:Number(counts.pagamentos_urgentes || pagamentos.urgentes.length),
       pagamentos_normais:Number(counts.pagamentos_normais || pagamentos.normais.length),
       alertas_totais:Number(counts.alertas_totais || 0),
+      faturamento_recebido:Number(counts.faturamento_recebido || 0),
     },
     renovacoes,
     pagamentos,
@@ -320,6 +321,7 @@ function buildLocalAlertData(){
     renovacoes_normais: renovacoes.normais.length,
     pagamentos_urgentes: pagamentos.urgentes.length,
     pagamentos_normais: pagamentos.normais.length,
+    faturamento_recebido: clientes.filter(c=>c.pago).reduce((s,c)=>s+(parseFloat(c.valorCobrado)||0),0),
   };
   counts.alertas_totais = counts.renovacoes_urgentes + counts.renovacoes_normais + counts.pagamentos_urgentes + counts.pagamentos_normais;
   return {counts, renovacoes, pagamentos};
