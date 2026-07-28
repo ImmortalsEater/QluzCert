@@ -39,6 +39,7 @@
     <div class="nav-section">Principal</div>
     <div class="nav-item active" onclick="nav('dashboard')"><i class="ti ti-layout-dashboard"></i>Dashboard</div>
     <div class="nav-item" onclick="nav('clientes')"><i class="ti ti-users"></i>Clientes <span class="nav-badge" id="alert-badge" style="display:none">!</span></div>
+    <div class="nav-item" onclick="nav('planilha')"><i class="ti ti-table"></i>Planilha</div>
     <div class="nav-item" onclick="nav('funil')"><i class="ti ti-layout-kanban"></i>Funil de Atendimento</div>
     <div class="nav-section">Operacional</div>
     <div class="nav-item" onclick="nav('renovacoes')"><i class="ti ti-bell"></i>Renovações <span class="nav-badge" id="ren-badge">0</span></div>
@@ -75,7 +76,7 @@
         </div>
       </div>
 
-      <!-- CLIENTES -->
+      <!-- CLIENTES (visão enxuta, informações mais importantes) -->
       <div id="view-clientes" class="view">
         <div class="section-actions">
           <div class="search-box">
@@ -83,8 +84,32 @@
             <label for="search-cliente" class="sr-only">Buscar cliente por nome, CPF, CNPJ, email ou telefone</label>
             <input type="text" id="search-cliente" placeholder="Buscar por nome, CPF ou CNPJ...">
           </div>
+          <select id="filter-status-clientes" style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface)">
+            <option value="">Todos os status</option>
+            <option>Novo Lead</option><option>Documentação Pendente</option><option>Aguardando Pagamento</option><option>Agendado para Vídeo</option><option>Emitido</option>
+          </select>
           <button class="btn btn-secondary" onclick="openModal('novoCliente', null, this)"><i class="ti ti-plus" aria-hidden="true"></i>Novo Cliente</button>
         </div>
+        <div class="table-wrap">
+          <div class="table-header" style="position:relative">
+            <h3><i class="ti ti-users"></i>Clientes</h3>
+            <span id="clientes-simples-count" class="result-count" aria-live="polite"></span>
+          </div>
+          <div class="table-scroll">
+            <table class="google-drive-table" id="clientes-simples-table">
+              <thead><tr>
+                <th>Cliente</th><th>Telefone</th><th>Status</th><th>Tipo de Certificado</th><th>Vencimento</th><th>Parceiro</th><th>Ações</th>
+              </tr></thead>
+              <tbody id="clientes-simples-tbody"></tbody>
+            </table>
+          </div>
+          <div id="clientes-simples-no-match" class="empty-state" style="display:none"><i class="ti ti-search-off"></i><p id="clientes-simples-empty-msg">Nenhum cliente cadastrado na planilha ainda.</p></div>
+          <div id="clientes-simples-pagination" class="pagination"></div>
+        </div>
+      </div>
+
+      <!-- PLANILHA (todas as colunas da planilha do Google Drive) -->
+      <div id="view-planilha" class="view">
         <div class="table-wrap">
           <div class="table-header" style="position:relative">
             <h3><i class="ti ti-table"></i>Planilha Importada do Google Drive</h3>
@@ -332,8 +357,11 @@
     showDjangoMessages();
 
     var searchInput = document.getElementById('search-cliente');
-    var debouncedFilter = debounce(function(){ planilhaPage = 1; filterPlanilhaImportada(); }, 200);
-    if (searchInput) searchInput.addEventListener('input', debouncedFilter);
+    var debouncedFilterClientes = debounce(function(){ clientesPage = 1; renderClientesSimples(); }, 200);
+    if (searchInput) searchInput.addEventListener('input', debouncedFilterClientes);
+    var statusFilterClientes = document.getElementById('filter-status-clientes');
+    if (statusFilterClientes) statusFilterClientes.addEventListener('change', function(){ clientesPage = 1; renderClientesSimples(); });
+
     var statusFilter = document.getElementById('filter-status');
     if (statusFilter) statusFilter.addEventListener('change', function(){ planilhaPage = 1; filterPlanilhaImportada(); });
 
