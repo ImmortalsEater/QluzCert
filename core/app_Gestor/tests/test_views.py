@@ -3,8 +3,10 @@ import tempfile
 from datetime import date, timedelta
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, RequestFactory, SimpleTestCase, TestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import TestCase as DjangoTestCase
 from django.urls import reverse
 
 from core.app_Gestor import sheets_repository as repo
@@ -12,6 +14,21 @@ from core.app_Gestor import views
 from core.app_Gestor.models import AppState, DocumentoCliente, PagamentoCliente
 
 _MEDIA_ROOT = tempfile.mkdtemp(prefix='qcert_test_media_')
+
+_TEST_USER_USERNAME = 'qcert-test-user'
+_TEST_USER_PASSWORD = 'qcert-test-pass-123'
+
+
+class TestCase(DjangoTestCase):
+    """`TestCase` com login automático -- todas as views exigem login desde
+    que o `LoginRequiredMiddleware` foi ligado; sem isso, todo teste que usa
+    `self.client` cairia num redirect pra /login/ em vez de exercitar a view."""
+
+    def _pre_setup(self):
+        super()._pre_setup()
+        User = get_user_model()
+        user = User.objects.create_user(username=_TEST_USER_USERNAME, password=_TEST_USER_PASSWORD)
+        self.client.force_login(user)
 
 
 CLIENTE_ROW = {
@@ -284,9 +301,6 @@ class SafeJsonDumpsTests(SimpleTestCase):
 
 
 class DashboardViewTests(ListRowsPatchMixin, TestCase):
-
-    def setUp(self):
-        self.client = Client()
 
     def test_renders_ok_with_data_from_sheets(self):
         self.patch_list_rows({
@@ -1437,3 +1451,54 @@ class WebhookMercadoPagoViewTests(TestCase):
             'Clientes', 'CLI-aaaaaaaa', {'pago_venda': 'Sim'},
             expected_atualizado_em='2024-01-01T00:00:00+00:00',
         )
+
+
+class LoginRequiredTests(DjangoTestCase):
+    """Usa a TestCase original do Django (sem login automático) porque estes
+    testes precisam controlar o estado de autenticação eles mesmos."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username=_TEST_USER_USERNAME, password=_TEST_USER_PASSWORD,
+        )
+
+    def test_protected_route_redirects_anonymous_to_login(self):
+        response = self.client.get(reverse('dashboard'))
+
+        self.assertRedirects(response, f"{reverse('login')}?next={reverse('dashboard')}")
+
+    def test_login_page_is_public_and_renders_form(self):
+        response = self.client.get(reverse('login'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '<form method="post">')
+
+    def test_login_with_valid_credentials_redirects_and_authenticates(self):
+        response = self.client.post(reverse('login'), {
+            'username': _TEST_USER_USERNAME, 'password': _TEST_USER_PASSWORD,
+        })
+
+        self.assertRedirects(response, reverse('dashboard'))
+        # Confirma que a sessao ficou autenticada: a proxima requisicao a uma
+        # rota protegida nao deve mais redirecionar para o login.
+        response = self.client.get(reverse('dashboard'))
+        self.assertEqual(response.status_code, 200)
+
+    def test_login_with_invalid_credentials_shows_error_and_stays_anonymous(self):
+        response = self.client.post(reverse('login'), {
+            'username': _TEST_USER_USERNAME, 'password': 'senha-errada',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'inválidos')
+        response = self.client.get(reverse('dashboard'))
+        self.assertNotEqual(response.status_code, 200)
+
+    def test_logout_ends_session_and_protected_route_redirects_again(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('logout'))
+
+        self.assertRedirects(response, reverse('login'))
+        response = self.client.get(reverse('dashboard'))
+        self.assertRedirects(response, f"{reverse('login')}?next={reverse('dashboard')}")

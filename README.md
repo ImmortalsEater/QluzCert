@@ -28,12 +28,13 @@ A planilha do Google (`GOOGLE_SHEET_ID`) tem quatro abas geridas pelo app — **
    - `DJANGO_DEBUG` — `True`/`False` (padrão `True`). Defina como `False` ao publicar fora da rede interna — com `DEBUG=True`, erros expõem stack trace completo (incluindo `DJANGO_SECRET_KEY`/`GOOGLE_SHEET_ID`) para qualquer requisição.
    - `DJANGO_ALLOWED_HOSTS` — lista de hosts separada por vírgula (ex: `qcert.empresa.com,10.0.0.5`). Obrigatório preencher se `DJANGO_DEBUG=False`.
 3. Coloque o `credentials.json` (Service Account do Google com acesso à planilha/Drive) na raiz do projeto. Esse arquivo é ignorado pelo git — nunca o adicione ao versionamento.
-4. Rode as migrações e inicie o servidor:
+4. Rode as migrações, crie o primeiro usuário e inicie o servidor:
    ```
    python manage.py migrate
+   python manage.py createsuperuser
    python manage.py runserver
    ```
-5. Acesse o painel em `http://127.0.0.1:8000/` (não pede login — ver limitação abaixo).
+5. Acesse o painel em `http://127.0.0.1:8000/` — vai redirecionar para `/login/`; entre com o usuário criado no passo anterior. Não há cadastro nem recuperação de senha self-service; novos usuários são criados via `createsuperuser` ou pelo `/admin/`.
 
 Em produção (`DJANGO_DEBUG=False`), os estáticos passam a ser servidos com hash
 de conteúdo no nome do arquivo (cache-busting) — rode `python manage.py
@@ -50,4 +51,4 @@ Cobre `parsing.py`, `sheets_repository.py`, `models.py` e `views.py`. Os scripts
 
 ## Limitações conhecidas
 
-- **Nenhum endpoint exige login.** O projeto não usa `django.contrib.auth` em nenhuma view — é adequado apenas para uso interno em rede restrita, não para exposição pública, até que autenticação seja adicionada.
+- **Sem cadastro/recuperação de senha self-service.** Login é obrigatório em toda view (`LoginRequiredMiddleware`), mas criar usuários e resetar senha ainda é manual, via `createsuperuser` ou `/admin/` — os templates `cadastro.html`/`recuperar-senha.html` continuam sendo só mockups de design (servidos em `/preview/...`), não fluxos funcionais.

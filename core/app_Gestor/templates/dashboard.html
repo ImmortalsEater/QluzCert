@@ -16,8 +16,12 @@
     <style>
       /* Toast simples */
       .toast-container{position:fixed;right:16px;bottom:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:min(380px,calc(100vw - 32px))}
-      .toast{display:flex;align-items:flex-start;gap:8px;min-width:200px;padding:12px 14px;border-radius:10px;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,0.16);font-size:13px;line-height:1.4;opacity:0;transform:translateY(8px) scale(0.98);transition:opacity 200ms cubic-bezier(0.23,1,0.32,1),transform 200ms cubic-bezier(0.23,1,0.32,1)}
+      .toast{display:flex;align-items:flex-start;gap:8px;min-width:200px;padding:12px 14px;border-radius:10px;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,0.16);font-size:13px;line-height:1.4;opacity:0;transform:translateY(8px) scale(0.98);transition:opacity 200ms var(--ease-out-strong),transform 200ms var(--ease-out-strong)}
       .toast.toast-visible{opacity:1;transform:translateY(0) scale(1)}
+      @media (prefers-reduced-motion: reduce) {
+        .toast{transform:none;transition:opacity 200ms ease-out}
+        .toast.toast-visible{transform:none}
+      }
       .toast .toast-icon{flex-shrink:0;font-size:16px;line-height:1.4;margin-top:1px}
       .toast .toast-text{flex:1;word-break:break-word}
       .toast.success{background:var(--success)}
@@ -51,7 +55,13 @@
     <div class="nav-item" onclick="nav('parceiros')"><i class="ti ti-building"></i>Parceiros</div>
     <div class="nav-section">Configurações</div>
     <div class="nav-item" onclick="nav('tabela')"><i class="ti ti-currency-dollar"></i>Tabela de Preços</div>
-    <div class="sidebar-footer">v1.0 · Dados locais · <span id="total-count">0</span> clientes</div>
+    <div class="sidebar-footer">
+      v1.0 · Dados locais · <span id="total-count">0</span> clientes
+      <form method="post" action="{% url 'logout' %}" style="margin-top:6px">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm" style="width:100%;justify-content:center"><i class="ti ti-logout" aria-hidden="true"></i> Sair</button>
+      </form>
+    </div>
   </div>
 
   <div id="main">
@@ -123,7 +133,7 @@
               <option>Novo Lead</option><option>Documentação Pendente</option><option>Aguardando Pagamento</option><option>Agendado para Vídeo</option><option>Emitido</option>
             </select>
             <div class="column-selector-dropdown" style="position:relative">
-              <button type="button" class="btn btn-sm" id="column-selector-toggle"><i class="ti ti-columns"></i>Colunas <i class="ti ti-chevron-down chevron" style="margin-left:4px;font-size:11px"></i></button>
+              <button type="button" class="btn btn-sm" id="column-selector-toggle"><i class="ti ti-columns" aria-hidden="true"></i>Colunas <i class="ti ti-chevron-down chevron" style="margin-left:4px;font-size:11px" aria-hidden="true"></i></button>
               <div class="column-selector-panel" id="column-selector-panel">
                 <label class="column-toggle-label"><input type="checkbox" id="column-toggle-all"> <strong>Selecionar todas</strong></label>
                 <div class="column-selector-divider"></div>

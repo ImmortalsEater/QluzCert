@@ -2,7 +2,7 @@
 function renderTabela(){
   document.getElementById('tabela-tbody').innerHTML=precos.map(p=>`<tr>
     <td><strong>${escapeHtml(p.tipo)}</strong></td><td>${escapeHtml(p.validade)}</td><td style="font-weight:700;color:var(--success)">${fmtMoney(p.preco)}</td>
-    <td><button class="btn btn-sm" onclick="editPreco('${p.id}')"><i class="ti ti-edit"></i></button> <button class="btn btn-sm btn-danger" onclick="deletePreco('${p.id}')"><i class="ti ti-trash"></i></button></td>
+    <td><button class="btn btn-sm" onclick="editPreco('${p.id}')" aria-label="Editar"><i class="ti ti-edit" aria-hidden="true"></i></button> <button class="btn btn-sm btn-danger" onclick="deletePreco('${p.id}')" aria-label="Excluir"><i class="ti ti-trash" aria-hidden="true"></i></button></td>
   </tr>`).join('');
 }
 function editPreco(id){editingId=id;openModal('preco')}

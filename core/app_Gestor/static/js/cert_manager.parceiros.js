@@ -10,7 +10,7 @@ function renderParceiros(){
     // `clientes` (que não é mais populado desde a migração para o Sheets).
     const count=leads.filter(l=>l.parceiro===p.nome).length;
     return`<tr><td><strong>${escapeHtml(p.nome)}</strong></td><td>${escapeHtml(p.tipo)||'—'}</td><td>${p.comissao!=null?fmtPercent(p.comissao):'—'}</td><td>${escapeHtml(p.contato)||'—'}</td><td><span style="font-size:13px;font-weight:700;color:var(--accent)">${count}</span></td>
-    <td><button class="btn btn-sm" onclick="editParceiro('${p.id}')"><i class="ti ti-edit"></i></button> <button class="btn btn-sm btn-danger" onclick="deleteParceiro('${p.id}')"><i class="ti ti-trash"></i></button></td></tr>`;
+    <td><button class="btn btn-sm" onclick="editParceiro('${p.id}')" aria-label="Editar"><i class="ti ti-edit" aria-hidden="true"></i></button> <button class="btn btn-sm btn-danger" onclick="deleteParceiro('${p.id}')" aria-label="Excluir"><i class="ti ti-trash" aria-hidden="true"></i></button></td></tr>`;
   }).join('');
 }
 function editParceiro(id){editingId=id;openModal('parceiro')}

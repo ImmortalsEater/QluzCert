@@ -15,12 +15,15 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+from django.contrib.auth import views as auth_views
 from django.urls import path
 
 from core.app_Gestor.views import DashboardView, LoginPreviewView, CadastroPreviewView, RecuperarSenhaPreviewView, alertas_dashboard, atualizar_planilha, atualizar_status_cliente, atualizar_detalhe_cliente, verificar_registro_existe, editar_google_row, criar_google_row, cliente_excluir, contatos_cliente_registro, parceiro_criar, parceiro_editar, parceiro_excluir, preco_criar, preco_editar, preco_excluir, app_state_download, upload_documento, criar_pagamento_pix, webhook_mercado_pago, documentos_cliente, download_documento, excluir_documento
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('login/', auth_views.LoginView.as_view(template_name='login.html'), name='login'),
+    path('logout/', auth_views.LogoutView.as_view(next_page='login'), name='logout'),
     path('', DashboardView.as_view(), name='dashboard'),
     path('preview/login/', LoginPreviewView.as_view(), name='login_preview'),
     path('preview/cadastro/', CadastroPreviewView.as_view(), name='cadastro_preview'),

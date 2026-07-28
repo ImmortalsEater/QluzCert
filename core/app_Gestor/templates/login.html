@@ -18,33 +18,30 @@
 
   <main class="container">
 
-    <form>
+    <form method="post">
+      {% csrf_token %}
 
       <h1>Login</h1>
 
+      {% if form.errors %}
+        <p role="alert" style="color:#fff;background:rgba(195,28,30,0.6);border-radius:8px;padding:10px 15px;margin-bottom:15px;font-size:14px;text-align:center;">
+          Usuário ou senha inválidos.
+        </p>
+      {% endif %}
+
       <div class="input-box">
-        <input placeholder="Usuário" type="email" required>
+        <input name="username" placeholder="Usuário" type="text" autofocus required>
         <i class="bx bxs-user" aria-hidden="true"></i>
       </div>
 
       <div class="input-box">
-        <input placeholder="Senha" type="password" required>
+        <input name="password" placeholder="Senha" type="password" required>
         <i class="bx bxs-lock-alt" aria-hidden="true"></i>
       </div>
 
-      <div class="remember-forgot">
-        <label>
-          <input type="checkbox">
-          Lembrar Senha
-        </label>
-        <a href="{% url 'recuperar_senha_preview' %}">Esqueci Senha</a>
-      </div>
+      <input type="hidden" name="next" value="{{ next }}">
 
       <button type="submit" class="login">Login</button>
-
-      <div class="register-link">
-        <p>Não tem uma conta? <a href="{% url 'cadastro_preview' %}">Cadastre-se</a></p>
-      </div>
 
     </form>
 

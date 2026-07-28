@@ -165,9 +165,9 @@ function renderPaginationControls(containerId, page, totalPages, onGotoFnName){
   if(!el) return;
   if(totalPages<=1){ el.innerHTML=''; return; }
   el.innerHTML = `
-    <button type="button" class="btn btn-sm" ${page<=1?'disabled':''} onclick="${onGotoFnName}(${page-1})"><i class="ti ti-chevron-left"></i></button>
+    <button type="button" class="btn btn-sm" ${page<=1?'disabled':''} onclick="${onGotoFnName}(${page-1})" aria-label="Página anterior"><i class="ti ti-chevron-left" aria-hidden="true"></i></button>
     <span class="pagination-info">Página ${page} de ${totalPages}</span>
-    <button type="button" class="btn btn-sm" ${page>=totalPages?'disabled':''} onclick="${onGotoFnName}(${page+1})"><i class="ti ti-chevron-right"></i></button>
+    <button type="button" class="btn btn-sm" ${page>=totalPages?'disabled':''} onclick="${onGotoFnName}(${page+1})" aria-label="Próxima página"><i class="ti ti-chevron-right" aria-hidden="true"></i></button>
   `;
 }
 function statusIndex(status){return STATUS_LIST.indexOf(status)>=0?STATUS_LIST.indexOf(status):0}
@@ -584,9 +584,11 @@ function openRowActionMenu(e, id){
   let top = rect.bottom + 6;
   let left = rect.right - menuRect.width;
   if(left < 8) left = 8;
-  if(top + menuRect.height > window.innerHeight - 8) top = rect.top - menuRect.height - 6;
+  let flipped = false;
+  if(top + menuRect.height > window.innerHeight - 8){ top = rect.top - menuRect.height - 6; flipped = true; }
   menu.style.top = top + 'px';
   menu.style.left = left + 'px';
+  menu.style.transformOrigin = flipped ? 'bottom right' : 'top right';
 }
 
 document.addEventListener('click', closeActionMenu);

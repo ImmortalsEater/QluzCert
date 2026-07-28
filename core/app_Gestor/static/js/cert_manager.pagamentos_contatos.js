@@ -17,7 +17,7 @@ function renderPagamentoModal(box, cid) {
               notificacoes: []
           };
       } else {
-          box.innerHTML = `<div class="modal-head"><h2>Pagamento</h2><button class="btn btn-sm" onclick="closeModal(true)"><i class="ti ti-x"></i></button></div><div class="modal-body"><p style="font-size:13px;color:var(--muted)">Selecione um cliente válido antes de registrar um pagamento.</p></div>`;
+          box.innerHTML = `<div class="modal-head"><h2>Pagamento</h2><button class="btn btn-sm" onclick="closeModal(true)" aria-label="Fechar"><i class="ti ti-x" aria-hidden="true"></i></button></div><div class="modal-body"><p style="font-size:13px;color:var(--muted)">Selecione um cliente válido antes de registrar um pagamento.</p></div>`;
           return;
       }
   }
@@ -34,7 +34,7 @@ function renderPagamentoModal(box, cid) {
   box.innerHTML = `
   <div class="modal-head">
     <h2><i class="ti ti-cash"></i> Gestão de Pagamento — ${escapeHtml(c.nome) || 'Cliente'}</h2>
-    <button class="btn btn-sm" onclick="closeModal(true)"><i class="ti ti-x"></i></button>
+    <button class="btn btn-sm" onclick="closeModal(true)" aria-label="Fechar"><i class="ti ti-x" aria-hidden="true"></i></button>
   </div>
   <div class="modal-body" style="padding: 0;">
 
@@ -173,11 +173,11 @@ async function savePagamento(cid){
 async function renderContatoModal(box, cid) {
   const pk = getPlanilhaPkFromClientId(cid);
   if(!pk){
-    box.innerHTML = `<div class="modal-head"><h2>Registrar Contato</h2><button class="btn btn-sm" onclick="closeModal(true)"><i class="ti ti-x"></i></button></div><div class="modal-body"><p style="font-size:13px;color:var(--muted)">Cliente sincronizado da planilha é necessário para registrar contato.</p></div>`;
+    box.innerHTML = `<div class="modal-head"><h2>Registrar Contato</h2><button class="btn btn-sm" onclick="closeModal(true)" aria-label="Fechar"><i class="ti ti-x" aria-hidden="true"></i></button></div><div class="modal-body"><p style="font-size:13px;color:var(--muted)">Cliente sincronizado da planilha é necessário para registrar contato.</p></div>`;
     return;
   }
 
-  box.innerHTML = `<div class="modal-head"><h2>Registrar Contato</h2><button class="btn btn-sm" onclick="closeModal(true)"><i class="ti ti-x"></i></button></div><div class="modal-body"><p style="font-size:13px;color:var(--muted)">Carregando...</p></div>`;
+  box.innerHTML = `<div class="modal-head"><h2>Registrar Contato</h2><button class="btn btn-sm" onclick="closeModal(true)" aria-label="Fechar"><i class="ti ti-x" aria-hidden="true"></i></button></div><div class="modal-body"><p style="font-size:13px;color:var(--muted)">Carregando...</p></div>`;
 
   let cliente = {};
   let historico = [];
@@ -208,7 +208,7 @@ async function renderContatoModal(box, cid) {
   box.innerHTML = `
   <div class="modal-head">
     <h2><i class="ti ti-headset"></i> Gestão de Contato — ${escapeHtml(cliente.nome) || 'Cliente'}</h2>
-    <button class="btn btn-sm" onclick="closeModal(true)"><i class="ti ti-x"></i></button>
+    <button class="btn btn-sm" onclick="closeModal(true)" aria-label="Fechar"><i class="ti ti-x" aria-hidden="true"></i></button>
   </div>
   <div class="modal-body" style="padding: 0;">
 
@@ -291,7 +291,7 @@ async function saveContato(cid) {
 async function openHistoricoCliente(pk){
   const box=document.getElementById('detail-box');
   const overlay=document.getElementById('detail-overlay');
-  box.innerHTML='<div class="modal-head"><h2>Histórico do Cliente</h2><button class="btn btn-sm" onclick="closeDetail(true)"><i class="ti ti-x"></i></button></div><div class="modal-body"><p style="font-size:13px;color:var(--muted)">Carregando...</p></div>';
+  box.innerHTML='<div class="modal-head"><h2>Histórico do Cliente</h2><button class="btn btn-sm" onclick="closeDetail(true)" aria-label="Fechar"><i class="ti ti-x" aria-hidden="true"></i></button></div><div class="modal-body"><p style="font-size:13px;color:var(--muted)">Carregando...</p></div>';
   overlay.classList.add('open');
   try{
     const resp=await fetch(`/planilha/${pk}/contatos/`);
@@ -310,7 +310,7 @@ async function openHistoricoCliente(pk){
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-sm" onclick="openModal('contato','${pk}');closeDetail(true)"><i class="ti ti-plus"></i> Registrar Contato</button>
-        <button class="btn btn-sm" onclick="closeDetail(true)"><i class="ti ti-x"></i></button>
+        <button class="btn btn-sm" onclick="closeDetail(true)" aria-label="Fechar"><i class="ti ti-x" aria-hidden="true"></i></button>
       </div>
     </div>
     <div class="modal-body">
@@ -327,6 +327,6 @@ async function openHistoricoCliente(pk){
     </div>`;
   }catch(err){
     console.error(err);
-    box.innerHTML='<div class="modal-head"><h2>Histórico do Cliente</h2><button class="btn btn-sm" onclick="closeDetail(true)"><i class="ti ti-x"></i></button></div><div class="modal-body"><p style="font-size:13px;color:var(--danger)">Não foi possível carregar o histórico deste cliente.</p></div>';
+    box.innerHTML='<div class="modal-head"><h2>Histórico do Cliente</h2><button class="btn btn-sm" onclick="closeDetail(true)" aria-label="Fechar"><i class="ti ti-x" aria-hidden="true"></i></button></div><div class="modal-body"><p style="font-size:13px;color:var(--danger)">Não foi possível carregar o histórico deste cliente.</p></div>';
   }
 }
