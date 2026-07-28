@@ -143,10 +143,10 @@
                     {% endfor %}
                     <td>
 
-                      <a class="btn btn-sm btn-edit" href="{% url 'editar_google_row' row.id %}" onclick="event.preventDefault(); navigateIfExists('{{ row.id }}', this.href);"><i class="ti ti-pencil"></i>Editar</a>
-                      <a class="btn btn-sm btn-edit" href="{% url 'documentos_cliente' row.id %}" onclick="event.preventDefault(); navigateIfExists('{{ row.id }}', this.href);"><i class="ti ti-folder"></i>Documentos</a>
-                      <button type="button" class="btn btn-sm" onclick="openHistoricoCliente('{{ row.id }}')"><i class="ti ti-history"></i>Histórico</button>
-                      <button type="button" class="btn btn-sm btn-danger" onclick="deletePlanilhaCliente('{{ row.id }}')"><i class="ti ti-trash"></i>Excluir</button>
+                      <div class="row-actions">
+                        <a class="btn btn-sm btn-edit" href="{% url 'editar_google_row' row.id %}" onclick="event.preventDefault(); navigateIfExists('{{ row.id }}', this.href);" title="Editar" aria-label="Editar"><i class="ti ti-pencil"></i></a>
+                        <button type="button" class="btn btn-sm action-menu-trigger" onclick="openRowActionMenu(event, '{{ row.id }}')" aria-haspopup="true" aria-label="Mais ações"><i class="ti ti-dots-vertical"></i></button>
+                      </div>
                     </td>
                   </tr>
                 {% endfor %}
@@ -256,6 +256,11 @@
 <div class="modal-overlay" id="confirm-overlay" style="z-index:200" onclick="_confirmBackdropClick(event)">
   <div class="modal" id="confirm-box" style="max-width:420px"></div>
 </div>
+
+<!-- MENU DE AÇÕES DA LINHA (Planilha/Clientes) -- elemento único reaproveitado
+     por todas as linhas via JS, posicionado com position:fixed para não ser
+     cortado pelo overflow:hidden/auto das tabelas (ver openRowActionMenu). -->
+<div id="action-menu-dropdown" class="action-menu-dropdown" role="menu"></div>
 
 <!-- OVERLAY EXPORTAÇÃO -->
 <div id="export-overlay">
