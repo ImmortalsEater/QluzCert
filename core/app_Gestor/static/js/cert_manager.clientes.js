@@ -110,10 +110,10 @@ function renderClientesSimples(){
     <td>${l.dataVencimento?fmtDate(l.dataVencimento):'—'}</td>
     <td>${l.parceiro?escapeHtml(l.parceiro):'—'}</td>
     <td>
-      <a class="btn btn-sm btn-edit" href="/planilha/editar/${l.id}/" onclick="event.preventDefault(); navigateIfExists('${l.id}', this.href);"><i class="ti ti-pencil"></i>Editar</a>
-      <a class="btn btn-sm btn-edit" href="/planilha/${l.id}/documentos/" onclick="event.preventDefault(); navigateIfExists('${l.id}', this.href);"><i class="ti ti-folder"></i>Documentos</a>
-      <button type="button" class="btn btn-sm" onclick="openHistoricoCliente('${l.id}')"><i class="ti ti-history"></i>Histórico</button>
-      <button type="button" class="btn btn-sm btn-danger" onclick="deletePlanilhaCliente('${l.id}')"><i class="ti ti-trash"></i>Excluir</button>
+      <div class="row-actions">
+        <a class="btn btn-sm btn-edit" href="/planilha/editar/${l.id}/" onclick="event.preventDefault(); navigateIfExists('${l.id}', this.href);" title="Editar" aria-label="Editar"><i class="ti ti-pencil"></i></a>
+        <button type="button" class="btn btn-sm action-menu-trigger" onclick="openRowActionMenu(event, '${l.id}')" aria-haspopup="true" aria-label="Mais ações"><i class="ti ti-dots-vertical"></i></button>
+      </div>
     </td>
   </tr>`).join('');
 
