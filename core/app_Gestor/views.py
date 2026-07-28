@@ -159,7 +159,11 @@ def _build_alert_payload():
     pagamentos_normais = []
 
     rows = [r for r in sheets_repository.list_rows('Clientes') if r.get('id')]
-    emitidos = sum(1 for row in rows if bool_from(row.get('certificado_feito')))
+    # "Emitidos" conta pelo status do funil (o que o usuário de fato move no
+    # Kanban), não pelo campo certificado_feito -- esse campo só é editável
+    # manualmente na página de edição completa e na prática nunca é marcado
+    # quando o card é movido para "Emitido" no funil, subcontando o card.
+    emitidos = sum(1 for row in rows if (row.get('status') or '') == 'Emitido')
     vencendo_60_dias = 0
 
     def _base_payload(row, dias_restantes, vencimento):
