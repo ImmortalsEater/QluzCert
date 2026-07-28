@@ -537,3 +537,48 @@ async function crudSave({editingId, createUrl, editUrlFn, payload, successMsg, e
     showToast(err.message || errorMsg, 'error');
   }
 }
+
+// Menu "⋮" de ações secundárias das linhas de Clientes/Planilha (Documentos,
+// Histórico, Excluir). Um único elemento (#action-menu-dropdown) é
+// reaproveitado por todas as linhas e posicionado via position:fixed +
+// coordenadas calculadas em JS, em vez de position:absolute dentro da
+// célula -- as tabelas têm overflow:hidden/auto (rolagem + cantos
+// arredondados) que cortaria um menu absolutamente posicionado ali dentro.
+function closeActionMenu(){
+  const menu = document.getElementById('action-menu-dropdown');
+  if(!menu) return;
+  menu.classList.remove('open');
+  menu.dataset.forId = '';
+}
+
+function openRowActionMenu(e, id){
+  e.stopPropagation();
+  const menu = document.getElementById('action-menu-dropdown');
+  if(!menu) return;
+  const wasOpenForThisRow = menu.classList.contains('open') && menu.dataset.forId === id;
+  closeActionMenu();
+  if(wasOpenForThisRow) return;
+
+  menu.dataset.forId = id;
+  menu.innerHTML = `
+    <a href="/planilha/${id}/documentos/" class="action-menu-item" role="menuitem" onclick="event.preventDefault(); closeActionMenu(); navigateIfExists('${id}', this.href);"><i class="ti ti-folder"></i>Documentos</a>
+    <button type="button" class="action-menu-item" role="menuitem" onclick="closeActionMenu(); openHistoricoCliente('${id}')"><i class="ti ti-history"></i>Histórico</button>
+    <div class="action-menu-divider"></div>
+    <button type="button" class="action-menu-item action-menu-item-danger" role="menuitem" onclick="closeActionMenu(); deletePlanilhaCliente('${id}')"><i class="ti ti-trash"></i>Excluir</button>
+  `;
+
+  const btn = e.currentTarget;
+  const rect = btn.getBoundingClientRect();
+  menu.classList.add('open');
+  const menuRect = menu.getBoundingClientRect();
+  let top = rect.bottom + 6;
+  let left = rect.right - menuRect.width;
+  if(left < 8) left = 8;
+  if(top + menuRect.height > window.innerHeight - 8) top = rect.top - menuRect.height - 6;
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+}
+
+document.addEventListener('click', closeActionMenu);
+document.addEventListener('scroll', closeActionMenu, true);
+window.addEventListener('resize', closeActionMenu);
