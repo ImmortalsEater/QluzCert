@@ -177,11 +177,54 @@ function uid(){return Date.now()+Math.random().toString(36).slice(2)}
 function escapeHtml(value){
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 }
-function fmtDate(d){if(!d)return'—';const dt=new Date(d);return dt.toLocaleDateString('pt-BR')}
+// Datas "YYYY-MM-DD" puras (sem hora) são interpretadas pelo construtor
+// Date como UTC meia-noite -- em fusos negativos (Brasil, UTC-3) isso exibe
+// o dia anterior. Anexar "T00:00:00" força o parse como horário local.
+function fmtDate(d){
+  if(!d) return '—';
+  const dt = /^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(d+'T00:00:00') : new Date(d);
+  return dt.toLocaleDateString('pt-BR');
+}
+function fmtDateTime(d){
+  if(!d) return '—';
+  const dt = new Date(d);
+  if(Number.isNaN(dt.getTime())) return String(d);
+  return dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+}
 function fmtMoney(v){return'R$ '+Number(v).toFixed(2).replace('.',',').replace(/\B(?=(\d{3})+(?!\d))/g,'.')}
 function fmtPercent(v){return Number(v).toFixed(2).replace(/\.?0+$/,'').replace('.',',')+'%'}
 function daysUntil(d){if(!d)return 9999;return Math.ceil((new Date(d)-new Date())/(1000*86400))}
 function addDays(d,n){const dt=new Date(d);dt.setDate(dt.getDate()+n);return dt.toISOString().split('T')[0]}
+
+// Converte a string livre de "Validade" cadastrada em Preços (ex.: "1 ano",
+// "3 anos", "6 meses") em número de dias. Retorna null se não reconhecer o
+// formato -- o chamador decide o fallback (ex.: 365 dias).
+function parseValidadeToDays(validade){
+  if(!validade) return null;
+  const match = String(validade).trim().toLowerCase().match(/(\d+)\s*(ano|anos|mes|mês|meses)/);
+  if(!match) return null;
+  const qty = parseInt(match[1], 10);
+  if(Number.isNaN(qty)) return null;
+  return match[2].startsWith('ano') ? qty * 365 : qty * 30;
+}
+
+// Máscaras "ingênuas" (reescrevem o value inteiro a cada tecla): aceitável
+// para digitação sequencial do início; ao editar no meio já digitado o
+// cursor pode pular pro fim, trade-off assumido pela simplicidade.
+function maskCpfCnpj(value){
+  const digits = String(value||'').replace(/\D/g,'').slice(0,14);
+  if(digits.length <= 11){
+    return digits.replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d{1,2})$/,'$1-$2');
+  }
+  return digits.replace(/(\d{2})(\d)/,'$1.$2').replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d)/,'$1/$2').replace(/(\d{4})(\d{1,2})$/,'$1-$2');
+}
+function maskTelefone(value){
+  const digits = String(value||'').replace(/\D/g,'').slice(0,11);
+  if(digits.length <= 10){
+    return digits.replace(/(\d{2})(\d)/,'($1) $2').replace(/(\d{4})(\d{1,4})$/,'$1-$2');
+  }
+  return digits.replace(/(\d{2})(\d)/,'($1) $2').replace(/(\d{5})(\d{1,4})$/,'$1-$2');
+}
 
 function normalizeAlertItem(item, categoria){
   if(!item || typeof item !== 'object') return null;
@@ -341,7 +384,7 @@ function renderAlertCard(item, kind){
   const detail = isPayment
     ? `${escapeHtml(item.statusLabel)} · ${item.tipoPagamento || 'Pagamento'}${item.tipoCert ? ` · ${escapeHtml(item.tipoCert)}` : ''}`
     : `${escapeHtml(item.statusLabel)} · ${escapeHtml(item.tipoCert)||'—'}${item.telefone ? ` · ${escapeHtml(item.telefone)}` : ''}`;
-  return `<div class="alert-item ${accentClass}" style="cursor:pointer" onclick="location.href='/planilha/editar/${item.planilha_pk}/'">
+  return `<div class="alert-item ${accentClass}" style="cursor:pointer" onclick="navigateIfExists('${item.planilha_pk}', '/planilha/editar/${item.planilha_pk}/')">
     <div class="alert-icon ${accentClass}"><i class="${iconClass}"></i></div>
     <div class="alert-info">
       <div class="alert-name">${escapeHtml(item.nome)}</div>
@@ -385,6 +428,23 @@ function resolveClienteById(clientId){
   return clientes.find(c => String(c.id) === raw || String(c.id) === simplified) || null;
 }
 
+// Checa se o registro ainda existe na planilha antes de navegar para uma
+// página full-page (edição, documentos) -- evita cair na tela de erro 404
+// do Django quando o registro foi excluído por outra pessoa nesse meio-tempo.
+async function navigateIfExists(pk, url){
+  try{
+    const resp = await fetch(`/planilha/${pk}/existe/`, {cache:'no-store'});
+    const data = await resp.json().catch(()=>({existe:false}));
+    if(!data.existe){
+      showToast('Registro não encontrado. Pode ter sido excluído por outra pessoa.', 'error');
+      return;
+    }
+    location.href = url;
+  }catch(err){
+    showToast('Não foi possível verificar o registro. Tente novamente.', 'error');
+  }
+}
+
 function getCsrfToken(){
   const match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
   return match ? decodeURIComponent(match[1]) : '';
@@ -413,11 +473,38 @@ async function apiFetch(url, {method='GET', body, headers={}, errorMessage='Falh
   return data;
 }
 
+// Modal de confirmação customizado (substitui window.confirm nativo, que
+// aparece com estilo do navegador em vez do resto da UI do app).
+let _confirmResolve = null;
+function askConfirm(message, {title='Confirmar ação', confirmLabel='Confirmar', cancelLabel='Cancelar', danger=true} = {}){
+  return new Promise((resolve) => {
+    _confirmResolve = resolve;
+    const box = document.getElementById('confirm-box');
+    box.innerHTML = `
+      <div class="modal-head"><h2>${escapeHtml(title)}</h2></div>
+      <div class="modal-body"><p style="font-size:13px;color:var(--text)">${escapeHtml(message)}</p></div>
+      <div class="modal-foot">
+        <button class="btn" onclick="_resolveConfirm(false)">${escapeHtml(cancelLabel)}</button>
+        <button class="btn ${danger?'btn-danger':'btn-primary'}" onclick="_resolveConfirm(true)">${escapeHtml(confirmLabel)}</button>
+      </div>`;
+    document.getElementById('confirm-overlay').classList.add('open');
+  });
+}
+function _resolveConfirm(result){
+  document.getElementById('confirm-overlay').classList.remove('open');
+  if(_confirmResolve) _confirmResolve(result);
+  _confirmResolve = null;
+}
+function _confirmBackdropClick(e){
+  if(e.target === document.getElementById('confirm-overlay')) _resolveConfirm(false);
+}
+
 // CRUD genérico para excluir um registro simples (parceiro, preço, etc.):
 // confirma com o usuário, chama a API e, em caso de sucesso, deixa o
 // chamador atualizar o array local e re-renderizar via onSuccess.
 async function crudDelete({url, confirmMsg, successMsg, errorMsg, onSuccess}){
-  if(!confirm(confirmMsg)) return;
+  const ok = await askConfirm(confirmMsg, {title:'Remover registro', confirmLabel:'Remover', danger:true});
+  if(!ok) return;
   try{
     await apiFetch(url, {method:'POST', errorMessage: errorMsg});
     if(onSuccess) onSuccess();
