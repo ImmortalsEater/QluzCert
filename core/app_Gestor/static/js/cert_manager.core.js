@@ -18,6 +18,7 @@ let backendAlertData = (typeof window !== 'undefined' && window.INITIAL_ALERTS) 
 
 const ROWS_PER_PAGE = 50;
 let planilhaPage = 1;
+let clientesPage = 1;
 
 const STATUS_LIST = ['Novo Lead','Documentação Pendente','Aguardando Pagamento','Agendado para Vídeo','Emitido'];
 const STATUS_CLASSES = ['badge-novo','badge-doc','badge-pag','badge-video','badge-emitido'];
