@@ -355,10 +355,11 @@
       columnToggleBtn.addEventListener('click', function(e) {
         e.stopPropagation();
         // Só um popover flutuante aberto por vez: fecha o menu de ações
-        // da linha (⋮) antes de abrir/fechar este, já que cada um usa
-        // stopPropagation() no próprio clique e por isso nunca enxerga o
-        // listener global de fechamento do outro.
+        // da linha (⋮) e o menu "Salvar" antes de abrir/fechar este, já
+        // que cada um usa stopPropagation() no próprio clique e por isso
+        // nunca enxerga o listener global de fechamento dos outros.
         if (typeof closeActionMenu === 'function') closeActionMenu();
+        document.getElementById('save-menu')?.classList.remove('open');
         columnPanel.classList.toggle('open');
       });
       document.addEventListener('click', function(e) {
