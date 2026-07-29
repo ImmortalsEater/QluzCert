@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from functools import wraps
 from .models import DocumentoCliente, PagamentoCliente
-from django.shortcuts import render, redirect, get_object_or_404
+from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.views.generic import TemplateView
 from django.contrib import messages
@@ -17,12 +17,16 @@ import os
 import re
 from .models import AppState
 from . import sheets_repository
+from . import drive_repository
 from .parsing import parse_date, parse_decimal, bool_from, PERM_KEYS
 import io
 import pandas as pd
 from django.http import HttpResponse
 
 logger = logging.getLogger(__name__)
+
+TIPO_DOCUMENTO_CHOICES = DocumentoCliente.TIPO_CHOICES
+TIPO_DOCUMENTO_LABELS = dict(TIPO_DOCUMENTO_CHOICES)
 
 
 def admin_required(view_func):
@@ -659,6 +663,10 @@ def criar_google_row(request):
 @permission_required('excluir_cliente')
 @require_POST
 def cliente_excluir(request, pk):
+    # Lido antes de excluir -- depois que a linha some da planilha não dá
+    # mais pra descobrir qual era a pasta do Drive desse cliente.
+    registro = sheets_repository.get_row('Clientes', pk)
+
     try:
         sheets_repository.delete_row('Clientes', pk)
     except LookupError:
@@ -673,9 +681,12 @@ def cliente_excluir(request, pk):
     # nenhum. Falha aqui é só logada (não desfaz nem falha a exclusão em si,
     # que já aconteceu de verdade na planilha).
     try:
-        for documento in DocumentoCliente.objects.filter(cliente_ref=pk):
-            documento.arquivo.delete(save=False)
-            documento.delete()
+        for documento in sheets_repository.list_rows('Documentos'):
+            if documento.get('cliente_ref') == pk:
+                sheets_repository.delete_row('Documentos', documento['id'])
+        folder_id = (registro or {}).get('drive_folder_id')
+        if folder_id:
+            drive_repository.delete_file(folder_id)
         PagamentoCliente.objects.filter(cliente_ref=pk).delete()
     except Exception:
         logger.exception('Cliente %s excluído da planilha, mas falhou ao limpar documentos/pagamentos associados', pk)
@@ -904,6 +915,90 @@ def _validar_arquivo_documento(arquivo):
     return None
 
 
+def _documentos_do_cliente(cliente_ref):
+    documentos = [d for d in sheets_repository.list_rows('Documentos') if d.get('cliente_ref') == cliente_ref]
+    documentos.sort(key=lambda d: d.get('atualizado_em', ''), reverse=True)
+    return documentos
+
+
+def _documento_encontrado(cliente_ref, doc_id):
+    return next(
+        (d for d in sheets_repository.list_rows('Documentos')
+         if d.get('id') == doc_id and d.get('cliente_ref') == cliente_ref),
+        None,
+    )
+
+
+def _documento_display(doc):
+    """Enriquece a linha crua da planilha com campos prontos pro template
+    (evita chamar |date/get_FOO_display em texto vindo do Sheets)."""
+    data_envio_display = '-'
+    if doc.get('atualizado_em'):
+        try:
+            data_envio_display = datetime.fromisoformat(doc['atualizado_em']).strftime('%d/%m/%Y %H:%M')
+        except ValueError:
+            data_envio_display = doc['atualizado_em']
+
+    return {
+        **doc,
+        'tipo_documento_display': TIPO_DOCUMENTO_LABELS.get(doc.get('tipo_documento'), doc.get('tipo_documento', '')),
+        'data_envio_display': data_envio_display,
+        'tamanho_bytes': int(doc.get('tamanho_bytes') or 0),
+    }
+
+
+def _documento_to_json(pk, doc):
+    display = _documento_display(doc)
+    return {
+        'id': display.get('id', ''),
+        'nome_original': display.get('nome_original', ''),
+        'tipo_documento': display.get('tipo_documento', ''),
+        'tipo_documento_display': display['tipo_documento_display'],
+        'data_envio': display.get('atualizado_em', ''),
+        'tamanho_bytes': display['tamanho_bytes'],
+        'download_url': f"/planilha/{pk}/documentos/{display.get('id')}/download/",
+        'delete_url': f"/planilha/{pk}/documentos/{display.get('id')}/excluir/",
+    }
+
+
+def _get_or_create_cliente_drive_folder(registro):
+    """Pasta é criada só no primeiro upload (não na criação do cliente), pra
+    não sujar o Drive com pastas vazias de leads que nunca mandam documento."""
+    folder_id = registro.get('drive_folder_id')
+    if folder_id:
+        return folder_id
+
+    folder_id = drive_repository.get_or_create_client_folder(registro['id'], registro.get('cliente', ''))
+    try:
+        sheets_repository.update_row(
+            'Clientes', registro['id'], {'drive_folder_id': folder_id},
+            expected_atualizado_em=registro.get('atualizado_em'),
+        )
+    except sheets_repository.ConcurrencyError:
+        # Outra requisição concorrente (2 uploads quase juntos) já deve ter
+        # criado e salvo a pasta -- usa a que ficou salva em vez da nossa.
+        atual = sheets_repository.get_row('Clientes', registro['id'])
+        folder_id = (atual or {}).get('drive_folder_id') or folder_id
+    return folder_id
+
+
+def _enviar_documento_para_drive(registro, arquivo, tipo_documento, observacao=''):
+    folder_id = _get_or_create_cliente_drive_folder(registro)
+    uploaded = drive_repository.upload_file(
+        folder_id, arquivo.name, arquivo.read(), arquivo.content_type or 'application/octet-stream',
+    )
+    sheets_repository.create_row('Documentos', {
+        'cliente_ref': registro['id'],
+        'nome_cliente': registro.get('cliente', ''),
+        'nome_original': arquivo.name,
+        'tipo_documento': tipo_documento,
+        'tamanho_bytes': arquivo.size,
+        'observacao': observacao,
+        'drive_file_id': uploaded['id'],
+        'drive_view_url': uploaded.get('webViewLink', ''),
+    })
+
+
 def upload_documento(request):
     if request.method == 'POST':
         arquivo = request.FILES.get('arquivo')
@@ -917,22 +1012,28 @@ def upload_documento(request):
             return redirect('upload_documento')
 
         cliente_ref = request.POST.get('cliente_ref', '').strip()
-        nome_cliente = request.POST.get('nome_cliente', '').strip()
         observacao = request.POST.get('observacao', '').strip()
+        registro = sheets_repository.get_row('Clientes', cliente_ref) if cliente_ref else None
+        if registro is None:
+            messages.error(request, 'Informe o id de um cliente já cadastrado na planilha.')
+            return redirect('upload_documento')
 
-        DocumentoCliente.objects.create(
-            cliente_ref=cliente_ref,
-            nome_cliente=nome_cliente,
-            observacao=observacao,
-            arquivo=arquivo,
-            nome_original=arquivo.name,
-            tamanho_bytes=arquivo.size,
-        )
+        try:
+            _enviar_documento_para_drive(registro, arquivo, 'outro', observacao)
+        except Exception as e:
+            logger.exception('Falha ao enviar documento pro Drive: cliente %s', cliente_ref)
+            messages.error(request, f'Falha ao enviar documento: {e}')
+            return redirect('upload_documento')
+
         messages.success(request, 'Documento enviado com sucesso.')
         return redirect('upload_documento')
 
-    documentos = DocumentoCliente.objects.order_by('-data_envio')[:20]
-    return render(request, 'upload_documento.html', {'documentos': documentos})
+    documentos = sorted(
+        sheets_repository.list_rows('Documentos'), key=lambda d: d.get('atualizado_em', ''), reverse=True,
+    )[:20]
+    return render(request, 'upload_documento.html', {
+        'documentos': [_documento_display(d) for d in documentos],
+    })
 
 
 def documentos_cliente(request, pk):
@@ -941,7 +1042,7 @@ def documentos_cliente(request, pk):
         raise Http404('Cliente não encontrado na planilha.')
 
     if request.method == 'GET' and request.GET.get('format') == 'json':
-        documentos = DocumentoCliente.objects.filter(cliente_ref=pk).order_by('-data_envio')
+        documentos = _documentos_do_cliente(pk)
         return JsonResponse({
             'registro': {
                 'id': registro.get('id', ''),
@@ -950,19 +1051,7 @@ def documentos_cliente(request, pk):
                 'cpf_cnpj': registro.get('cpf_cnpj', ''),
                 'tipo_certificado': registro.get('tipo_certificado', ''),
             },
-            'documentos': [
-                {
-                    'id': doc.id,
-                    'nome_original': doc.nome_original or os.path.basename(doc.arquivo.name),
-                    'tipo_documento': doc.tipo_documento,
-                    'tipo_documento_display': doc.get_tipo_documento_display(),
-                    'data_envio': doc.data_envio.isoformat() if doc.data_envio else '',
-                    'tamanho_bytes': doc.tamanho_bytes,
-                    'download_url': f'/planilha/{pk}/documentos/{doc.id}/download/',
-                    'delete_url': f'/planilha/{pk}/documentos/{doc.id}/excluir/',
-                }
-                for doc in documentos
-            ],
+            'documentos': [_documento_to_json(pk, doc) for doc in documentos],
         })
 
     if request.method == 'POST':
@@ -978,44 +1067,59 @@ def documentos_cliente(request, pk):
             messages.error(request, erro)
             return redirect('documentos_cliente', pk=pk)
 
-        DocumentoCliente.objects.create(
-            cliente_ref=pk,
-            nome_cliente=registro.get('cliente', ''),
-            arquivo=arquivo,
-            nome_original=arquivo.name,
-            tipo_documento=tipo_documento,
-            tamanho_bytes=arquivo.size,
-        )
+        try:
+            _enviar_documento_para_drive(registro, arquivo, tipo_documento)
+        except Exception as e:
+            logger.exception('Falha ao enviar documento pro Drive: cliente %s', pk)
+            messages.error(request, f'Falha ao enviar documento: {e}')
+            return redirect('documentos_cliente', pk=pk)
+
         messages.success(request, f'Documento "{arquivo.name}" enviado com sucesso.')
         return redirect('documentos_cliente', pk=pk)
 
-    documentos = DocumentoCliente.objects.filter(cliente_ref=pk).order_by('-data_envio')
+    documentos = _documentos_do_cliente(pk)
     return render(request, 'documentos_cliente.html', {
         'registro': registro,
-        'documentos': documentos,
-        'tipos_documento': DocumentoCliente.TIPO_CHOICES,
+        'documentos': [_documento_display(d) for d in documentos],
+        'tipos_documento': TIPO_DOCUMENTO_CHOICES,
         'pk': pk,
     })
 
 
 def download_documento(request, pk, doc_id):
     # cliente_ref=pk exigido aqui evita IDOR: sem essa checagem, doc_id
-    # (PK sequencial) sozinho deixaria baixar documento de identidade
-    # (RG/CNH, selfie) de qualquer cliente só variando o número na URL.
-    documento = get_object_or_404(DocumentoCliente, pk=doc_id, cliente_ref=pk)
+    # sozinho deixaria baixar documento de identidade (RG/CNH, selfie) de
+    # qualquer cliente só trocando o id na URL. Por isso o download também
+    # passa pelo servidor (proxy) em vez de redirecionar pro link do Drive
+    # -- o link do Drive não tem essa mesma checagem de permissão.
+    documento = _documento_encontrado(pk, doc_id)
+    if documento is None:
+        raise Http404('Documento não encontrado.')
+
     try:
-        arquivo = documento.arquivo.open('rb')
-    except FileNotFoundError:
+        conteudo = drive_repository.download_file(documento['drive_file_id'])
+    except Exception:
+        logger.exception('Falha ao baixar documento %s do Drive', doc_id)
         raise Http404('Arquivo não encontrado no armazenamento.')
-    return FileResponse(arquivo, as_attachment=True, filename=documento.nome_original or os.path.basename(documento.arquivo.name))
+
+    nome = documento.get('nome_original') or 'documento'
+    return FileResponse(io.BytesIO(conteudo), as_attachment=True, filename=nome)
 
 
 @permission_required('excluir_documento')
 @require_POST
 def excluir_documento(request, pk, doc_id):
-    documento = get_object_or_404(DocumentoCliente, pk=doc_id, cliente_ref=pk)
-    documento.arquivo.delete(save=False)
-    documento.delete()
+    documento = _documento_encontrado(pk, doc_id)
+    if documento is None:
+        raise Http404('Documento não encontrado.')
+
+    try:
+        if documento.get('drive_file_id'):
+            drive_repository.delete_file(documento['drive_file_id'])
+    except Exception:
+        logger.exception('Falha ao excluir arquivo %s do Drive', doc_id)
+
+    sheets_repository.delete_row('Documentos', doc_id)
     messages.success(request, 'Documento removido.')
     return redirect('documentos_cliente', pk=pk)
 

@@ -220,6 +220,14 @@ GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID', '1L-MX27Y6iwCOyd0e4FqLxZJyRFCpHIP
 # que cada carregamento de tela de cada pessoa dispare uma chamada nova à API.
 GOOGLE_SHEETS_CACHE_TTL_SECONDS = int(os.getenv('GOOGLE_SHEETS_CACHE_TTL_SECONDS', '20'))
 
+# Pasta raiz no Google Drive onde as pastas por cliente são criadas (uma
+# subpasta "<id> - <nome>" por cliente, na primeira vez que um documento é
+# enviado). Precisa estar dentro de um Shared Drive (Workspace) compartilhado
+# com o email do service account (permissão Editor) -- uma pasta comum
+# compartilhada cria subpasta mas falha no upload (service account não tem
+# quota própria fora de Shared Drive). Ver drive_repository.py.
+GOOGLE_DRIVE_ROOT_FOLDER_ID = os.getenv('GOOGLE_DRIVE_ROOT_FOLDER_ID', '')
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 

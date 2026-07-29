@@ -60,8 +60,8 @@
             {% for doc in documentos %}
               <tr>
                 <td style="padding:8px;border-bottom:1px solid #f3f3f3;">{{ doc.nome_cliente|default:doc.cliente_ref|default:'-' }}</td>
-                <td style="padding:8px;border-bottom:1px solid #f3f3f3;"><a href="{{ doc.arquivo.url }}" target="_blank">Abrir</a></td>
-                <td style="padding:8px;border-bottom:1px solid #f3f3f3;">{{ doc.data_envio|date:'d/m/Y H:i' }}</td>
+                <td style="padding:8px;border-bottom:1px solid #f3f3f3;"><a href="{% url 'download_documento' doc.cliente_ref doc.id %}">Abrir</a></td>
+                <td style="padding:8px;border-bottom:1px solid #f3f3f3;">{{ doc.data_envio_display }}</td>
               </tr>
             {% empty %}
               <tr><td colspan="3" style="padding:8px;">Nenhum documento enviado.</td></tr>

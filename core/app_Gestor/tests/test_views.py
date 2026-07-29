@@ -1,5 +1,4 @@
 import json
-import tempfile
 from datetime import date, timedelta
 from unittest.mock import patch
 
@@ -11,12 +10,11 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.test import TestCase as DjangoTestCase
 from django.urls import reverse
 
+from core.app_Gestor import drive_repository
 from core.app_Gestor import sheets_repository as repo
 from core.app_Gestor import views
-from core.app_Gestor.models import AppState, DocumentoCliente, PagamentoCliente
+from core.app_Gestor.models import AppState, PagamentoCliente
 from core.app_Gestor.parsing import PERM_KEYS
-
-_MEDIA_ROOT = tempfile.mkdtemp(prefix='qcert_test_media_')
 
 _TEST_USER_USERNAME = 'qcert-test-user'
 _TEST_USER_PASSWORD = 'qcert-test-pass-123'
@@ -348,6 +346,15 @@ class DashboardViewTests(ListRowsPatchMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['google_rows'], [])
 
+    def test_sidebar_links_to_upload_documento(self):
+        # upload_documento era uma rota orfa (sem link em lugar nenhum do
+        # app) ate 2026-07-29 -- garante que a entrada do menu nao regride.
+        self.patch_list_rows({'Clientes': [], 'Parceiros': [], 'Precos': []})
+
+        response = self.client.get(reverse('dashboard'))
+
+        self.assertContains(response, reverse('upload_documento'))
+
 
 @override_settings(GOOGLE_SHEET_ID='fake-sheet-id')
 class AlertasDashboardViewTests(ListRowsPatchMixin, TestCase):
@@ -639,45 +646,56 @@ class ClienteExcluirViewTests(TestCase):
         self.assertEqual(response.status_code, 405)
 
     def test_success(self):
-        with patch.object(repo, 'delete_row') as mock_delete:
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'list_rows', return_value=[]), \
+             patch.object(repo, 'delete_row') as mock_delete:
             response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
 
         self.assertEqual(response.status_code, 200)
         mock_delete.assert_called_once_with('Clientes', 'CLI-aaaaaaaa')
 
     def test_not_found_returns_404(self):
-        with patch.object(repo, 'delete_row', side_effect=LookupError('nao existe')):
+        with patch.object(repo, 'get_row', return_value=None), \
+             patch.object(repo, 'delete_row', side_effect=LookupError('nao existe')):
             response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-nope'}))
 
         self.assertEqual(response.status_code, 404)
 
     def test_failure_returns_500(self):
-        with patch.object(repo, 'delete_row', side_effect=Exception('falhou')):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'delete_row', side_effect=Exception('falhou')):
             response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
 
         self.assertEqual(response.status_code, 500)
 
-    @override_settings(MEDIA_ROOT=_MEDIA_ROOT)
-    def test_success_also_deletes_associated_documentos_and_pagamentos(self):
-        arquivo = SimpleUploadedFile('doc.pdf', b'conteudo', content_type='application/pdf')
-        doc = DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', arquivo=arquivo, nome_original='doc.pdf', tamanho_bytes=8)
+    def test_success_also_deletes_associated_documentos_drive_folder_and_pagamentos(self):
         PagamentoCliente.objects.create(
             cliente_ref='CLI-aaaaaaaa', nome_cliente='Ana Silva', email_cliente='ana@example.com',
             valor=100, descricao='Certificado',
         )
-        outro_doc = DocumentoCliente.objects.create(cliente_ref='CLI-outrocliente', nome_original='outro.pdf', tamanho_bytes=1)
-
-        with patch.object(repo, 'delete_row'):
+        documentos = {
+            'Documentos': [
+                {'id': 'DOC-1', 'cliente_ref': 'CLI-aaaaaaaa'},
+                {'id': 'DOC-2', 'cliente_ref': 'CLI-outrocliente'},
+            ],
+        }
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture(drive_folder_id='FOLDER-1')), \
+             patch.object(repo, 'list_rows', side_effect=lambda tab: documentos.get(tab, [])), \
+             patch.object(repo, 'delete_row') as mock_delete, \
+             patch.object(drive_repository, 'delete_file') as mock_drive_delete:
             response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
 
         self.assertEqual(response.status_code, 200)
-        self.assertFalse(DocumentoCliente.objects.filter(pk=doc.pk).exists())
+        mock_delete.assert_any_call('Clientes', 'CLI-aaaaaaaa')
+        mock_delete.assert_any_call('Documentos', 'DOC-1')
+        self.assertNotIn(('Documentos', 'DOC-2'), [c.args for c in mock_delete.call_args_list])
+        mock_drive_delete.assert_called_once_with('FOLDER-1')
         self.assertEqual(PagamentoCliente.objects.filter(cliente_ref='CLI-aaaaaaaa').count(), 0)
-        self.assertTrue(DocumentoCliente.objects.filter(pk=outro_doc.pk).exists())
 
     def test_cleanup_failure_does_not_fail_the_request(self):
-        with patch.object(repo, 'delete_row'), \
-             patch.object(DocumentoCliente.objects, 'filter', side_effect=Exception('erro de banco')):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture(drive_folder_id='FOLDER-1')), \
+             patch.object(repo, 'delete_row'), \
+             patch.object(repo, 'list_rows', side_effect=Exception('erro de planilha')):
             response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
 
         self.assertEqual(response.status_code, 200)
@@ -1001,7 +1019,7 @@ class PrecoViewsTests(TestCase):
 
 
 @override_settings(GOOGLE_SHEET_ID='fake-sheet-id')
-class DocumentosClienteViewTests(TestCase):
+class DocumentosClienteViewTests(ListRowsPatchMixin, TestCase):
 
     def test_404_when_cliente_not_found(self):
         with patch.object(repo, 'get_row', return_value=None):
@@ -1010,7 +1028,9 @@ class DocumentosClienteViewTests(TestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_get_html_renders_registro_and_documentos(self):
-        DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', nome_original='doc.pdf', tamanho_bytes=10)
+        self.patch_list_rows({'Documentos': [
+            {'id': 'DOC-1', 'cliente_ref': 'CLI-aaaaaaaa', 'nome_original': 'doc.pdf', 'tamanho_bytes': '10'},
+        ]})
 
         with patch.object(repo, 'get_row', return_value=_clientes_fixture()):
             response = self.client.get(reverse('documentos_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}))
@@ -1019,8 +1039,10 @@ class DocumentosClienteViewTests(TestCase):
         self.assertEqual(len(response.context['documentos']), 1)
 
     def test_get_json_lists_documentos_by_cliente_ref_only(self):
-        DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', nome_original='meu.pdf', tamanho_bytes=10)
-        DocumentoCliente.objects.create(cliente_ref='CLI-outro', nome_original='naomeu.pdf', tamanho_bytes=10)
+        self.patch_list_rows({'Documentos': [
+            {'id': 'DOC-1', 'cliente_ref': 'CLI-aaaaaaaa', 'nome_original': 'meu.pdf', 'tamanho_bytes': '10'},
+            {'id': 'DOC-2', 'cliente_ref': 'CLI-outro', 'nome_original': 'naomeu.pdf', 'tamanho_bytes': '10'},
+        ]})
 
         with patch.object(repo, 'get_row', return_value=_clientes_fixture()):
             response = self.client.get(
@@ -1032,11 +1054,12 @@ class DocumentosClienteViewTests(TestCase):
         self.assertEqual(len(data['documentos']), 1)
         self.assertEqual(data['documentos'][0]['nome_original'], 'meu.pdf')
 
-    @override_settings(MEDIA_ROOT=_MEDIA_ROOT)
     def test_post_valid_file_creates_documento_with_cliente_ref(self):
         arquivo = SimpleUploadedFile('doc.pdf', b'conteudo', content_type='application/pdf')
 
-        with patch.object(repo, 'get_row', return_value=_clientes_fixture()):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture(drive_folder_id='FOLDER-1')), \
+             patch.object(repo, 'create_row') as mock_create, \
+             patch.object(drive_repository, 'upload_file', return_value={'id': 'FILE-1', 'webViewLink': 'https://drive/1'}) as mock_upload:
             response = self.client.post(
                 reverse('documentos_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}),
                 {'arquivo': arquivo, 'tipo_documento': 'rg_cnh'},
@@ -1045,13 +1068,78 @@ class DocumentosClienteViewTests(TestCase):
         self.assertRedirects(
             response, reverse('documentos_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}), fetch_redirect_response=False,
         )
-        doc = DocumentoCliente.objects.get()
-        self.assertEqual(doc.cliente_ref, 'CLI-aaaaaaaa')
-        self.assertIsNone(doc.registro_id)
-        self.assertEqual(doc.nome_cliente, 'Ana Silva')
-        doc.arquivo.delete(save=False)
+        mock_upload.assert_called_once_with('FOLDER-1', 'doc.pdf', b'conteudo', 'application/pdf')
+        mock_create.assert_called_once()
+        tab, fields = mock_create.call_args.args
+        self.assertEqual(tab, 'Documentos')
+        self.assertEqual(fields['cliente_ref'], 'CLI-aaaaaaaa')
+        self.assertEqual(fields['nome_cliente'], 'Ana Silva')
+        self.assertEqual(fields['drive_file_id'], 'FILE-1')
+
+    def test_post_creates_drive_folder_on_first_upload(self):
+        arquivo = SimpleUploadedFile('doc.pdf', b'conteudo', content_type='application/pdf')
+
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture(drive_folder_id='')), \
+             patch.object(repo, 'update_row') as mock_update, \
+             patch.object(repo, 'create_row'), \
+             patch.object(drive_repository, 'get_or_create_client_folder', return_value='FOLDER-NEW') as mock_folder, \
+             patch.object(drive_repository, 'upload_file', return_value={'id': 'FILE-1', 'webViewLink': ''}):
+            response = self.client.post(
+                reverse('documentos_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'arquivo': arquivo, 'tipo_documento': 'rg_cnh'},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        mock_folder.assert_called_once_with('CLI-aaaaaaaa', 'Ana Silva')
+        mock_update.assert_called_once_with(
+            'Clientes', 'CLI-aaaaaaaa', {'drive_folder_id': 'FOLDER-NEW'},
+            expected_atualizado_em=_clientes_fixture()['atualizado_em'],
+        )
+
+    def test_post_concurrent_folder_creation_uses_folder_saved_by_other_request(self):
+        # Duas requisicoes de 1o upload quase juntas: a nossa perde a corrida
+        # em update_row (ConcurrencyError) -- precisa reler e usar a pasta
+        # que a outra requisicao ja salvou, em vez de duplicar a pasta.
+        arquivo = SimpleUploadedFile('doc.pdf', b'conteudo', content_type='application/pdf')
+        sem_pasta = _clientes_fixture(drive_folder_id='')
+        com_pasta_da_outra_requisicao = _clientes_fixture(drive_folder_id='FOLDER-FROM-OTHER-REQUEST')
+        get_row_calls = []
+
+        def get_row_side_effect(tab, pk):
+            get_row_calls.append((tab, pk))
+            return sem_pasta if len(get_row_calls) == 1 else com_pasta_da_outra_requisicao
+
+        with patch.object(repo, 'get_row', side_effect=get_row_side_effect), \
+             patch.object(repo, 'update_row', side_effect=repo.ConcurrencyError('mudou')), \
+             patch.object(repo, 'create_row'), \
+             patch.object(drive_repository, 'get_or_create_client_folder', return_value='FOLDER-MINE'), \
+             patch.object(drive_repository, 'upload_file', return_value={'id': 'FILE-1', 'webViewLink': ''}) as mock_upload:
+            response = self.client.post(
+                reverse('documentos_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'arquivo': arquivo, 'tipo_documento': 'rg_cnh'},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(get_row_calls), 2)
+        mock_upload.assert_called_once_with('FOLDER-FROM-OTHER-REQUEST', 'doc.pdf', b'conteudo', 'application/pdf')
+
+    def test_post_without_content_type_falls_back_to_octet_stream(self):
+        arquivo = SimpleUploadedFile('doc.pdf', b'conteudo')
+        arquivo.content_type = None
+
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture(drive_folder_id='FOLDER-1')), \
+             patch.object(repo, 'create_row'), \
+             patch.object(drive_repository, 'upload_file', return_value={'id': 'FILE-1', 'webViewLink': ''}) as mock_upload:
+            response = self.client.post(
+                reverse('documentos_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'arquivo': arquivo, 'tipo_documento': 'rg_cnh'},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        mock_upload.assert_called_once_with('FOLDER-1', 'doc.pdf', b'conteudo', 'application/octet-stream')
 
     def test_post_without_arquivo_shows_error(self):
+        self.patch_list_rows({'Documentos': []})
         with patch.object(repo, 'get_row', return_value=_clientes_fixture()):
             response = self.client.post(
                 reverse('documentos_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}), {}, follow=True,
@@ -1060,41 +1148,60 @@ class DocumentosClienteViewTests(TestCase):
         messages = [str(m) for m in response.context['messages']]
         self.assertTrue(any('Selecione um arquivo' in m for m in messages))
 
-    @override_settings(MEDIA_ROOT=_MEDIA_ROOT)
     def test_post_disallowed_extension_is_rejected(self):
+        self.patch_list_rows({'Documentos': []})
         arquivo = SimpleUploadedFile('doc.exe', b'conteudo', content_type='application/octet-stream')
 
-        with patch.object(repo, 'get_row', return_value=_clientes_fixture()):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'create_row') as mock_create:
             response = self.client.post(
                 reverse('documentos_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}),
                 {'arquivo': arquivo}, follow=True,
             )
 
-        self.assertEqual(DocumentoCliente.objects.count(), 0)
+        mock_create.assert_not_called()
         messages = [str(m) for m in response.context['messages']]
         self.assertTrue(any('não permitido' in m for m in messages))
 
     @override_settings(UPLOAD_DOCUMENTO_TAMANHO_MAXIMO_MB=0)
     def test_post_oversized_file_is_rejected(self):
+        self.patch_list_rows({'Documentos': []})
         arquivo = SimpleUploadedFile('doc.pdf', b'conteudo', content_type='application/pdf')
 
-        with patch.object(repo, 'get_row', return_value=_clientes_fixture()):
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'create_row') as mock_create:
             response = self.client.post(
                 reverse('documentos_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}),
                 {'arquivo': arquivo}, follow=True,
             )
 
-        self.assertEqual(DocumentoCliente.objects.count(), 0)
+        mock_create.assert_not_called()
         messages = [str(m) for m in response.context['messages']]
         self.assertTrue(any('muito grande' in m for m in messages))
 
-
-class UploadDocumentoViewTests(TestCase):
-
-    @override_settings(MEDIA_ROOT=_MEDIA_ROOT)
-    def test_get_renders_recent_documentos(self):
+    def test_post_drive_failure_shows_error_and_does_not_create_row(self):
+        self.patch_list_rows({'Documentos': []})
         arquivo = SimpleUploadedFile('doc.pdf', b'conteudo', content_type='application/pdf')
-        DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', arquivo=arquivo, nome_original='doc.pdf', tamanho_bytes=1)
+
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture(drive_folder_id='FOLDER-1')), \
+             patch.object(repo, 'create_row') as mock_create, \
+             patch.object(drive_repository, 'upload_file', side_effect=Exception('drive indisponivel')):
+            response = self.client.post(
+                reverse('documentos_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {'arquivo': arquivo}, follow=True,
+            )
+
+        mock_create.assert_not_called()
+        messages = [str(m) for m in response.context['messages']]
+        self.assertTrue(any('Falha ao enviar documento' in m for m in messages))
+
+
+class UploadDocumentoViewTests(ListRowsPatchMixin, TestCase):
+
+    def test_get_renders_recent_documentos(self):
+        self.patch_list_rows({'Documentos': [
+            {'id': 'DOC-1', 'cliente_ref': 'CLI-aaaaaaaa', 'nome_original': 'doc.pdf', 'tamanho_bytes': '1'},
+        ]})
 
         response = self.client.get(reverse('upload_documento'))
 
@@ -1102,41 +1209,65 @@ class UploadDocumentoViewTests(TestCase):
         self.assertEqual(len(response.context['documentos']), 1)
 
     def test_post_without_arquivo_redirects_with_error(self):
+        self.patch_list_rows({'Documentos': []})
         response = self.client.post(reverse('upload_documento'), {}, follow=True)
 
         messages = [str(m) for m in response.context['messages']]
         self.assertTrue(any('Selecione um arquivo' in m for m in messages))
 
-    @override_settings(MEDIA_ROOT=_MEDIA_ROOT)
+    def test_post_without_valid_cliente_ref_shows_error(self):
+        self.patch_list_rows({'Documentos': []})
+        arquivo = SimpleUploadedFile('doc.pdf', b'conteudo', content_type='application/pdf')
+
+        with patch.object(repo, 'get_row', return_value=None), \
+             patch.object(repo, 'create_row') as mock_create:
+            response = self.client.post(reverse('upload_documento'), {
+                'arquivo': arquivo, 'cliente_ref': 'CLI-nope',
+            }, follow=True)
+
+        mock_create.assert_not_called()
+        messages = [str(m) for m in response.context['messages']]
+        self.assertTrue(any('cliente já cadastrado' in m for m in messages))
+
     def test_post_success_creates_documento(self):
         arquivo = SimpleUploadedFile('doc.pdf', b'conteudo', content_type='application/pdf')
 
-        response = self.client.post(reverse('upload_documento'), {
-            'arquivo': arquivo, 'cliente_ref': 'CLI-aaaaaaaa', 'nome_cliente': 'Ana Silva', 'observacao': 'via balcao',
-        })
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture(drive_folder_id='FOLDER-1')), \
+             patch.object(repo, 'create_row') as mock_create, \
+             patch.object(drive_repository, 'upload_file', return_value={'id': 'FILE-1', 'webViewLink': ''}) as mock_upload:
+            response = self.client.post(reverse('upload_documento'), {
+                'arquivo': arquivo, 'cliente_ref': 'CLI-aaaaaaaa', 'observacao': 'via balcao',
+            })
 
         self.assertRedirects(response, reverse('upload_documento'), fetch_redirect_response=False)
-        doc = DocumentoCliente.objects.get()
-        self.assertEqual(doc.cliente_ref, 'CLI-aaaaaaaa')
-        self.assertEqual(doc.nome_cliente, 'Ana Silva')
-        self.assertEqual(doc.observacao, 'via balcao')
+        mock_upload.assert_called_once_with('FOLDER-1', 'doc.pdf', b'conteudo', 'application/pdf')
+        tab, fields = mock_create.call_args.args
+        self.assertEqual(tab, 'Documentos')
+        self.assertEqual(fields['cliente_ref'], 'CLI-aaaaaaaa')
+        self.assertEqual(fields['nome_cliente'], 'Ana Silva')
+        self.assertEqual(fields['observacao'], 'via balcao')
+        self.assertEqual(fields['drive_file_id'], 'FILE-1')
 
     def test_post_rejects_disallowed_extension(self):
+        self.patch_list_rows({'Documentos': []})
         arquivo = SimpleUploadedFile('malware.exe', b'conteudo', content_type='application/octet-stream')
 
-        response = self.client.post(reverse('upload_documento'), {'arquivo': arquivo}, follow=True)
+        with patch.object(repo, 'create_row') as mock_create:
+            response = self.client.post(reverse('upload_documento'), {'arquivo': arquivo}, follow=True)
 
-        self.assertEqual(DocumentoCliente.objects.count(), 0)
+        mock_create.assert_not_called()
         messages = [str(m) for m in response.context['messages']]
         self.assertTrue(any('não permitido' in m for m in messages))
 
     def test_post_rejects_file_over_size_limit(self):
+        self.patch_list_rows({'Documentos': []})
         conteudo_grande = b'x' * (11 * 1024 * 1024)
         arquivo = SimpleUploadedFile('doc.pdf', conteudo_grande, content_type='application/pdf')
 
-        response = self.client.post(reverse('upload_documento'), {'arquivo': arquivo}, follow=True)
+        with patch.object(repo, 'create_row') as mock_create:
+            response = self.client.post(reverse('upload_documento'), {'arquivo': arquivo}, follow=True)
 
-        self.assertEqual(DocumentoCliente.objects.count(), 0)
+        mock_create.assert_not_called()
         messages = [str(m) for m in response.context['messages']]
         self.assertTrue(any('muito grande' in m for m in messages))
 
@@ -1165,67 +1296,75 @@ class ValidarArquivoDocumentoTests(SimpleTestCase):
         self.assertIsNone(views._validar_arquivo_documento(arquivo))
 
 
-class DownloadExcluirDocumentoViewTests(TestCase):
+class DownloadExcluirDocumentoViewTests(ListRowsPatchMixin, TestCase):
 
     def test_download_404_when_missing(self):
-        response = self.client.get(reverse('download_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': 999999}))
+        self.patch_list_rows({'Documentos': []})
+        response = self.client.get(reverse('download_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': 'DOC-nope'}))
         self.assertEqual(response.status_code, 404)
 
     def test_download_404_when_cliente_ref_does_not_match_pk_in_url(self):
         # IDOR: doc_id sozinho nao basta -- o pk na URL precisa bater com o
         # cliente_ref real do documento, senao 404 mesmo com doc_id valido.
-        doc = DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', nome_original='doc.pdf', tamanho_bytes=1)
+        self.patch_list_rows({'Documentos': [
+            {'id': 'DOC-1', 'cliente_ref': 'CLI-aaaaaaaa', 'nome_original': 'doc.pdf', 'drive_file_id': 'FILE-1'},
+        ]})
 
-        response = self.client.get(reverse('download_documento', kwargs={'pk': 'CLI-outrocliente', 'doc_id': doc.id}))
-
-        self.assertEqual(response.status_code, 404)
-
-    def test_download_404_when_file_missing_from_disk(self):
-        doc = DocumentoCliente.objects.create(
-            cliente_ref='CLI-aaaaaaaa', nome_original='fake.pdf', tamanho_bytes=1,
-        )
-        doc.arquivo.name = 'documentos_clientes/nao-existe/fake.pdf'
-        doc.save(update_fields=['arquivo'])
-
-        response = self.client.get(reverse('download_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': doc.id}))
+        response = self.client.get(reverse('download_documento', kwargs={'pk': 'CLI-outrocliente', 'doc_id': 'DOC-1'}))
 
         self.assertEqual(response.status_code, 404)
 
-    @override_settings(MEDIA_ROOT=_MEDIA_ROOT)
+    def test_download_404_when_drive_download_fails(self):
+        self.patch_list_rows({'Documentos': [
+            {'id': 'DOC-1', 'cliente_ref': 'CLI-aaaaaaaa', 'nome_original': 'fake.pdf', 'drive_file_id': 'FILE-1'},
+        ]})
+
+        with patch.object(drive_repository, 'download_file', side_effect=Exception('nao encontrado no drive')):
+            response = self.client.get(reverse('download_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': 'DOC-1'}))
+
+        self.assertEqual(response.status_code, 404)
+
     def test_download_success(self):
-        arquivo = SimpleUploadedFile('doc.pdf', b'conteudo', content_type='application/pdf')
-        doc = DocumentoCliente.objects.create(
-            cliente_ref='CLI-aaaaaaaa', arquivo=arquivo, nome_original='doc.pdf', tamanho_bytes=8,
-        )
+        self.patch_list_rows({'Documentos': [
+            {'id': 'DOC-1', 'cliente_ref': 'CLI-aaaaaaaa', 'nome_original': 'doc.pdf', 'drive_file_id': 'FILE-1'},
+        ]})
 
-        response = self.client.get(reverse('download_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': doc.id}))
+        with patch.object(drive_repository, 'download_file', return_value=b'conteudo'):
+            response = self.client.get(reverse('download_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': 'DOC-1'}))
 
         self.assertEqual(response.status_code, 200)
         self.assertIn('doc.pdf', response['Content-Disposition'])
         response.close()
 
     def test_excluir_requires_post(self):
-        doc = DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', nome_original='doc.pdf', tamanho_bytes=1)
-        response = self.client.get(reverse('excluir_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': doc.id}))
+        response = self.client.get(reverse('excluir_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': 'DOC-1'}))
         self.assertEqual(response.status_code, 405)
 
     def test_excluir_404_when_cliente_ref_does_not_match_pk_in_url(self):
-        doc = DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', nome_original='doc.pdf', tamanho_bytes=1)
+        self.patch_list_rows({'Documentos': [
+            {'id': 'DOC-1', 'cliente_ref': 'CLI-aaaaaaaa', 'nome_original': 'doc.pdf', 'drive_file_id': 'FILE-1'},
+        ]})
 
-        response = self.client.post(reverse('excluir_documento', kwargs={'pk': 'CLI-outrocliente', 'doc_id': doc.id}))
+        with patch.object(repo, 'delete_row') as mock_delete:
+            response = self.client.post(reverse('excluir_documento', kwargs={'pk': 'CLI-outrocliente', 'doc_id': 'DOC-1'}))
 
         self.assertEqual(response.status_code, 404)
-        self.assertEqual(DocumentoCliente.objects.count(), 1)
+        mock_delete.assert_not_called()
 
     def test_excluir_redirects_using_pk_from_url(self):
-        doc = DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', nome_original='doc.pdf', tamanho_bytes=1)
+        self.patch_list_rows({'Documentos': [
+            {'id': 'DOC-1', 'cliente_ref': 'CLI-aaaaaaaa', 'nome_original': 'doc.pdf', 'drive_file_id': 'FILE-1'},
+        ]})
 
-        response = self.client.post(reverse('excluir_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': doc.id}))
+        with patch.object(repo, 'delete_row') as mock_delete, \
+             patch.object(drive_repository, 'delete_file') as mock_drive_delete:
+            response = self.client.post(reverse('excluir_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': 'DOC-1'}))
 
         self.assertRedirects(
             response, reverse('documentos_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}), fetch_redirect_response=False,
         )
-        self.assertEqual(DocumentoCliente.objects.count(), 0)
+        mock_drive_delete.assert_called_once_with('FILE-1')
+        mock_delete.assert_called_once_with('Documentos', 'DOC-1')
 
 
 @override_settings(GOOGLE_SHEET_ID='fake-sheet-id')
@@ -1588,7 +1727,9 @@ class PermissionRequiredTests(DjangoTestCase):
 
     def test_admin_allowed_on_cliente_excluir(self):
         self.client.force_login(self.admin)
-        with patch.object(repo, 'delete_row') as mock_delete:
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'list_rows', return_value=[]), \
+             patch.object(repo, 'delete_row') as mock_delete:
             response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
         self.assertEqual(response.status_code, 200)
         mock_delete.assert_called_once()
@@ -1614,9 +1755,8 @@ class PermissionRequiredTests(DjangoTestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_vendedor_blocked_from_excluir_documento(self):
-        doc = DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', nome_original='doc.pdf', tamanho_bytes=1)
         self.client.force_login(self.vendedor)
-        response = self.client.post(reverse('excluir_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': doc.id}))
+        response = self.client.post(reverse('excluir_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': 'DOC-1'}))
         self.assertEqual(response.status_code, 403)
 
     def test_vendedor_still_allowed_on_cliente_edit(self):
@@ -1645,7 +1785,9 @@ class PermissionRequiredTests(DjangoTestCase):
 
     def test_vendedor_with_excluir_cliente_perm_allowed(self):
         self._login_vendedor_with_perms({'excluir_cliente': True})
-        with patch.object(repo, 'delete_row') as mock_delete:
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'list_rows', return_value=[]), \
+             patch.object(repo, 'delete_row') as mock_delete:
             response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
         self.assertEqual(response.status_code, 200)
         mock_delete.assert_called_once()
@@ -1677,11 +1819,13 @@ class PermissionRequiredTests(DjangoTestCase):
         mock_delete.assert_called_once()
 
     def test_vendedor_with_excluir_documento_perm_allowed(self):
-        doc = DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', nome_original='doc.pdf', tamanho_bytes=1)
         self._login_vendedor_with_perms({'excluir_documento': True})
-        response = self.client.post(reverse('excluir_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': doc.id}))
+        with patch.object(repo, 'list_rows', return_value=[
+            {'id': 'DOC-1', 'cliente_ref': 'CLI-aaaaaaaa', 'nome_original': 'doc.pdf', 'drive_file_id': 'FILE-1'},
+        ]), patch.object(repo, 'delete_row') as mock_delete, patch.object(drive_repository, 'delete_file'):
+            response = self.client.post(reverse('excluir_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': 'DOC-1'}))
         self.assertEqual(response.status_code, 302)
-        self.assertFalse(DocumentoCliente.objects.filter(pk=doc.id).exists())
+        mock_delete.assert_called_once_with('Documentos', 'DOC-1')
 
     def test_vendedor_with_one_perm_still_blocked_from_others(self):
         # Confirma que a permissão é granular de verdade -- ter 'parceiros'

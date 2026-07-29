@@ -61,9 +61,9 @@
         <tbody>
           {% for doc in documentos %}
             <tr style="border-bottom:1px solid #f0f0f0;">
-              <td style="padding:8px 4px;">{{ doc.nome_original|default:doc.arquivo.name }}</td>
-              <td style="padding:8px 4px;">{{ doc.get_tipo_documento_display }}</td>
-              <td style="padding:8px 4px;">{{ doc.data_envio|date:"d/m/Y H:i" }}</td>
+              <td style="padding:8px 4px;">{{ doc.nome_original }}</td>
+              <td style="padding:8px 4px;">{{ doc.tipo_documento_display }}</td>
+              <td style="padding:8px 4px;">{{ doc.data_envio_display }}</td>
               <td style="padding:8px 4px;">{{ doc.tamanho_bytes|filesizeformat }}</td>
               <td style="padding:8px 4px;display:flex;gap:8px;">
                 <a class="btn btn-sm" href="{% url 'download_documento' pk doc.id %}">Baixar</a>

@@ -20,6 +20,7 @@ _TAB_PREFIXES = {
     'Precos': 'PRC',
     'Contatos': 'CTT',
     'Usuarios': 'USR',
+    'Documentos': 'DOC',
 }
 
 _service = None
