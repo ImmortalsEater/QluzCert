@@ -3,6 +3,7 @@ import tempfile
 from datetime import date, timedelta
 from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -13,6 +14,7 @@ from django.urls import reverse
 from core.app_Gestor import sheets_repository as repo
 from core.app_Gestor import views
 from core.app_Gestor.models import AppState, DocumentoCliente, PagamentoCliente
+from core.app_Gestor.parsing import PERM_KEYS
 
 _MEDIA_ROOT = tempfile.mkdtemp(prefix='qcert_test_media_')
 
@@ -1547,6 +1549,28 @@ class LoginRequiredTests(DjangoTestCase):
         existing.refresh_from_db()
         self.assertTrue(existing.is_superuser)
 
+    def test_login_syncs_granular_perms_for_vendedor(self):
+        usuarios_rows = [{
+            'username': 'vendedor-sync', 'password': make_password('senha123'), 'tipo': 'vendedor',
+            'perm_parceiros': 'Sim', 'perm_precos': 'Não',
+        }]
+        with patch.object(repo, 'list_rows', side_effect=lambda tab: usuarios_rows if tab == 'Usuarios' else []):
+            self.client.post(reverse('login'), {'username': 'vendedor-sync', 'password': 'senha123'})
+
+        perms = self.client.session.get('perms')
+        self.assertEqual(perms.get('parceiros'), True)
+        self.assertEqual(perms.get('precos'), False)
+        self.assertEqual(perms.get('pagamentos'), False)
+        self.assertEqual(perms.get('excluir_cliente'), False)
+        self.assertEqual(perms.get('excluir_documento'), False)
+
+    def test_login_does_not_set_perms_for_admin(self):
+        usuarios_rows = [{'username': 'chefe-perms', 'password': make_password('senha123'), 'tipo': 'admin'}]
+        with patch.object(repo, 'list_rows', side_effect=lambda tab: usuarios_rows if tab == 'Usuarios' else []):
+            self.client.post(reverse('login'), {'username': 'chefe-perms', 'password': 'senha123'})
+
+        self.assertEqual(self.client.session.get('perms'), {})
+
 
 class PermissionRequiredTests(DjangoTestCase):
     """Endpoints admin-only (excluir, Parceiros, Preços) devem bloquear um
@@ -1607,3 +1631,94 @@ class PermissionRequiredTests(DjangoTestCase):
             )
         self.assertRedirects(response, reverse('dashboard') + '#clientes', fetch_redirect_response=False)
         mock_update.assert_called_once()
+
+    def _login_vendedor_with_perms(self, perms):
+        # SESSION_ENGINE=signed_cookies não tem storage server-side -- a
+        # sessão inteira É o valor do cookie, então session.save() sozinho
+        # não basta em teste (não passa por um response real). Precisa
+        # empurrar o cookie assinado de volta pro client manualmente.
+        self.client.force_login(self.vendedor)
+        session = self.client.session
+        session['perms'] = perms
+        session.save()
+        self.client.cookies[settings.SESSION_COOKIE_NAME] = session.session_key
+
+    def test_vendedor_with_excluir_cliente_perm_allowed(self):
+        self._login_vendedor_with_perms({'excluir_cliente': True})
+        with patch.object(repo, 'delete_row') as mock_delete:
+            response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
+        self.assertEqual(response.status_code, 200)
+        mock_delete.assert_called_once()
+
+    def test_vendedor_with_parceiros_perm_allowed_on_criar(self):
+        self._login_vendedor_with_perms({'parceiros': True})
+        with patch.object(repo, 'create_row', return_value={'id': 'PAR-aaaaaaaa'}):
+            response = self.client.post(reverse('parceiro_criar'), {'nome': 'Escritorio X'})
+        self.assertEqual(response.status_code, 200)
+
+    def test_vendedor_with_parceiros_perm_allowed_on_excluir(self):
+        self._login_vendedor_with_perms({'parceiros': True})
+        with patch.object(repo, 'delete_row') as mock_delete:
+            response = self.client.post(reverse('parceiro_excluir', kwargs={'id': 'PAR-aaaaaaaa'}))
+        self.assertEqual(response.status_code, 200)
+        mock_delete.assert_called_once()
+
+    def test_vendedor_with_precos_perm_allowed_on_criar(self):
+        self._login_vendedor_with_perms({'precos': True})
+        with patch.object(repo, 'create_row', return_value={'id': 'PRC-aaaaaaaa'}):
+            response = self.client.post(reverse('preco_criar'), {'tipo': 'e-CPF A1'})
+        self.assertEqual(response.status_code, 200)
+
+    def test_vendedor_with_precos_perm_allowed_on_excluir(self):
+        self._login_vendedor_with_perms({'precos': True})
+        with patch.object(repo, 'delete_row') as mock_delete:
+            response = self.client.post(reverse('preco_excluir', kwargs={'id': 'PRC-aaaaaaaa'}))
+        self.assertEqual(response.status_code, 200)
+        mock_delete.assert_called_once()
+
+    def test_vendedor_with_excluir_documento_perm_allowed(self):
+        doc = DocumentoCliente.objects.create(cliente_ref='CLI-aaaaaaaa', nome_original='doc.pdf', tamanho_bytes=1)
+        self._login_vendedor_with_perms({'excluir_documento': True})
+        response = self.client.post(reverse('excluir_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': doc.id}))
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(DocumentoCliente.objects.filter(pk=doc.id).exists())
+
+    def test_vendedor_with_one_perm_still_blocked_from_others(self):
+        # Confirma que a permissão é granular de verdade -- ter 'parceiros'
+        # não libera 'precos'.
+        self._login_vendedor_with_perms({'parceiros': True})
+        response = self.client.post(reverse('preco_criar'), {'tipo': 'e-CPF A1'})
+        self.assertEqual(response.status_code, 403)
+
+    def test_vendedor_blocked_from_usuarios_gestao_even_with_all_perms(self):
+        # Gestão de usuários não é uma permissão delegável -- só is_superuser
+        # dá acesso, mesmo que o vendedor tenha todas as outras chaves.
+        all_perms = {key: True for key in PERM_KEYS}
+        self._login_vendedor_with_perms(all_perms)
+        response = self.client.get(reverse('usuarios_gestao'))
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_allowed_on_usuarios_gestao(self):
+        self.client.force_login(self.admin)
+        with patch.object(repo, 'list_rows', return_value=[]):
+            response = self.client.get(reverse('usuarios_gestao'))
+        self.assertEqual(response.status_code, 200)
+
+    def test_vendedor_blocked_from_usuarios_atualizar(self):
+        self._login_vendedor_with_perms({key: True for key in PERM_KEYS})
+        response = self.client.post(reverse('usuarios_atualizar', kwargs={'id': 'USR-aaaaaaaa'}), {'tipo': 'admin'})
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_allowed_on_usuarios_atualizar(self):
+        self.client.force_login(self.admin)
+        with patch.object(repo, 'update_row') as mock_update:
+            response = self.client.post(
+                reverse('usuarios_atualizar', kwargs={'id': 'USR-aaaaaaaa'}),
+                {'tipo': 'vendedor', 'perm_parceiros': 'on'},
+            )
+        self.assertEqual(response.status_code, 302)
+        mock_update.assert_called_once()
+        called_fields = mock_update.call_args.args[2]
+        self.assertEqual(called_fields['tipo'], 'vendedor')
+        self.assertEqual(called_fields['perm_parceiros'], 'Sim')
+        self.assertEqual(called_fields['perm_precos'], 'Não')

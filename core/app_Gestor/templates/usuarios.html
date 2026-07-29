@@ -1,0 +1,80 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gestão de Usuários</title>
+  <link rel="icon" type="image/x-icon" href="{% static 'img/favicon/favicon.ico' %}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{% static 'img/favicon/favicon-32x32.png' %}">
+  <link rel="icon" type="image/png" sizes="192x192" href="{% static 'img/favicon/favicon-192x192.png' %}">
+  <link rel="apple-touch-icon" sizes="192x192" href="{% static 'img/favicon/favicon-192x192.png' %}">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+  <link rel="stylesheet" href="{% static 'css/cert_manager.css' %}">
+</head>
+<body>
+  <div style="max-width:960px;margin:40px auto;padding:24px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,.05);">
+    <h1 style="margin-bottom:4px;font-size:22px;">Gestão de Usuários</h1>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:20px">
+      Tipo e permissões são gravados direto na aba Usuarios da planilha e valem a partir do próximo login da pessoa.
+      Criar usuário novo ou trocar senha continua sendo feito via <code>create_sheets_user</code> — esta tela só edita usuários já existentes.
+    </p>
+
+    {% if messages %}
+      {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+
+    {% if usuarios %}
+      <table style="width:100%;border-collapse:collapse;font-size:14px;">
+        <thead>
+          <tr style="text-align:left;border-bottom:2px solid var(--border);">
+            <th style="padding:8px 4px;">Usuário</th>
+            <th style="padding:8px 4px;">Tipo</th>
+            {% for key in perm_keys %}
+              <th style="padding:8px 4px;text-align:center;">{{ key }}</th>
+            {% endfor %}
+            <th style="padding:8px 4px;">&nbsp;</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for usuario in usuarios %}
+            <tr style="border-bottom:1px solid var(--border);">
+              <form method="post" action="{% url 'usuarios_atualizar' usuario.id %}">
+                {% csrf_token %}
+                <input type="hidden" name="expected_atualizado_em" value="{{ usuario.atualizado_em }}">
+                <td style="padding:8px 4px;">{{ usuario.username }}</td>
+                <td style="padding:8px 4px;">
+                  <select name="tipo">
+                    <option value="vendedor" {% if not usuario.is_admin %}selected{% endif %}>Vendedor</option>
+                    <option value="admin" {% if usuario.is_admin %}selected{% endif %}>Admin</option>
+                  </select>
+                </td>
+                {% for key, checked in usuario.perm_items %}
+                  <td style="padding:8px 4px;text-align:center;">
+                    <input type="checkbox" name="perm_{{ key }}" {% if checked %}checked{% endif %}>
+                  </td>
+                {% endfor %}
+                <td style="padding:8px 4px;">
+                  <button type="submit" class="btn btn-sm">Salvar</button>
+                </td>
+              </form>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p style="color:var(--muted, #888);">Nenhum usuário encontrado na aba Usuarios da planilha.</p>
+    {% endif %}
+
+    <p style="font-size:12px;color:var(--muted);margin-top:16px">
+      Permissões de um admin são ignoradas (admin já tem acesso total). Vendedor sem nenhuma marcada fica restrito ao básico (Dashboard, Funil, Clientes, Planilha, Renovações).
+    </p>
+
+    <div style="margin-top:24px;">
+      <a href="{% url 'dashboard' %}" class="btn">Voltar ao painel</a>
+    </div>
+  </div>
+</body>
+</html>

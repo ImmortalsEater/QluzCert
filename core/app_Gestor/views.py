@@ -17,7 +17,7 @@ import os
 import re
 from .models import AppState
 from . import sheets_repository
-from .parsing import parse_date, parse_decimal, bool_from
+from .parsing import parse_date, parse_decimal, bool_from, PERM_KEYS
 import io
 import pandas as pd
 from django.http import HttpResponse
@@ -28,7 +28,10 @@ logger = logging.getLogger(__name__)
 def admin_required(view_func):
     """Bloqueia a view pra quem não é admin. `request.user.is_superuser` é
     definido a partir da coluna 'tipo' da aba Usuarios da planilha em cada
-    login -- ver core/app_Gestor/auth_backends.py."""
+    login -- ver core/app_Gestor/auth_backends.py. Reservada pra ações
+    verdadeiramente admin-only e não delegáveis (ex: gestão de usuários) --
+    pra ações que um admin pode delegar a um vendedor específico, use
+    permission_required."""
     @wraps(view_func)
     def wrapper(request, *args, **kwargs):
         if not request.user.is_superuser:
@@ -37,6 +40,23 @@ def admin_required(view_func):
             return HttpResponseForbidden('Permissão negada.')
         return view_func(request, *args, **kwargs)
     return wrapper
+
+
+def permission_required(perm_key):
+    """Libera a view pra admin (sempre) ou pra vendedor com a chave
+    `perm_key` marcada como Sim na aba Usuarios (sincronizada na sessão no
+    login -- ver core/app_Gestor/auth_backends.py e parsing.PERM_KEYS)."""
+    def decorator(view_func):
+        @wraps(view_func)
+        def wrapper(request, *args, **kwargs):
+            allowed = request.user.is_superuser or request.session.get('perms', {}).get(perm_key, False)
+            if not allowed:
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return JsonResponse({'error': 'Permissão negada.'}, status=403)
+                return HttpResponseForbidden('Permissão negada.')
+            return view_func(request, *args, **kwargs)
+        return wrapper
+    return decorator
 
 
 def _safe_json_dumps(obj):
@@ -422,6 +442,11 @@ class DashboardView(TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context['perms'] = self.request.session.get('perms', {})
+        try:
+            context['perms_json'] = _safe_json_dumps(context['perms'])
+        except Exception:
+            context['perms_json'] = '{}'
         try:
             context['google_columns'], context['google_rows'] = _build_dashboard_from_sheets()
         except Exception:
@@ -631,7 +656,7 @@ def criar_google_row(request):
     return render(request, 'google_create.html')
 
 
-@admin_required
+@permission_required('excluir_cliente')
 @require_POST
 def cliente_excluir(request, pk):
     try:
@@ -708,7 +733,7 @@ def contatos_cliente_registro(request, pk):
     return HttpResponseBadRequest('Método não permitido')
 
 
-@admin_required
+@permission_required('parceiros')
 def parceiro_criar(request):
     if request.method != 'POST':
         return HttpResponseBadRequest('Método não permitido')
@@ -733,7 +758,7 @@ def parceiro_criar(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 
-@admin_required
+@permission_required('parceiros')
 def parceiro_editar(request, id):
     if request.method != 'POST':
         return HttpResponseBadRequest('Método não permitido')
@@ -757,7 +782,7 @@ def parceiro_editar(request, id):
         return JsonResponse({'error': str(e)}, status=500)
 
 
-@admin_required
+@permission_required('parceiros')
 @require_POST
 def parceiro_excluir(request, id):
     try:
@@ -770,7 +795,7 @@ def parceiro_excluir(request, id):
         return JsonResponse({'error': str(e)}, status=500)
 
 
-@admin_required
+@permission_required('precos')
 def preco_criar(request):
     if request.method != 'POST':
         return HttpResponseBadRequest('Método não permitido')
@@ -792,7 +817,7 @@ def preco_criar(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 
-@admin_required
+@permission_required('precos')
 def preco_editar(request, id):
     if request.method != 'POST':
         return HttpResponseBadRequest('Método não permitido')
@@ -816,7 +841,7 @@ def preco_editar(request, id):
         return JsonResponse({'error': str(e)}, status=500)
 
 
-@admin_required
+@permission_required('precos')
 @require_POST
 def preco_excluir(request, id):
     try:
@@ -985,7 +1010,7 @@ def download_documento(request, pk, doc_id):
     return FileResponse(arquivo, as_attachment=True, filename=documento.nome_original or os.path.basename(documento.arquivo.name))
 
 
-@admin_required
+@permission_required('excluir_documento')
 @require_POST
 def excluir_documento(request, pk, doc_id):
     documento = get_object_or_404(DocumentoCliente, pk=doc_id, cliente_ref=pk)
@@ -993,6 +1018,55 @@ def excluir_documento(request, pk, doc_id):
     documento.delete()
     messages.success(request, 'Documento removido.')
     return redirect('documentos_cliente', pk=pk)
+
+
+@admin_required
+def usuarios_gestao(request):
+    """Lista os usuários da aba Usuarios pra um admin editar tipo/permissões.
+    Gestão de usuário é sempre admin-only -- não é uma permissão delegável
+    como as outras (evita um vendedor com todas as chaves se auto-promover)."""
+    try:
+        usuarios = sheets_repository.list_rows('Usuarios')
+    except Exception:
+        logger.exception('Falha ao carregar a aba Usuarios da planilha')
+        usuarios = []
+    usuarios_view = [
+        {
+            **u,
+            'is_admin': (u.get('tipo') or '').strip().lower() == 'admin',
+            'perm_items': [(key, bool_from(u.get(f'perm_{key}'))) for key in PERM_KEYS],
+        }
+        for u in usuarios
+    ]
+    return render(request, 'usuarios.html', {'usuarios': usuarios_view, 'perm_keys': PERM_KEYS})
+
+
+@admin_required
+@require_POST
+def usuarios_atualizar(request, id):
+    """Atualiza tipo e permissões granulares de um usuário já existente.
+    Nunca lê/escreve a coluna 'password' aqui -- reset de senha continua
+    fora de escopo, só via create_sheets_user ou edição manual da planilha."""
+    fields = {}
+    tipo = request.POST.get('tipo')
+    if tipo is not None:
+        fields['tipo'] = tipo
+    for key in PERM_KEYS:
+        fields[f'perm_{key}'] = 'Sim' if request.POST.get(f'perm_{key}') else 'Não'
+
+    expected_atualizado_em = request.POST.get('expected_atualizado_em') or None
+    try:
+        sheets_repository.update_row('Usuarios', id, fields, expected_atualizado_em=expected_atualizado_em)
+        messages.success(request, 'Usuário atualizado com sucesso.')
+    except sheets_repository.ConcurrencyError:
+        messages.error(request, 'Este usuário foi alterado por outra pessoa nesse meio tempo. Recarregue a página e tente novamente.')
+    except LookupError:
+        raise Http404('Usuário não encontrado na planilha.')
+    except Exception:
+        logger.exception('Falha ao atualizar usuário %s', id)
+        messages.error(request, 'Falha ao salvar as alterações na planilha do Google. Tente novamente.')
+
+    return redirect('usuarios_gestao')
 
 
 @csrf_exempt

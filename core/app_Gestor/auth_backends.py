@@ -5,6 +5,7 @@ from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.hashers import check_password
 
 from . import sheets_repository as repo
+from .parsing import PERM_KEYS, bool_from
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,19 @@ class SheetsBackend(BaseBackend):
             user.is_superuser = is_admin
             user.is_staff = is_admin
             user.save()
+
+        # Permissões granulares (colunas 'perm_<chave>') só valem pra
+        # vendedor -- admin já tem acesso total via is_superuser, não
+        # precisa marcar nada individualmente. Guardadas na sessão (cookie
+        # assinado) em vez do User local, seguindo o mesmo raciocínio de
+        # "sem disco persistente" já aplicado ao resto da autenticação.
+        if request is not None:
+            if is_admin:
+                request.session['perms'] = {}
+            else:
+                request.session['perms'] = {
+                    key: bool_from(row.get(f'perm_{key}')) for key in PERM_KEYS
+                }
 
         return user
 

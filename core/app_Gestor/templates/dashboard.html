@@ -51,11 +51,18 @@
     <div class="nav-item" onclick="nav('planilha')"><i class="ti ti-table"></i>Planilha</div>
     <div class="nav-section">Operacional</div>
     <div class="nav-item" onclick="nav('renovacoes')"><i class="ti ti-bell"></i>Renovações <span class="nav-badge" id="ren-badge">0</span></div>
-    {% if user.is_superuser %}
+    {% if user.is_superuser or perms.pagamentos %}
     <div class="nav-item" onclick="nav('pagamentos')"><i class="ti ti-cash"></i>Pagamentos <span class="nav-badge" id="pag-badge">0</span></div>
+    {% endif %}
+    {% if user.is_superuser or perms.parceiros %}
     <div class="nav-item" onclick="nav('parceiros')"><i class="ti ti-building"></i>Parceiros</div>
+    {% endif %}
+    {% if user.is_superuser or perms.precos %}
     <div class="nav-section">Configurações</div>
     <div class="nav-item" onclick="nav('tabela')"><i class="ti ti-currency-dollar"></i>Tabela de Preços</div>
+    {% endif %}
+    {% if user.is_superuser %}
+    <div class="nav-item" onclick="location.href='{% url 'usuarios_gestao' %}'"><i class="ti ti-users-group"></i>Usuários</div>
     {% endif %}
     <div class="sidebar-footer">
       v1.0 · Dados locais · <span id="total-count">0</span> clientes
@@ -248,6 +255,7 @@
 
 <script>
   window.IS_ADMIN = {{ user.is_superuser|yesno:"true,false" }};
+  window.PERMS = {{ perms_json|safe }};
 </script>
 
 <!-- Mensagens de sucesso/erro do Django são exibidas como toasts (ver script no final da página) -->
