@@ -1030,14 +1030,15 @@ def usuarios_gestao(request):
     except Exception:
         logger.exception('Falha ao carregar a aba Usuarios da planilha')
         usuarios = []
-    usuarios_view = [
-        {
-            **u,
-            'is_admin': (u.get('tipo') or '').strip().lower() == 'admin',
-            'perm_items': [(key, bool_from(u.get(f'perm_{key}'))) for key in PERM_KEYS],
-        }
-        for u in usuarios
-    ]
+    usuarios_view = []
+    for u in usuarios:
+        is_admin = (u.get('tipo') or '').strip().lower() == 'admin'
+        # Admin bypassa toda checagem de permissão -- mostra tudo marcado
+        # (reflete o que já é verdade), mas os checkboxes ficam disabled
+        # pra não gravar 'Sim' de verdade na planilha e virar permissão
+        # real se essa pessoa um dia for rebaixada a vendedor.
+        perm_items = [(key, True if is_admin else bool_from(u.get(f'perm_{key}'))) for key in PERM_KEYS]
+        usuarios_view.append({**u, 'is_admin': is_admin, 'perm_items': perm_items})
     return render(request, 'usuarios.html', {'usuarios': usuarios_view, 'perm_keys': PERM_KEYS})
 
 
