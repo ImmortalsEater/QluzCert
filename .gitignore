@@ -11,6 +11,9 @@ venv/
 # Django local settings
 db.sqlite3
 
+# Uploads locais (documentos de cliente, incluindo fallback quando o Drive falha)
+media/
+
 # Logs
 logs/
 

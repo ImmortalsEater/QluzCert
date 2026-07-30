@@ -1,4 +1,7 @@
 import json
+import os
+import shutil
+import tempfile
 from datetime import date, timedelta
 from unittest.mock import patch
 
@@ -81,6 +84,16 @@ class ListRowsPatchMixin:
         patcher = patch.object(repo, 'list_rows', side_effect=side_effect)
         patcher.start()
         self.addCleanup(patcher.stop)
+
+
+class TempMediaRootMixin:
+    """Isola os testes de fallback local do `media/` real do repo -- usa um
+    diretório temporário como MEDIA_ROOT, limpo ao final de cada teste."""
+
+    def make_temp_media_root(self):
+        tmp_media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp_media, ignore_errors=True)
+        return tmp_media
 
 
 class FormatSheetCellValueTests(SimpleTestCase):
@@ -345,16 +358,6 @@ class DashboardViewTests(ListRowsPatchMixin, TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['google_rows'], [])
-
-    def test_sidebar_links_to_upload_documento(self):
-        # upload_documento era uma rota orfa (sem link em lugar nenhum do
-        # app) ate 2026-07-29 -- garante que a entrada do menu nao regride.
-        self.patch_list_rows({'Clientes': [], 'Parceiros': [], 'Precos': []})
-
-        response = self.client.get(reverse('dashboard'))
-
-        self.assertContains(response, reverse('upload_documento'))
-
 
 @override_settings(GOOGLE_SHEET_ID='fake-sheet-id')
 class AlertasDashboardViewTests(ListRowsPatchMixin, TestCase):
@@ -639,7 +642,7 @@ class CriarGoogleRowViewTests(TestCase):
         self.assertTrue(any('sem credenciais' in m for m in messages))
 
 
-class ClienteExcluirViewTests(TestCase):
+class ClienteExcluirViewTests(TempMediaRootMixin, TestCase):
 
     def test_requires_post(self):
         response = self.client.get(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
@@ -699,6 +702,30 @@ class ClienteExcluirViewTests(TestCase):
             response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
 
         self.assertEqual(response.status_code, 200)
+
+    def test_success_removes_local_fallback_files_and_pending_folder(self):
+        tmp_media = self.make_temp_media_root()
+        pasta_pendentes = os.path.join(tmp_media, 'documentos_pendentes', 'CLI-aaaaaaaa')
+        os.makedirs(pasta_pendentes)
+        caminho_arquivo = os.path.join(pasta_pendentes, 'uma-doc.pdf')
+        with open(caminho_arquivo, 'wb') as f:
+            f.write(b'conteudo')
+        local_path = os.path.join('documentos_pendentes', 'CLI-aaaaaaaa', 'uma-doc.pdf')
+
+        documentos = {
+            'Documentos': [
+                {'id': 'DOC-1', 'cliente_ref': 'CLI-aaaaaaaa', 'local_path': local_path},
+            ],
+        }
+        with override_settings(MEDIA_ROOT=tmp_media), \
+             patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'list_rows', side_effect=lambda tab: documentos.get(tab, [])), \
+             patch.object(repo, 'delete_row'):
+            response = self.client.post(reverse('cliente_excluir', kwargs={'pk': 'CLI-aaaaaaaa'}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(os.path.exists(caminho_arquivo))
+        self.assertFalse(os.path.isdir(pasta_pendentes))
 
 
 class ContatosClienteRegistroTests(TestCase):
@@ -1019,7 +1046,7 @@ class PrecoViewsTests(TestCase):
 
 
 @override_settings(GOOGLE_SHEET_ID='fake-sheet-id')
-class DocumentosClienteViewTests(ListRowsPatchMixin, TestCase):
+class DocumentosClienteViewTests(TempMediaRootMixin, ListRowsPatchMixin, TestCase):
 
     def test_404_when_cliente_not_found(self):
         with patch.object(repo, 'get_row', return_value=None):
@@ -1179,11 +1206,13 @@ class DocumentosClienteViewTests(ListRowsPatchMixin, TestCase):
         messages = [str(m) for m in response.context['messages']]
         self.assertTrue(any('muito grande' in m for m in messages))
 
-    def test_post_drive_failure_shows_error_and_does_not_create_row(self):
+    def test_post_drive_failure_falls_back_to_local_storage(self):
         self.patch_list_rows({'Documentos': []})
         arquivo = SimpleUploadedFile('doc.pdf', b'conteudo', content_type='application/pdf')
+        tmp_media = self.make_temp_media_root()
 
-        with patch.object(repo, 'get_row', return_value=_clientes_fixture(drive_folder_id='FOLDER-1')), \
+        with override_settings(MEDIA_ROOT=tmp_media), \
+             patch.object(repo, 'get_row', return_value=_clientes_fixture(drive_folder_id='FOLDER-1')), \
              patch.object(repo, 'create_row') as mock_create, \
              patch.object(drive_repository, 'upload_file', side_effect=Exception('drive indisponivel')):
             response = self.client.post(
@@ -1191,85 +1220,19 @@ class DocumentosClienteViewTests(ListRowsPatchMixin, TestCase):
                 {'arquivo': arquivo}, follow=True,
             )
 
-        mock_create.assert_not_called()
-        messages = [str(m) for m in response.context['messages']]
-        self.assertTrue(any('Falha ao enviar documento' in m for m in messages))
-
-
-class UploadDocumentoViewTests(ListRowsPatchMixin, TestCase):
-
-    def test_get_renders_recent_documentos(self):
-        self.patch_list_rows({'Documentos': [
-            {'id': 'DOC-1', 'cliente_ref': 'CLI-aaaaaaaa', 'nome_original': 'doc.pdf', 'tamanho_bytes': '1'},
-        ]})
-
-        response = self.client.get(reverse('upload_documento'))
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.context['documentos']), 1)
-
-    def test_post_without_arquivo_redirects_with_error(self):
-        self.patch_list_rows({'Documentos': []})
-        response = self.client.post(reverse('upload_documento'), {}, follow=True)
-
-        messages = [str(m) for m in response.context['messages']]
-        self.assertTrue(any('Selecione um arquivo' in m for m in messages))
-
-    def test_post_without_valid_cliente_ref_shows_error(self):
-        self.patch_list_rows({'Documentos': []})
-        arquivo = SimpleUploadedFile('doc.pdf', b'conteudo', content_type='application/pdf')
-
-        with patch.object(repo, 'get_row', return_value=None), \
-             patch.object(repo, 'create_row') as mock_create:
-            response = self.client.post(reverse('upload_documento'), {
-                'arquivo': arquivo, 'cliente_ref': 'CLI-nope',
-            }, follow=True)
-
-        mock_create.assert_not_called()
-        messages = [str(m) for m in response.context['messages']]
-        self.assertTrue(any('cliente já cadastrado' in m for m in messages))
-
-    def test_post_success_creates_documento(self):
-        arquivo = SimpleUploadedFile('doc.pdf', b'conteudo', content_type='application/pdf')
-
-        with patch.object(repo, 'get_row', return_value=_clientes_fixture(drive_folder_id='FOLDER-1')), \
-             patch.object(repo, 'create_row') as mock_create, \
-             patch.object(drive_repository, 'upload_file', return_value={'id': 'FILE-1', 'webViewLink': ''}) as mock_upload:
-            response = self.client.post(reverse('upload_documento'), {
-                'arquivo': arquivo, 'cliente_ref': 'CLI-aaaaaaaa', 'observacao': 'via balcao',
-            })
-
-        self.assertRedirects(response, reverse('upload_documento'), fetch_redirect_response=False)
-        mock_upload.assert_called_once_with('FOLDER-1', 'doc.pdf', b'conteudo', 'application/pdf')
+        mock_create.assert_called_once()
         tab, fields = mock_create.call_args.args
         self.assertEqual(tab, 'Documentos')
-        self.assertEqual(fields['cliente_ref'], 'CLI-aaaaaaaa')
-        self.assertEqual(fields['nome_cliente'], 'Ana Silva')
-        self.assertEqual(fields['observacao'], 'via balcao')
-        self.assertEqual(fields['drive_file_id'], 'FILE-1')
+        self.assertEqual(fields['drive_file_id'], '')
+        self.assertTrue(fields['local_path'])
 
-    def test_post_rejects_disallowed_extension(self):
-        self.patch_list_rows({'Documentos': []})
-        arquivo = SimpleUploadedFile('malware.exe', b'conteudo', content_type='application/octet-stream')
+        caminho_absoluto = os.path.join(tmp_media, fields['local_path'])
+        self.assertTrue(os.path.exists(caminho_absoluto))
+        with open(caminho_absoluto, 'rb') as f:
+            self.assertEqual(f.read(), b'conteudo')
 
-        with patch.object(repo, 'create_row') as mock_create:
-            response = self.client.post(reverse('upload_documento'), {'arquivo': arquivo}, follow=True)
-
-        mock_create.assert_not_called()
         messages = [str(m) for m in response.context['messages']]
-        self.assertTrue(any('não permitido' in m for m in messages))
-
-    def test_post_rejects_file_over_size_limit(self):
-        self.patch_list_rows({'Documentos': []})
-        conteudo_grande = b'x' * (11 * 1024 * 1024)
-        arquivo = SimpleUploadedFile('doc.pdf', conteudo_grande, content_type='application/pdf')
-
-        with patch.object(repo, 'create_row') as mock_create:
-            response = self.client.post(reverse('upload_documento'), {'arquivo': arquivo}, follow=True)
-
-        mock_create.assert_not_called()
-        messages = [str(m) for m in response.context['messages']]
-        self.assertTrue(any('muito grande' in m for m in messages))
+        self.assertTrue(any('salvo localmente' in m for m in messages))
 
 
 class ValidarArquivoDocumentoTests(SimpleTestCase):
@@ -1296,7 +1259,7 @@ class ValidarArquivoDocumentoTests(SimpleTestCase):
         self.assertIsNone(views._validar_arquivo_documento(arquivo))
 
 
-class DownloadExcluirDocumentoViewTests(ListRowsPatchMixin, TestCase):
+class DownloadExcluirDocumentoViewTests(TempMediaRootMixin, ListRowsPatchMixin, TestCase):
 
     def test_download_404_when_missing(self):
         self.patch_list_rows({'Documentos': []})
@@ -1336,6 +1299,42 @@ class DownloadExcluirDocumentoViewTests(ListRowsPatchMixin, TestCase):
         self.assertIn('doc.pdf', response['Content-Disposition'])
         response.close()
 
+    def test_download_serves_local_fallback_file_when_no_drive_file_id(self):
+        tmp_media = self.make_temp_media_root()
+        pasta = os.path.join(tmp_media, 'documentos_pendentes', 'CLI-aaaaaaaa')
+        os.makedirs(pasta)
+        with open(os.path.join(pasta, 'arquivo.pdf'), 'wb') as f:
+            f.write(b'conteudo local')
+        local_path = os.path.join('documentos_pendentes', 'CLI-aaaaaaaa', 'arquivo.pdf')
+
+        self.patch_list_rows({'Documentos': [
+            {'id': 'DOC-1', 'cliente_ref': 'CLI-aaaaaaaa', 'nome_original': 'doc.pdf',
+             'drive_file_id': '', 'local_path': local_path},
+        ]})
+
+        with override_settings(MEDIA_ROOT=tmp_media):
+            response = self.client.get(reverse('download_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': 'DOC-1'}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(b''.join(response.streaming_content), b'conteudo local')
+        response.close()
+
+    def test_download_404_when_local_path_attempts_traversal_outside_pendentes_folder(self):
+        tmp_media = self.make_temp_media_root()
+        alvo_fora_da_pasta = os.path.join(tmp_media, 'segredo.txt')
+        with open(alvo_fora_da_pasta, 'wb') as f:
+            f.write(b'nao deveria vazar')
+
+        self.patch_list_rows({'Documentos': [
+            {'id': 'DOC-1', 'cliente_ref': 'CLI-aaaaaaaa', 'nome_original': 'doc.pdf',
+             'drive_file_id': '', 'local_path': '../segredo.txt'},
+        ]})
+
+        with override_settings(MEDIA_ROOT=os.path.join(tmp_media, 'media')):
+            response = self.client.get(reverse('download_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': 'DOC-1'}))
+
+        self.assertEqual(response.status_code, 404)
+
     def test_excluir_requires_post(self):
         response = self.client.get(reverse('excluir_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': 'DOC-1'}))
         self.assertEqual(response.status_code, 405)
@@ -1365,6 +1364,32 @@ class DownloadExcluirDocumentoViewTests(ListRowsPatchMixin, TestCase):
         )
         mock_drive_delete.assert_called_once_with('FILE-1')
         mock_delete.assert_called_once_with('Documentos', 'DOC-1')
+
+    def test_excluir_removes_local_fallback_file_when_no_drive_file_id(self):
+        tmp_media = self.make_temp_media_root()
+        pasta = os.path.join(tmp_media, 'documentos_pendentes', 'CLI-aaaaaaaa')
+        os.makedirs(pasta)
+        caminho_absoluto = os.path.join(pasta, 'arquivo.pdf')
+        with open(caminho_absoluto, 'wb') as f:
+            f.write(b'conteudo local')
+        local_path = os.path.join('documentos_pendentes', 'CLI-aaaaaaaa', 'arquivo.pdf')
+
+        self.patch_list_rows({'Documentos': [
+            {'id': 'DOC-1', 'cliente_ref': 'CLI-aaaaaaaa', 'nome_original': 'doc.pdf',
+             'drive_file_id': '', 'local_path': local_path},
+        ]})
+
+        with override_settings(MEDIA_ROOT=tmp_media), \
+             patch.object(repo, 'delete_row') as mock_delete, \
+             patch.object(drive_repository, 'delete_file') as mock_drive_delete:
+            response = self.client.post(reverse('excluir_documento', kwargs={'pk': 'CLI-aaaaaaaa', 'doc_id': 'DOC-1'}))
+
+        self.assertRedirects(
+            response, reverse('documentos_cliente', kwargs={'pk': 'CLI-aaaaaaaa'}), fetch_redirect_response=False,
+        )
+        mock_drive_delete.assert_not_called()
+        mock_delete.assert_called_once_with('Documentos', 'DOC-1')
+        self.assertFalse(os.path.exists(caminho_absoluto))
 
 
 @override_settings(GOOGLE_SHEET_ID='fake-sheet-id')

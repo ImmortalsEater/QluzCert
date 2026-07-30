@@ -46,7 +46,9 @@ async function loadDocumentosCliente(clientId){
       meta.textContent = `Documentos de ${cliente} · ${docs.length} item(ns)`;
     }
     if(!docs.length){
-      container.innerHTML = '<p style="font-size:13px;color:var(--muted)">Nenhum documento enviado para este cliente ainda.</p>';
+      container.innerHTML = data.documentos_erro
+        ? '<p style="font-size:13px;color:var(--warn)">Não foi possível carregar os documentos agora (planilha/Drive indisponível). Você ainda pode enviar um novo arquivo.</p>'
+        : '<p style="font-size:13px;color:var(--muted)">Nenhum documento enviado para este cliente ainda.</p>';
       return;
     }
     container.innerHTML = docs.map(doc => `
@@ -54,6 +56,7 @@ async function loadDocumentosCliente(clientId){
         <div style="min-width:0">
           <div style="font-weight:700;font-size:13px;word-break:break-word">${escapeHtml(doc.nome_original)}</div>
           <div style="font-size:12px;color:var(--muted);margin-top:2px">${escapeHtml(doc.tipo_documento_display)} · ${fmtDate(doc.data_envio)} · ${bytesToHuman(doc.tamanho_bytes)}</div>
+          ${doc.armazenamento === 'local_pendente' ? '<div style="font-size:11px;color:var(--warn);margin-top:2px;font-weight:600">Pendente de sincronização com o Drive</div>' : ''}
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
           <a class="btn btn-sm" href="${doc.download_url}" target="_blank" rel="noopener"><i class="ti ti-download"></i> Baixar</a>

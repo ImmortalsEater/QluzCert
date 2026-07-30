@@ -15,6 +15,8 @@ import json
 import logging
 import os
 import re
+import shutil
+import uuid
 from .models import AppState
 from . import sheets_repository
 from . import drive_repository
@@ -77,23 +79,10 @@ def _safe_json_dumps(obj):
 # Google Drive) para rótulos legíveis. Chave = nome do campo normalizado
 # (minúsculo, sem acentos/pontuação).
 FRIENDLY_COLUMN_LABELS = {
-    'id': 'ID',
-    'criadoem': 'Criado em',
-    'historico': 'Histórico',
-    'nome': 'Cliente',
     'cpfcnpj': 'CPF/CNPJ',
-    'datanasc': 'Data de Nascimento',
-    'telefone': 'Telefone',
     'email': 'E-mail',
-    'parceiroid': 'Parceiro',
     'status': 'Status',
-    'obs': 'Observações',
-    'tipocert': 'Tipo de Certificado',
-    'dataemissao': 'Data de Emissão',
     'datavencimento': 'Data de Vencimento',
-    'valorcobrado': 'Valor Cobrado',
-    'formapag': 'Forma de Pagamento',
-    'pago': 'Pago',
 }
 
 def _normalize_field_key(field_name):
@@ -683,10 +672,17 @@ def cliente_excluir(request, pk):
     try:
         for documento in sheets_repository.list_rows('Documentos'):
             if documento.get('cliente_ref') == pk:
+                if documento.get('local_path'):
+                    caminho = os.path.join(settings.MEDIA_ROOT, documento['local_path'])
+                    if os.path.exists(caminho):
+                        os.remove(caminho)
                 sheets_repository.delete_row('Documentos', documento['id'])
         folder_id = (registro or {}).get('drive_folder_id')
         if folder_id:
             drive_repository.delete_file(folder_id)
+        pasta_pendentes = os.path.join(settings.MEDIA_ROOT, 'documentos_pendentes', str(pk))
+        if os.path.isdir(pasta_pendentes):
+            shutil.rmtree(pasta_pendentes)
         PagamentoCliente.objects.filter(cliente_ref=pk).delete()
     except Exception:
         logger.exception('Cliente %s excluído da planilha, mas falhou ao limpar documentos/pagamentos associados', pk)
@@ -900,9 +896,7 @@ def app_state_download(request):
 
 def _validar_arquivo_documento(arquivo):
     """Retorna uma mensagem de erro se o arquivo não passar nas regras de
-    upload (extensão/tamanho), ou None se estiver tudo certo. Compartilhado
-    entre upload_documento e documentos_cliente para não ter duas regras
-    divergentes (ou uma delas esquecida) validando a mesma coisa."""
+    upload (extensão/tamanho), ou None se estiver tudo certo."""
     extensoes_permitidas = getattr(settings, 'UPLOAD_DOCUMENTO_EXTENSOES_PERMITIDAS', ['.pdf', '.jpg', '.jpeg', '.png'])
     tamanho_maximo_mb = getattr(settings, 'UPLOAD_DOCUMENTO_TAMANHO_MAXIMO_MB', 10)
     tamanho_maximo_bytes = tamanho_maximo_mb * 1024 * 1024
@@ -919,6 +913,21 @@ def _documentos_do_cliente(cliente_ref):
     documentos = [d for d in sheets_repository.list_rows('Documentos') if d.get('cliente_ref') == cliente_ref]
     documentos.sort(key=lambda d: d.get('atualizado_em', ''), reverse=True)
     return documentos
+
+
+def _documentos_do_cliente_seguro(cliente_ref):
+    """Wrapper tolerante a falha pro caminho de leitura (GET): se a aba
+    Documentos ainda não estiver configurada na planilha, ou o Sheets/Drive
+    estiver fora do ar, não derruba a página inteira -- só a lista fica
+    vazia e quem chamou decide como avisar o usuário."""
+    try:
+        return _documentos_do_cliente(cliente_ref), None
+    except Exception as e:
+        logger.exception(
+            'Falha ao listar documentos do cliente %s -- aba Documentos pode não '
+            'estar configurada na planilha ainda', cliente_ref,
+        )
+        return [], str(e)
 
 
 def _documento_encontrado(cliente_ref, doc_id):
@@ -956,6 +965,7 @@ def _documento_to_json(pk, doc):
         'tipo_documento_display': display['tipo_documento_display'],
         'data_envio': display.get('atualizado_em', ''),
         'tamanho_bytes': display['tamanho_bytes'],
+        'armazenamento': 'drive' if display.get('drive_file_id') else 'local_pendente',
         'download_url': f"/planilha/{pk}/documentos/{display.get('id')}/download/",
         'delete_url': f"/planilha/{pk}/documentos/{display.get('id')}/excluir/",
     }
@@ -982,58 +992,58 @@ def _get_or_create_cliente_drive_folder(registro):
     return folder_id
 
 
+def _salvar_documento_fallback_local(cliente_id, nome_arquivo, conteudo):
+    """Rede de segurança: usada só quando o upload pro Drive falha (API não
+    habilitada, sem rede, quota etc.) pra não perder o arquivo enviado. Não
+    há sincronização automática depois -- fica salvo aqui até alguém tratar
+    manualmente."""
+    nome_seguro = os.path.basename(nome_arquivo)
+    pasta_relativa = os.path.join('documentos_pendentes', str(cliente_id))
+    pasta_absoluta = os.path.join(settings.MEDIA_ROOT, pasta_relativa)
+    os.makedirs(pasta_absoluta, exist_ok=True)
+    nome_unico = f"{uuid.uuid4().hex}_{nome_seguro}"
+    with open(os.path.join(pasta_absoluta, nome_unico), 'wb') as f:
+        f.write(conteudo)
+    return os.path.join(pasta_relativa, nome_unico)
+
+
 def _enviar_documento_para_drive(registro, arquivo, tipo_documento, observacao=''):
-    folder_id = _get_or_create_cliente_drive_folder(registro)
-    uploaded = drive_repository.upload_file(
-        folder_id, arquivo.name, arquivo.read(), arquivo.content_type or 'application/octet-stream',
-    )
-    sheets_repository.create_row('Documentos', {
+    """Retorna True se foi enviado ao Drive, False se caiu no fallback local
+    (Drive indisponível) -- os chamadores usam isso pra diferenciar a
+    mensagem exibida ao usuário."""
+    conteudo = arquivo.read()
+    campos_base = {
         'cliente_ref': registro['id'],
         'nome_cliente': registro.get('cliente', ''),
         'nome_original': arquivo.name,
         'tipo_documento': tipo_documento,
         'tamanho_bytes': arquivo.size,
         'observacao': observacao,
-        'drive_file_id': uploaded['id'],
-        'drive_view_url': uploaded.get('webViewLink', ''),
-    })
-
-
-def upload_documento(request):
-    if request.method == 'POST':
-        arquivo = request.FILES.get('arquivo')
-        if not arquivo:
-            messages.error(request, 'Selecione um arquivo para envio.')
-            return redirect('upload_documento')
-
-        erro = _validar_arquivo_documento(arquivo)
-        if erro:
-            messages.error(request, erro)
-            return redirect('upload_documento')
-
-        cliente_ref = request.POST.get('cliente_ref', '').strip()
-        observacao = request.POST.get('observacao', '').strip()
-        registro = sheets_repository.get_row('Clientes', cliente_ref) if cliente_ref else None
-        if registro is None:
-            messages.error(request, 'Informe o id de um cliente já cadastrado na planilha.')
-            return redirect('upload_documento')
-
-        try:
-            _enviar_documento_para_drive(registro, arquivo, 'outro', observacao)
-        except Exception as e:
-            logger.exception('Falha ao enviar documento pro Drive: cliente %s', cliente_ref)
-            messages.error(request, f'Falha ao enviar documento: {e}')
-            return redirect('upload_documento')
-
-        messages.success(request, 'Documento enviado com sucesso.')
-        return redirect('upload_documento')
-
-    documentos = sorted(
-        sheets_repository.list_rows('Documentos'), key=lambda d: d.get('atualizado_em', ''), reverse=True,
-    )[:20]
-    return render(request, 'upload_documento.html', {
-        'documentos': [_documento_display(d) for d in documentos],
-    })
+    }
+    try:
+        folder_id = _get_or_create_cliente_drive_folder(registro)
+        uploaded = drive_repository.upload_file(
+            folder_id, arquivo.name, conteudo, arquivo.content_type or 'application/octet-stream',
+        )
+        sheets_repository.create_row('Documentos', {
+            **campos_base,
+            'drive_file_id': uploaded['id'],
+            'drive_view_url': uploaded.get('webViewLink', ''),
+            'local_path': '',
+        })
+        return True
+    except Exception:
+        logger.exception(
+            'Falha ao enviar documento pro Drive (cliente %s) -- salvando fallback local', registro['id'],
+        )
+        local_path = _salvar_documento_fallback_local(registro['id'], arquivo.name, conteudo)
+        sheets_repository.create_row('Documentos', {
+            **campos_base,
+            'drive_file_id': '',
+            'drive_view_url': '',
+            'local_path': local_path,
+        })
+        return False
 
 
 def documentos_cliente(request, pk):
@@ -1042,7 +1052,7 @@ def documentos_cliente(request, pk):
         raise Http404('Cliente não encontrado na planilha.')
 
     if request.method == 'GET' and request.GET.get('format') == 'json':
-        documentos = _documentos_do_cliente(pk)
+        documentos, erro = _documentos_do_cliente_seguro(pk)
         return JsonResponse({
             'registro': {
                 'id': registro.get('id', ''),
@@ -1052,6 +1062,7 @@ def documentos_cliente(request, pk):
                 'tipo_certificado': registro.get('tipo_certificado', ''),
             },
             'documentos': [_documento_to_json(pk, doc) for doc in documentos],
+            'documentos_erro': erro,
         })
 
     if request.method == 'POST':
@@ -1068,16 +1079,25 @@ def documentos_cliente(request, pk):
             return redirect('documentos_cliente', pk=pk)
 
         try:
-            _enviar_documento_para_drive(registro, arquivo, tipo_documento)
+            enviado_ao_drive = _enviar_documento_para_drive(registro, arquivo, tipo_documento)
         except Exception as e:
-            logger.exception('Falha ao enviar documento pro Drive: cliente %s', pk)
+            logger.exception('Falha ao registrar documento: cliente %s', pk)
             messages.error(request, f'Falha ao enviar documento: {e}')
             return redirect('documentos_cliente', pk=pk)
 
-        messages.success(request, f'Documento "{arquivo.name}" enviado com sucesso.')
+        if enviado_ao_drive:
+            messages.success(request, f'Documento "{arquivo.name}" enviado com sucesso.')
+        else:
+            messages.warning(
+                request,
+                f'Não foi possível enviar "{arquivo.name}" ao Drive agora. '
+                'Foi salvo localmente e precisa ser sincronizado manualmente depois.',
+            )
         return redirect('documentos_cliente', pk=pk)
 
-    documentos = _documentos_do_cliente(pk)
+    documentos, erro = _documentos_do_cliente_seguro(pk)
+    if erro:
+        messages.warning(request, 'Não foi possível carregar o histórico de documentos agora (planilha/Drive indisponível). Você ainda pode enviar um novo arquivo.')
     return render(request, 'documentos_cliente.html', {
         'registro': registro,
         'documentos': [_documento_display(d) for d in documentos],
@@ -1095,15 +1115,28 @@ def download_documento(request, pk, doc_id):
     documento = _documento_encontrado(pk, doc_id)
     if documento is None:
         raise Http404('Documento não encontrado.')
-
-    try:
-        conteudo = drive_repository.download_file(documento['drive_file_id'])
-    except Exception:
-        logger.exception('Falha ao baixar documento %s do Drive', doc_id)
-        raise Http404('Arquivo não encontrado no armazenamento.')
-
     nome = documento.get('nome_original') or 'documento'
-    return FileResponse(io.BytesIO(conteudo), as_attachment=True, filename=nome)
+
+    if documento.get('drive_file_id'):
+        try:
+            conteudo = drive_repository.download_file(documento['drive_file_id'])
+        except Exception:
+            logger.exception('Falha ao baixar documento %s do Drive', doc_id)
+            raise Http404('Arquivo não encontrado no armazenamento.')
+        return FileResponse(io.BytesIO(conteudo), as_attachment=True, filename=nome)
+
+    # local_path vem da planilha (editável por admin) -- checagem abaixo é
+    # defesa em profundidade contra path traversal, não resposta a uma
+    # ameaça de usuário comum (que nunca escreve nessa coluna).
+    base_pendentes = os.path.realpath(os.path.join(settings.MEDIA_ROOT, 'documentos_pendentes'))
+    caminho = os.path.realpath(os.path.join(settings.MEDIA_ROOT, documento.get('local_path', '')))
+    if (
+        not documento.get('local_path')
+        or os.path.commonpath([base_pendentes, caminho]) != base_pendentes
+        or not os.path.exists(caminho)
+    ):
+        raise Http404('Arquivo não encontrado no armazenamento.')
+    return FileResponse(open(caminho, 'rb'), as_attachment=True, filename=nome)
 
 
 @permission_required('excluir_documento')
@@ -1116,8 +1149,12 @@ def excluir_documento(request, pk, doc_id):
     try:
         if documento.get('drive_file_id'):
             drive_repository.delete_file(documento['drive_file_id'])
+        elif documento.get('local_path'):
+            caminho = os.path.join(settings.MEDIA_ROOT, documento['local_path'])
+            if os.path.exists(caminho):
+                os.remove(caminho)
     except Exception:
-        logger.exception('Falha ao excluir arquivo %s do Drive', doc_id)
+        logger.exception('Falha ao excluir arquivo %s do armazenamento', doc_id)
 
     sheets_repository.delete_row('Documentos', doc_id)
     messages.success(request, 'Documento removido.')

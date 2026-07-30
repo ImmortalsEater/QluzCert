@@ -51,7 +51,6 @@
     <div class="nav-item" onclick="nav('planilha')"><i class="ti ti-table"></i>Planilha</div>
     <div class="nav-section">Operacional</div>
     <div class="nav-item" onclick="nav('renovacoes')"><i class="ti ti-bell"></i>Renovações <span class="nav-badge" id="ren-badge">0</span></div>
-    <div class="nav-item" onclick="location.href='{% url 'upload_documento' %}'"><i class="ti ti-upload"></i>Upload de Documentos</div>
     {% if user.is_superuser or perms.pagamentos %}
     <div class="nav-item" onclick="nav('pagamentos')"><i class="ti ti-cash"></i>Pagamentos <span class="nav-badge" id="pag-badge">0</span></div>
     {% endif %}
