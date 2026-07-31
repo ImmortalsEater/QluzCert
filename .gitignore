@@ -35,8 +35,3 @@ scripts/latest_dashboard.html
 *.swp
 
 .slopcode
-
-# Instrucoes/documentacao locais para o Claude Code -- nao fazem parte do
-# projeto publicado, ficam so na maquina de quem trabalha nele.
-CLAUDE.md
-DESIGN.md
