@@ -81,6 +81,7 @@ function initSaveMenu(){
     const wasOpen = menu.classList.contains('open');
     closeActionMenu();
     document.getElementById('column-selector-panel')?.classList.remove('open');
+    document.getElementById('user-menu-panel')?.classList.remove('open');
     menu.classList.toggle('open', !wasOpen);
   });
   document.addEventListener('click', function(){ menu.classList.remove('open'); });
@@ -568,6 +569,7 @@ function openRowActionMenu(e, id){
   // nunca veem o clique que abriria este menu -- fecha os dois aqui.
   document.getElementById('column-selector-panel')?.classList.remove('open');
   document.getElementById('save-menu')?.classList.remove('open');
+  document.getElementById('user-menu-panel')?.classList.remove('open');
   if(wasOpenForThisRow) return;
 
   menu.dataset.forId = id;

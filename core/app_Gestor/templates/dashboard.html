@@ -66,10 +66,6 @@
     {% endif %}
     <div class="sidebar-footer">
       v1.0 · Dados locais · <span id="total-count">0</span> clientes
-      <form method="post" action="{% url 'logout' %}" style="margin-top:6px">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-sm" style="width:100%;justify-content:center"><i class="ti ti-logout" aria-hidden="true"></i> Sair</button>
-      </form>
     </div>
   </div>
 
@@ -77,6 +73,28 @@
     <div class="topbar">
       <span class="topbar-title" id="page-title">Dashboard</span>
       <div class="topbar-actions" id="topbar-actions"></div>
+      <div class="user-menu" style="position:relative">
+        <button type="button" class="user-menu-trigger btn" id="user-menu-toggle" aria-haspopup="true" aria-expanded="false">
+          <span class="user-avatar">{{ user.get_full_name|default:user.username|first|upper }}</span>
+          <span class="user-menu-name">{{ user.get_full_name|default:user.username }}</span>
+          <i class="ti ti-chevron-down chevron" aria-hidden="true"></i>
+        </button>
+        <div class="user-menu-panel" id="user-menu-panel" role="menu">
+          <div class="user-menu-header">
+            <span class="user-menu-fullname">{{ user.get_full_name|default:user.username }}</span>
+            {% if user.is_superuser %}
+            <span class="user-menu-role role-admin">Administrador</span>
+            {% else %}
+            <span class="user-menu-role">Vendedor</span>
+            {% endif %}
+          </div>
+          <div class="action-menu-divider"></div>
+          <form method="post" action="{% url 'logout' %}">
+            {% csrf_token %}
+            <button type="submit" class="action-menu-item" role="menuitem"><i class="ti ti-logout" aria-hidden="true"></i>Sair</button>
+          </form>
+        </div>
+      </div>
     </div>
     <div id="content">
 
@@ -384,11 +402,32 @@
         // nunca enxerga o listener global de fechamento dos outros.
         if (typeof closeActionMenu === 'function') closeActionMenu();
         document.getElementById('save-menu')?.classList.remove('open');
+        document.getElementById('user-menu-panel')?.classList.remove('open');
         columnPanel.classList.toggle('open');
       });
       document.addEventListener('click', function(e) {
         if (!columnPanel.contains(e.target) && e.target !== columnToggleBtn) {
           columnPanel.classList.remove('open');
+        }
+      });
+    }
+
+    var userMenuPanel = document.getElementById('user-menu-panel');
+    var userMenuToggle = document.getElementById('user-menu-toggle');
+    if (userMenuToggle && userMenuPanel) {
+      userMenuToggle.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (typeof closeActionMenu === 'function') closeActionMenu();
+        document.getElementById('save-menu')?.classList.remove('open');
+        document.getElementById('column-selector-panel')?.classList.remove('open');
+        var willOpen = !userMenuPanel.classList.contains('open');
+        userMenuPanel.classList.toggle('open', willOpen);
+        userMenuToggle.setAttribute('aria-expanded', String(willOpen));
+      });
+      document.addEventListener('click', function(e) {
+        if (!userMenuPanel.contains(e.target) && e.target !== userMenuToggle) {
+          userMenuPanel.classList.remove('open');
+          userMenuToggle.setAttribute('aria-expanded', 'false');
         }
       });
     }
