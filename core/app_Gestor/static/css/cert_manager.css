@@ -88,7 +88,14 @@
   .metric-card.success .metric-val{color:var(--success)}
   .metric-card.warn .metric-val{color:var(--warn)}
   .metric-card.danger .metric-val{color:var(--danger)}
-  
+
+  /* LOCKED FEATURES (sem permissão) -- fundo fosco + cadeado no lugar do dado real */
+  .locked-feature{position:relative;overflow:hidden}
+  .locked-feature .metric-val,.locked-feature .metric-sub{filter:blur(3px);user-select:none}
+  .locked-feature .lock-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:rgba(255,255,255,.6);backdrop-filter:blur(2px)}
+  .locked-feature .lock-overlay i{font-size:20px;color:var(--muted)}
+  .locked-feature .lock-overlay span{font-size:11px;color:var(--muted-strong);text-align:center;padding:0 8px}
+
   /* TABLES */
   .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
   #view-clientes .table-wrap+.table-wrap{margin-top:16px}
@@ -150,7 +157,10 @@
   .google-drive-table th:last-child,.google-drive-table td:last-child{position:sticky;right:0;background:var(--surface);box-shadow:-1px 0 0 var(--border),-8px 0 12px -8px rgba(0,0,0,.18);z-index:1}
   .google-drive-table thead th:last-child{background:var(--surface-alt);z-index:2}
   .google-drive-table tbody tr:last-child td:last-child{border-bottom-right-radius:10px}
-  
+  .col-locked-header{color:var(--muted)}
+  .col-locked-header .ti-lock{margin-left:4px;font-size:12px}
+  td.col-locked{background:repeating-linear-gradient(45deg,var(--surface-alt),var(--surface-alt) 4px,transparent 4px,transparent 8px)}
+
   /* BADGES */
   .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600}
   .badge-novo{background:var(--info-bg);color:var(--info)}
@@ -172,6 +182,9 @@
   .field input,.field select,.field textarea{padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;color:var(--text);background:var(--surface);font-family:inherit;transition:border-color 150ms ease,box-shadow 150ms ease}
   .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light)}
   .field textarea{resize:vertical;min-height:70px}
+  .field-locked label{color:var(--muted)}
+  .field-locked label .ti-lock{margin-left:4px;font-size:11px}
+  .field-locked input,.field-locked select{background:var(--surface-alt);filter:blur(3px);pointer-events:none;user-select:none}
   .modal-fieldset{border:0;padding:0;margin:0;min-width:0}
   .modal-fieldset+.modal-fieldset{margin-top:22px;padding-top:20px;border-top:1px solid var(--border)}
   .modal-fieldset legend{padding:0;margin-bottom:12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}

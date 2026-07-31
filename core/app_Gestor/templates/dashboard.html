@@ -155,14 +155,14 @@
           <div class="table-scroll">
             <table class="google-drive-table" id="planilha-table"{% if not google_rows %} style="display:none"{% endif %}>
               <thead><tr>
-                {% for col in google_columns %}<th class  ="{{ col.class }}"{% if not col.default_visible %} style="display:none"{% endif %}>{{ col.label }}</th>{% endfor %}
+                {% for col in google_columns %}<th class="{{ col.class }}{% if col.field in colunas_bloqueadas %} col-locked-header{% endif %}"{% if not col.default_visible %} style="display:none"{% endif %}>{{ col.label }}{% if col.field in colunas_bloqueadas %} <i class="ti ti-lock" title="Requer permissão de administrador"></i>{% endif %}</th>{% endfor %}
                 <th>Ações</th>
               </tr></thead>
               <tbody id="planilha-tbody">
                 {% for row in google_rows %}
                   <tr>
                     {% for cell in row.cells %}
-                      <td class="{{ cell.class }}"{% if not cell.default_visible %} style="display:none"{% endif %}>{{ cell.value }}</td>
+                      <td class="{{ cell.class }}{% if cell.locked %} col-locked{% endif %}"{% if not cell.default_visible %} style="display:none"{% endif %}>{{ cell.value }}</td>
                     {% endfor %}
                     <td>
 

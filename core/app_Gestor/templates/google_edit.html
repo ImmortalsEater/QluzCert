@@ -67,11 +67,11 @@
           </div>
           <div class="field"><label for="id-datavenda">Data da Venda</label><input id="id-datavenda" name="data_venda" type="date" value="{{ registro.data_venda }}"></div>
           <div class="field"><label for="id-datavenc">Data de Vencimento</label><input id="id-datavenc" name="data_vencimento" type="date" value="{{ registro.data_vencimento }}" readonly></div>
-          <div class="field"><label for="id-valorvenda">Valor da Venda (R$)</label><input id="id-valorvenda" name="valor_venda" type="number" step="0.01" min="0" inputmode="decimal" value="{{ registro.valor_venda }}" placeholder="0,00"></div>
-          <div class="field"><label for="id-percentual">Percentual de Comissão (%)</label><input id="id-percentual" name="percentual_comissao" type="number" step="0.01" min="0" inputmode="decimal" value="{{ registro.percentual_comissao }}" placeholder="0,00"></div>
-          <div class="field"><label for="id-valorcomissao">Valor da Comissão (R$)</label><input id="id-valorcomissao" name="valor_comissao" type="number" step="0.01" min="0" inputmode="decimal" value="{{ registro.valor_comissao }}" placeholder="0,00"></div>
-          <div class="field"><label for="id-custocert">Custo do Certificado (R$)</label><input id="id-custocert" name="custo_certificado" type="number" step="0.01" min="0" inputmode="decimal" value="{{ registro.custo_certificado }}" placeholder="0,00"></div>
-          <div class="field"><label for="id-valorliquido">Valor Líquido (R$)</label><input id="id-valorliquido" name="valor_liquido" type="number" step="0.01" min="0" inputmode="decimal" value="{{ registro.valor_liquido }}" placeholder="0,00"></div>
+          <div class="field{% if not pode_ver_financeiro %} field-locked{% endif %}"><label for="id-valorvenda">Valor da Venda (R$){% if not pode_ver_financeiro %} <i class="ti ti-lock" title="Requer permissão de administrador"></i>{% endif %}</label><input id="id-valorvenda" name="valor_venda" type="number" step="0.01" min="0" inputmode="decimal" value="{{ registro.valor_venda }}" placeholder="0,00" {% if not pode_ver_financeiro %}disabled{% endif %}></div>
+          <div class="field{% if not pode_ver_comissao %} field-locked{% endif %}"><label for="id-percentual">Percentual de Comissão (%){% if not pode_ver_comissao %} <i class="ti ti-lock" title="Requer permissão de administrador"></i>{% endif %}</label><input id="id-percentual" name="percentual_comissao" type="number" step="0.01" min="0" inputmode="decimal" value="{{ registro.percentual_comissao }}" placeholder="0,00" {% if not pode_ver_comissao %}disabled{% endif %}></div>
+          <div class="field{% if not pode_ver_comissao %} field-locked{% endif %}"><label for="id-valorcomissao">Valor da Comissão (R$){% if not pode_ver_comissao %} <i class="ti ti-lock" title="Requer permissão de administrador"></i>{% endif %}</label><input id="id-valorcomissao" name="valor_comissao" type="number" step="0.01" min="0" inputmode="decimal" value="{{ registro.valor_comissao }}" placeholder="0,00" {% if not pode_ver_comissao %}disabled{% endif %}></div>
+          <div class="field{% if not pode_ver_financeiro %} field-locked{% endif %}"><label for="id-custocert">Custo do Certificado (R$){% if not pode_ver_financeiro %} <i class="ti ti-lock" title="Requer permissão de administrador"></i>{% endif %}</label><input id="id-custocert" name="custo_certificado" type="number" step="0.01" min="0" inputmode="decimal" value="{{ registro.custo_certificado }}" placeholder="0,00" {% if not pode_ver_financeiro %}disabled{% endif %}></div>
+          <div class="field{% if not pode_ver_financeiro %} field-locked{% endif %}"><label for="id-valorliquido">Valor Líquido (R$){% if not pode_ver_financeiro %} <i class="ti ti-lock" title="Requer permissão de administrador"></i>{% endif %}</label><input id="id-valorliquido" name="valor_liquido" type="number" step="0.01" min="0" inputmode="decimal" value="{{ registro.valor_liquido }}" placeholder="0,00" {% if not pode_ver_financeiro %}disabled{% endif %}></div>
           <div class="field"><label for="id-venda">Venda</label><input id="id-venda" name="venda" value="{{ registro.venda }}" autocomplete="off"></div>
           <div class="field"><label for="id-certfeito">Certificado Feito?</label>
             <select id="id-certfeito" name="certificado_feito">
@@ -93,8 +93,8 @@
               <option value="Sim" {% if registro.pago_venda %}selected{% endif %}>Sim</option>
             </select>
           </div>
-          <div class="field"><label for="id-pagocomissao">Pago (Comissão)</label>
-            <select id="id-pagocomissao" name="pago_comissao">
+          <div class="field{% if not pode_ver_comissao %} field-locked{% endif %}"><label for="id-pagocomissao">Pago (Comissão){% if not pode_ver_comissao %} <i class="ti ti-lock" title="Requer permissão de administrador"></i>{% endif %}</label>
+            <select id="id-pagocomissao" name="pago_comissao" {% if not pode_ver_comissao %}disabled{% endif %}>
               <option value="Não" {% if not registro.pago_comissao %}selected{% endif %}>Não</option>
               <option value="Sim" {% if registro.pago_comissao %}selected{% endif %}>Sim</option>
             </select>

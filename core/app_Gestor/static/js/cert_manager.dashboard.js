@@ -72,12 +72,18 @@ function renderDashboard(){
   // atualiza junto com os outros a cada syncBackendAlertCounts(), em vez de
   // depender de um valor injetado uma única vez no carregamento da página.
   const faturamento = Number(counts.faturamento_recebido || 0);
+  // O valor já vem zerado do backend quando sem permissão -- o cadeado aqui
+  // é só a forma de comunicar isso na tela, não a proteção em si.
+  const podeVerFaturamento = window.IS_ADMIN || window.PERMS.pagamentos;
+  const faturamentoCard = podeVerFaturamento
+    ? `<div class="metric-card"><div class="metric-label">Faturamento Recebido</div><div class="metric-val" style="font-size:18px">${fmtMoney(faturamento)}</div><div class="metric-sub">pagamentos confirmados</div></div>`
+    : `<div class="metric-card locked-feature"><div class="metric-label">Faturamento Recebido</div><div class="metric-val" style="font-size:18px">R$ ••••</div><div class="metric-sub">pagamentos confirmados</div><div class="lock-overlay"><i class="ti ti-lock"></i><span>Requer permissão de administrador</span></div></div>`;
 
   document.getElementById('dashboard-metrics').innerHTML=`
     <div class="metric-card accent"><div class="metric-label">Total de Clientes</div><div class="metric-val">${total}</div><div class="metric-sub">${aguardandoEmissao} aguardando emissão</div></div>
     <div class="metric-card success"><div class="metric-label">Emitidos</div><div class="metric-val">${emitidos}</div><div class="metric-sub">${Math.round(total?emitidos/total*100:0)}% do total</div></div>
     <div class="metric-card warn"><div class="metric-label">Renovações ≤60 dias</div><div class="metric-val">${vencendo}</div><div class="metric-sub">requerem contato</div></div>
-    <div class="metric-card"><div class="metric-label">Faturamento Recebido</div><div class="metric-val" style="font-size:18px">${fmtMoney(faturamento)}</div><div class="metric-sub">pagamentos confirmados</div></div>
+    ${faturamentoCard}
   `;
   const urgentes=[...alertData.renovacoes.urgentes,...alertData.pagamentos.urgentes,...alertData.renovacoes.normais,...alertData.pagamentos.normais]
     .sort((a,b)=>(a.dias??9999)-(b.dias??9999))

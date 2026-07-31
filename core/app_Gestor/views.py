@@ -157,7 +157,11 @@ def _format_sheet_cell_value(field, raw):
     return raw
 
 
-def _build_dashboard_from_sheets():
+CAMPOS_COMISSAO = {'percentual_comissao', 'valor_comissao', 'pago_comissao'}
+CAMPOS_FINANCEIRO = {'valor_venda', 'custo_certificado', 'valor_liquido'}
+
+
+def _build_dashboard_from_sheets(colunas_bloqueadas=frozenset()):
     cols = _annotate_columns(CLIENTES_COLUMNS)
     rows = []
     for row in sheets_repository.list_rows('Clientes'):
@@ -167,19 +171,23 @@ def _build_dashboard_from_sheets():
             # cabeçalho da planilha) -- ignorada em vez de derrubar a página
             # inteira quando o template tentar montar um link com id vazio.
             continue
-        cells = [
-            {
+        cells = []
+        for col in cols:
+            # Comissão/financeiro só são mandados pro navegador se o usuário
+            # tiver permissão -- mascarar só no CSS/JS não bastaria, o valor
+            # real continuaria visível no HTML/inspecionar elemento.
+            bloqueado = col['field'] in colunas_bloqueadas
+            cells.append({
                 'class': col['class'],
-                'value': _format_sheet_cell_value(col['field'], row.get(col['field'], '')),
+                'value': '' if bloqueado else _format_sheet_cell_value(col['field'], row.get(col['field'], '')),
+                'locked': bloqueado,
                 'default_visible': col['default_visible'],
-            }
-            for col in cols
-        ]
+            })
         rows.append({'id': row_id, 'cells': cells})
     return cols, rows
 
 
-def _build_alert_payload():
+def _build_alert_payload(pode_ver_faturamento=True):
     hoje = date.today()
     renovacoes_urgentes = []
     renovacoes_normais = []
@@ -252,7 +260,9 @@ def _build_alert_payload():
         # Incluído aqui (não só no contexto inicial da DashboardView) para
         # que syncBackendAlertCounts() também atualize o card de faturamento
         # ao consultar /alertas/, e não só no primeiro carregamento da página.
-        'faturamento_recebido': _build_faturamento_recebido(),
+        # Zerado (não só escondido no client) quando sem permissão de
+        # pagamentos -- senão o valor real ainda vaza no JSON de /alertas/.
+        'faturamento_recebido': _build_faturamento_recebido() if pode_ver_faturamento else 0,
     }
     counts['alertas_totais'] = (
         counts['renovacoes_urgentes']
@@ -355,7 +365,9 @@ def _build_notificacoes_recentes(limit=6):
 
 
 def alertas_dashboard(request):
-    return JsonResponse(_build_alert_payload())
+    perms = request.session.get('perms', {})
+    pode_ver_faturamento = request.user.is_superuser or perms.get('pagamentos', False)
+    return JsonResponse(_build_alert_payload(pode_ver_faturamento))
 
 
 def verificar_registro_existe(request, pk):
@@ -436,12 +448,24 @@ class DashboardView(TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['perms'] = self.request.session.get('perms', {})
+        is_admin = self.request.user.is_superuser
+        pode_ver_comissao = is_admin or context['perms'].get('comissoes', False)
+        pode_ver_financeiro = is_admin or context['perms'].get('financeiro', False)
+        pode_ver_faturamento = is_admin or context['perms'].get('pagamentos', False)
+        colunas_bloqueadas = set()
+        if not pode_ver_comissao:
+            colunas_bloqueadas |= CAMPOS_COMISSAO
+        if not pode_ver_financeiro:
+            colunas_bloqueadas |= CAMPOS_FINANCEIRO
+        context['pode_ver_comissao'] = pode_ver_comissao
+        context['pode_ver_financeiro'] = pode_ver_financeiro
+        context['colunas_bloqueadas'] = colunas_bloqueadas
         try:
             context['perms_json'] = _safe_json_dumps(context['perms'])
         except Exception:
             context['perms_json'] = '{}'
         try:
-            context['google_columns'], context['google_rows'] = _build_dashboard_from_sheets()
+            context['google_columns'], context['google_rows'] = _build_dashboard_from_sheets(colunas_bloqueadas)
         except Exception:
             logger.exception('Falha ao carregar Clientes da planilha do Google Sheets')
             context['google_columns'], context['google_rows'] = _annotate_columns(CLIENTES_COLUMNS), []
@@ -473,7 +497,7 @@ class DashboardView(TemplateView):
             initial_notificacoes = []
 
         try:
-            alertas = _build_alert_payload()
+            alertas = _build_alert_payload(pode_ver_faturamento)
         except Exception:
             logger.exception('Falha ao montar alertas a partir da planilha do Google Sheets')
             alertas = {
@@ -517,6 +541,11 @@ def editar_google_row(request, pk):
     if registro is None:
         raise Http404('Registro não encontrado na planilha.')
 
+    perms = request.session.get('perms', {})
+    is_admin = request.user.is_superuser
+    pode_ver_comissao = is_admin or perms.get('comissoes', False)
+    pode_ver_financeiro = is_admin or perms.get('financeiro', False)
+
     if request.method == 'POST':
         nome = request.POST.get('cliente', '').strip()
         if not nome:
@@ -538,16 +567,23 @@ def editar_google_row(request, pk):
             'chave_pix': request.POST.get('chave_pix', ''),
             'data_venda': request.POST.get('data_venda', ''),
             'data_vencimento': request.POST.get('data_vencimento', ''),
-            'valor_venda': request.POST.get('valor_venda', ''),
-            'percentual_comissao': request.POST.get('percentual_comissao', ''),
-            'valor_comissao': request.POST.get('valor_comissao', ''),
             'pago_venda': request.POST.get('pago_venda', 'Não'),
-            'pago_comissao': request.POST.get('pago_comissao', 'Não'),
             'certificado_feito': request.POST.get('certificado_feito', 'Não'),
             'venda': request.POST.get('venda', ''),
-            'custo_certificado': request.POST.get('custo_certificado', ''),
-            'valor_liquido': request.POST.get('valor_liquido', ''),
         }
+        # Campos de comissão/financeiro só entram no update se o usuário tiver
+        # a permissão -- omitir a chave (em vez de mandar '') preserva o valor
+        # já salvo na planilha, já que update_row faz merge com o registro
+        # atual. Sem isso, um vendedor sem permissão de ver o campo também
+        # conseguiria alterá-lo (o formulário manda o valor mesmo escondido).
+        if pode_ver_comissao:
+            fields['percentual_comissao'] = request.POST.get('percentual_comissao', '')
+            fields['valor_comissao'] = request.POST.get('valor_comissao', '')
+            fields['pago_comissao'] = request.POST.get('pago_comissao', 'Não')
+        if pode_ver_financeiro:
+            fields['valor_venda'] = request.POST.get('valor_venda', '')
+            fields['custo_certificado'] = request.POST.get('custo_certificado', '')
+            fields['valor_liquido'] = request.POST.get('valor_liquido', '')
 
         expected_atualizado_em = request.POST.get('expected_atualizado_em') or None
         try:
@@ -569,6 +605,14 @@ def editar_google_row(request, pk):
         'pago_venda': bool_from(registro.get('pago_venda')),
         'certificado_feito': bool_from(registro.get('certificado_feito')),
     }
+    if not pode_ver_comissao:
+        registro_view['percentual_comissao'] = ''
+        registro_view['valor_comissao'] = ''
+        registro_view['pago_comissao'] = False
+    if not pode_ver_financeiro:
+        registro_view['valor_venda'] = ''
+        registro_view['custo_certificado'] = ''
+        registro_view['valor_liquido'] = ''
     try:
         parceiros = _build_parceiros_from_source()
     except Exception:
@@ -592,6 +636,8 @@ def editar_google_row(request, pk):
         'status_opcoes': STATUS_OPCOES,
         'parceiros': parceiros,
         'precos': precos,
+        'pode_ver_comissao': pode_ver_comissao,
+        'pode_ver_financeiro': pode_ver_financeiro,
     })
 
 
@@ -604,6 +650,11 @@ def criar_google_row(request):
                 return JsonResponse({'error': 'Informe o nome do cliente.'}, status=400)
             messages.error(request, 'Informe o nome do cliente.')
             return render(request, 'google_create.html')
+
+        perms = request.session.get('perms', {})
+        is_admin = request.user.is_superuser
+        pode_ver_comissao = is_admin or perms.get('comissoes', False)
+        pode_ver_financeiro = is_admin or perms.get('financeiro', False)
 
         fields = {
             'cliente': nome,
@@ -620,12 +671,14 @@ def criar_google_row(request):
             'chave_pix': request.POST.get('chave_pix', ''),
             'data_venda': request.POST.get('data_venda', ''),
             'data_vencimento': request.POST.get('data_vencimento', ''),
-            'valor_venda': request.POST.get('valor_venda', ''),
-            'percentual_comissao': request.POST.get('percentual_comissao', ''),
-            'valor_comissao': request.POST.get('valor_comissao', ''),
             'pago_venda': request.POST.get('pago_venda', 'Não'),
-            'pago_comissao': request.POST.get('pago_comissao', 'Não'),
         }
+        if pode_ver_comissao:
+            fields['percentual_comissao'] = request.POST.get('percentual_comissao', '')
+            fields['valor_comissao'] = request.POST.get('valor_comissao', '')
+            fields['pago_comissao'] = request.POST.get('pago_comissao', 'Não')
+        if pode_ver_financeiro:
+            fields['valor_venda'] = request.POST.get('valor_venda', '')
 
         try:
             sheets_repository.create_row('Clientes', fields)

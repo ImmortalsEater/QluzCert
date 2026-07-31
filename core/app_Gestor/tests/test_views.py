@@ -152,6 +152,49 @@ class BuildDashboardFromSheetsTests(ListRowsPatchMixin, SimpleTestCase):
 
         self.assertEqual(rows, [])
 
+    def test_default_shows_real_commission_values(self):
+        self.patch_list_rows({'Clientes': [_clientes_fixture(
+            percentual_comissao='10', valor_comissao='15.00', pago_comissao='Não',
+        )]})
+
+        cols, rows = views._build_dashboard_from_sheets()
+
+        cells_by_field = {col['field']: cell for col, cell in zip(cols, rows[0]['cells'])}
+        self.assertEqual(cells_by_field['percentual_comissao']['value'], '10,00')
+        self.assertEqual(cells_by_field['valor_comissao']['value'], '15,00')
+        self.assertFalse(cells_by_field['percentual_comissao']['locked'])
+
+    def test_colunas_bloqueadas_masks_only_those_fields(self):
+        self.patch_list_rows({'Clientes': [_clientes_fixture(
+            percentual_comissao='10', valor_comissao='15.00', pago_comissao='Não',
+            valor_venda='150.00', custo_certificado='20.00', valor_liquido='130.00',
+        )]})
+
+        cols, rows = views._build_dashboard_from_sheets(views.CAMPOS_COMISSAO)
+
+        cells_by_field = {col['field']: cell for col, cell in zip(cols, rows[0]['cells'])}
+        for field in views.CAMPOS_COMISSAO:
+            self.assertEqual(cells_by_field[field]['value'], '')
+            self.assertTrue(cells_by_field[field]['locked'])
+        # Financeiro nao foi passado no colunas_bloqueadas -- continua normal.
+        self.assertEqual(cells_by_field['valor_venda']['value'], '150,00')
+        self.assertFalse(cells_by_field['valor_venda']['locked'])
+        # Outros campos continuam normais -- só comissão é mascarada.
+        self.assertEqual(cells_by_field['cliente']['value'], 'Ana Silva')
+        self.assertFalse(cells_by_field['cliente']['locked'])
+
+    def test_financeiro_fields_masked_when_blocked(self):
+        self.patch_list_rows({'Clientes': [_clientes_fixture(
+            valor_venda='150.00', custo_certificado='20.00', valor_liquido='130.00',
+        )]})
+
+        cols, rows = views._build_dashboard_from_sheets(views.CAMPOS_FINANCEIRO)
+
+        cells_by_field = {col['field']: cell for col, cell in zip(cols, rows[0]['cells'])}
+        for field in views.CAMPOS_FINANCEIRO:
+            self.assertEqual(cells_by_field[field]['value'], '')
+            self.assertTrue(cells_by_field[field]['locked'])
+
 
 class BuildClientesLeadsFromSheetsTests(ListRowsPatchMixin, SimpleTestCase):
 
@@ -273,6 +316,24 @@ class BuildAlertPayloadTests(ListRowsPatchMixin, SimpleTestCase):
 
         self.assertEqual(payload['counts']['pagamentos_urgentes'], 0)
         self.assertEqual(payload['counts']['pagamentos_normais'], 0)
+
+    def test_default_computes_real_faturamento_recebido(self):
+        self.patch_list_rows({'Clientes': [
+            _clientes_fixture(pago_venda='Sim', valor_venda='150.00'),
+        ]})
+
+        payload = views._build_alert_payload()
+
+        self.assertEqual(payload['counts']['faturamento_recebido'], 150.0)
+
+    def test_without_permission_faturamento_recebido_is_zeroed(self):
+        self.patch_list_rows({'Clientes': [
+            _clientes_fixture(pago_venda='Sim', valor_venda='150.00'),
+        ]})
+
+        payload = views._build_alert_payload(pode_ver_faturamento=False)
+
+        self.assertEqual(payload['counts']['faturamento_recebido'], 0)
 
 
 class BuildParceirosFromSourceTests(ListRowsPatchMixin, SimpleTestCase):
@@ -1829,6 +1890,113 @@ class PermissionRequiredTests(DjangoTestCase):
             response = self.client.post(reverse('parceiro_excluir', kwargs={'id': 'PAR-aaaaaaaa'}))
         self.assertEqual(response.status_code, 200)
         mock_delete.assert_called_once()
+
+    def test_vendedor_without_comissoes_perm_gets_masked_commission_column(self):
+        self._login_vendedor_with_perms({})
+        with patch.object(repo, 'list_rows', side_effect=lambda tab: [
+            _clientes_fixture(percentual_comissao='10', valor_comissao='15.00'),
+        ] if tab == 'Clientes' else []):
+            response = self.client.get(reverse('dashboard'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['pode_ver_comissao'])
+        self.assertNotContains(response, '15,00')
+
+    def test_vendedor_with_comissoes_perm_sees_real_commission_column(self):
+        self._login_vendedor_with_perms({'comissoes': True})
+        with patch.object(repo, 'list_rows', side_effect=lambda tab: [
+            _clientes_fixture(percentual_comissao='10', valor_comissao='15.00'),
+        ] if tab == 'Clientes' else []):
+            response = self.client.get(reverse('dashboard'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['pode_ver_comissao'])
+        self.assertContains(response, '15,00')
+
+    def test_vendedor_without_pagamentos_perm_gets_zeroed_faturamento_via_alertas(self):
+        self._login_vendedor_with_perms({})
+        with patch.object(repo, 'list_rows', side_effect=lambda tab: [
+            _clientes_fixture(pago_venda='Sim', valor_venda='150.00'),
+        ] if tab == 'Clientes' else []):
+            response = self.client.get(reverse('alertas_dashboard'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['counts']['faturamento_recebido'], 0)
+
+    def test_vendedor_with_pagamentos_perm_sees_real_faturamento_via_alertas(self):
+        self._login_vendedor_with_perms({'pagamentos': True})
+        with patch.object(repo, 'list_rows', side_effect=lambda tab: [
+            _clientes_fixture(pago_venda='Sim', valor_venda='150.00'),
+        ] if tab == 'Clientes' else []):
+            response = self.client.get(reverse('alertas_dashboard'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['counts']['faturamento_recebido'], 150.0)
+
+    def test_vendedor_without_perms_gets_masked_fields_on_editar_get(self):
+        self._login_vendedor_with_perms({})
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture(
+            percentual_comissao='10', valor_comissao='15.00', pago_comissao='Sim',
+            valor_venda='150.00', custo_certificado='20.00', valor_liquido='130.00',
+        )):
+            response = self.client.get(reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}))
+
+        self.assertEqual(response.status_code, 200)
+        registro = response.context['registro']
+        self.assertEqual(registro['percentual_comissao'], '')
+        self.assertEqual(registro['valor_comissao'], '')
+        self.assertIs(registro['pago_comissao'], False)
+        self.assertEqual(registro['valor_venda'], '')
+        self.assertEqual(registro['custo_certificado'], '')
+        self.assertEqual(registro['valor_liquido'], '')
+
+    def test_vendedor_without_perms_cannot_write_commission_or_financeiro_on_editar_post(self):
+        self._login_vendedor_with_perms({})
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'update_row') as mock_update:
+            self.client.post(
+                reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {
+                    'cliente': 'Ana Silva', 'percentual_comissao': '99', 'valor_comissao': '999.00',
+                    'pago_comissao': 'Sim', 'valor_venda': '9999.00', 'custo_certificado': '1.00',
+                    'valor_liquido': '9998.00',
+                },
+            )
+
+        tab, pk, fields = mock_update.call_args.args
+        for campo in views.CAMPOS_COMISSAO | views.CAMPOS_FINANCEIRO:
+            self.assertNotIn(campo, fields)
+
+    def test_vendedor_with_comissoes_and_financeiro_perms_can_write_on_editar_post(self):
+        self._login_vendedor_with_perms({'comissoes': True, 'financeiro': True})
+        with patch.object(repo, 'get_row', return_value=_clientes_fixture()), \
+             patch.object(repo, 'update_row') as mock_update:
+            self.client.post(
+                reverse('editar_google_row', kwargs={'pk': 'CLI-aaaaaaaa'}),
+                {
+                    'cliente': 'Ana Silva', 'percentual_comissao': '10', 'valor_comissao': '15.00',
+                    'pago_comissao': 'Sim', 'valor_venda': '150.00', 'custo_certificado': '20.00',
+                    'valor_liquido': '130.00',
+                },
+            )
+
+        tab, pk, fields = mock_update.call_args.args
+        self.assertEqual(fields['percentual_comissao'], '10')
+        self.assertEqual(fields['valor_venda'], '150.00')
+
+    def test_vendedor_without_perms_cannot_write_commission_or_financeiro_on_criar_post(self):
+        self._login_vendedor_with_perms({})
+        with patch.object(repo, 'create_row', return_value={'id': 'CLI-novo'}) as mock_create:
+            self.client.post(reverse('criar_google_row'), {
+                'cliente': 'Novo Cliente', 'percentual_comissao': '99', 'valor_comissao': '999.00',
+                'pago_comissao': 'Sim', 'valor_venda': '9999.00',
+            })
+
+        tab, fields = mock_create.call_args.args
+        self.assertNotIn('percentual_comissao', fields)
+        self.assertNotIn('valor_comissao', fields)
+        self.assertNotIn('pago_comissao', fields)
+        self.assertNotIn('valor_venda', fields)
 
     def test_vendedor_with_precos_perm_allowed_on_criar(self):
         self._login_vendedor_with_perms({'precos': True})
