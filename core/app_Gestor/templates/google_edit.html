@@ -13,6 +13,9 @@
   <link rel="stylesheet" href="{% static 'css/cert_manager.css' %}">
 </head>
 <body>
+  <button type="button" onclick="if(document.referrer && document.referrer.indexOf(window.location.origin)===0){history.back();}else{window.location.href='{% url "dashboard" %}#clientes';}" title="Voltar" aria-label="Voltar" style="position:fixed;top:24px;left:24px;width:44px;height:44px;border-radius:50%;background:var(--surface);border:1px solid var(--border);box-shadow:0 4px 12px rgba(0,0,0,.08);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:50;font-size:18px;">
+    <i class="ti ti-arrow-left" aria-hidden="true"></i>
+  </button>
   <div style="max-width:900px;margin:40px auto;padding:24px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,.05);">
     <h1 style="margin-bottom:4px;font-size:22px;">Editar Cliente</h1>
     <p style="font-size:13px;color:var(--muted);margin-bottom:20px">As alterações são gravadas direto na planilha do Google Drive.</p>
