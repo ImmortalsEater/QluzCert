@@ -18,35 +18,42 @@
 
   <main class="container">
 
-    <form>
+    <form method="post">
+      {% csrf_token %}
 
-      <h1>Login</h1>
+      <h1 class="enter" style="--i:0">Login</h1>
 
-      <div class="input-box">
-        <input placeholder="Usuário" type="email" required>
+      {% if messages %}
+        {% for message in messages %}
+          <p class="enter" style="--i:1;color:#fff;background:rgba(28,150,60,0.6);border-radius:8px;padding:10px 15px;margin-bottom:15px;font-size:14px;text-align:center;" role="status">
+            {{ message }}
+          </p>
+        {% endfor %}
+      {% endif %}
+
+      {% if form.errors %}
+        <p class="enter" style="--i:2;color:#fff;background:rgba(195,28,30,0.6);border-radius:8px;padding:10px 15px;margin-bottom:15px;font-size:14px;text-align:center;" role="alert">
+          Usuário ou senha inválidos.
+        </p>
+      {% endif %}
+
+      <div class="input-box enter" style="--i:3">
+        <input name="username" placeholder="Usuário" type="text" autofocus required>
         <i class="bx bxs-user" aria-hidden="true"></i>
       </div>
 
-      <div class="input-box">
-        <input placeholder="Senha" type="password" required>
+      <div class="input-box enter" style="--i:4">
+        <input name="password" placeholder="Senha" type="password" required>
         <i class="bx bxs-lock-alt" aria-hidden="true"></i>
       </div>
 
-      <div class="remember-forgot">
-        <label>
-          <input type="checkbox">
-          Lembrar Senha
-        </label>
-        <a href="{% url 'recuperar_senha_preview' %}">Esqueci Senha</a>
-      </div>
+      <input type="hidden" name="next" value="{{ next }}">
 
-      <button type="submit" class="login">Login</button>
-
-      <div class="register-link">
-        <p>Não tem uma conta? <a href="{% url 'cadastro_preview' %}">Cadastre-se</a></p>
-      </div>
+      <button type="submit" class="login enter" style="--i:5">Login</button>
 
     </form>
+
+    <a href="{% url 'cadastro' %}" class="login-secondary enter" style="--i:6">Criar conta</a>
 
   </main>
 

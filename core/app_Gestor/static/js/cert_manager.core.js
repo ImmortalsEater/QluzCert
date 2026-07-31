@@ -165,9 +165,9 @@ function renderPaginationControls(containerId, page, totalPages, onGotoFnName){
   if(!el) return;
   if(totalPages<=1){ el.innerHTML=''; return; }
   el.innerHTML = `
-    <button type="button" class="btn btn-sm" ${page<=1?'disabled':''} onclick="${onGotoFnName}(${page-1})"><i class="ti ti-chevron-left"></i></button>
+    <button type="button" class="btn btn-sm" ${page<=1?'disabled':''} onclick="${onGotoFnName}(${page-1})" aria-label="Página anterior"><i class="ti ti-chevron-left" aria-hidden="true"></i></button>
     <span class="pagination-info">Página ${page} de ${totalPages}</span>
-    <button type="button" class="btn btn-sm" ${page>=totalPages?'disabled':''} onclick="${onGotoFnName}(${page+1})"><i class="ti ti-chevron-right"></i></button>
+    <button type="button" class="btn btn-sm" ${page>=totalPages?'disabled':''} onclick="${onGotoFnName}(${page+1})" aria-label="Próxima página"><i class="ti ti-chevron-right" aria-hidden="true"></i></button>
   `;
 }
 function statusIndex(status){return STATUS_LIST.indexOf(status)>=0?STATUS_LIST.indexOf(status):0}
@@ -385,6 +385,7 @@ function getCurrentViewId(){
 
 function renderAlertCard(item, kind){
   const isPayment = kind === 'pagamento';
+  if(isPayment && !(window.IS_ADMIN || window.PERMS.pagamentos)) return '';
   const iconClass = isPayment ? 'ti ti-receipt-2' : 'ti ti-certificate';
   const accentClass = item.dias < 0 ? 'red' : 'yellow';
   const actionLabel = isPayment ? 'Abrir Pagamento' : 'Registrar Contato';
@@ -573,8 +574,10 @@ function openRowActionMenu(e, id){
   menu.innerHTML = `
     <a href="/planilha/${id}/documentos/" class="action-menu-item" role="menuitem" onclick="event.preventDefault(); closeActionMenu(); navigateIfExists('${id}', this.href);"><i class="ti ti-folder"></i>Documentos</a>
     <button type="button" class="action-menu-item" role="menuitem" onclick="closeActionMenu(); openHistoricoCliente('${id}')"><i class="ti ti-history"></i>Histórico</button>
+    ${(window.IS_ADMIN || window.PERMS.excluir_cliente) ? `
     <div class="action-menu-divider"></div>
     <button type="button" class="action-menu-item action-menu-item-danger" role="menuitem" onclick="closeActionMenu(); deletePlanilhaCliente('${id}')"><i class="ti ti-trash"></i>Excluir</button>
+    ` : ''}
   `;
 
   const btn = e.currentTarget;
@@ -584,9 +587,11 @@ function openRowActionMenu(e, id){
   let top = rect.bottom + 6;
   let left = rect.right - menuRect.width;
   if(left < 8) left = 8;
-  if(top + menuRect.height > window.innerHeight - 8) top = rect.top - menuRect.height - 6;
+  let flipped = false;
+  if(top + menuRect.height > window.innerHeight - 8){ top = rect.top - menuRect.height - 6; flipped = true; }
   menu.style.top = top + 'px';
   menu.style.left = left + 'px';
+  menu.style.transformOrigin = flipped ? 'bottom right' : 'top right';
 }
 
 document.addEventListener('click', closeActionMenu);

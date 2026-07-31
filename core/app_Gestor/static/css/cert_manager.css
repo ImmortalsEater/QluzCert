@@ -54,7 +54,7 @@
   
   /* SIDEBAR */
   #sidebar{width:var(--sidebar-w);height:100vh;position:sticky;top:0;overflow-y:auto;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
-  .sidebar-logo{padding:16px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+  .sidebar-logo{padding:8px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;align-items:center;gap:6px}
   .logo-mark{width:auto;height: 72px}
   .logo-sub{font-size:10px;color:var(--muted)}
   .nav-section{padding:12px 8px 4px;font-size:10px;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase}
@@ -88,7 +88,14 @@
   .metric-card.success .metric-val{color:var(--success)}
   .metric-card.warn .metric-val{color:var(--warn)}
   .metric-card.danger .metric-val{color:var(--danger)}
-  
+
+  /* LOCKED FEATURES (sem permissão) -- fundo fosco + cadeado no lugar do dado real */
+  .locked-feature{position:relative;overflow:hidden}
+  .locked-feature .metric-val,.locked-feature .metric-sub{filter:blur(3px);user-select:none}
+  .locked-feature .lock-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:rgba(255,255,255,.6);backdrop-filter:blur(2px)}
+  .locked-feature .lock-overlay i{font-size:20px;color:var(--muted)}
+  .locked-feature .lock-overlay span{font-size:11px;color:var(--muted-strong);text-align:center;padding:0 8px}
+
   /* TABLES */
   .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
   #view-clientes .table-wrap+.table-wrap{margin-top:16px}
@@ -102,13 +109,13 @@
   #column-toggle-all:indeterminate::after{content:'';position:absolute;left:2px;top:5px;width:8px;height:2px;background:#fff;border-radius:1px}
   .column-toggle:focus-visible,#column-toggle-all:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .column-selector-divider{flex:none;min-height:1px;height:1px;background:var(--border-strong);margin:4px 6px}
-  .column-selector-panel{position:absolute;right:0;top:calc(100% + 8px);background:var(--surface);border-radius:12px;box-shadow:0 1px 1px rgba(0,0,0,.04),0 4px 8px rgba(0,0,0,.06),0 16px 32px rgba(0,0,0,.10);display:none;flex-direction:column;gap:2px;padding:4px;min-width:230px;max-height:320px;overflow-y:auto;overflow-x:hidden;z-index:20;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
-  .column-selector-panel.open{display:flex}
+  .column-selector-panel{position:absolute;right:0;top:calc(100% + 8px);background:var(--surface);border-radius:12px;box-shadow:0 1px 1px rgba(0,0,0,.04),0 4px 8px rgba(0,0,0,.06),0 16px 32px rgba(0,0,0,.10);display:flex;flex-direction:column;gap:2px;padding:4px;min-width:230px;max-height:320px;overflow-y:auto;overflow-x:hidden;z-index:20;scrollbar-width:thin;scrollbar-color:var(--border) transparent;opacity:0;visibility:hidden;pointer-events:none;transform:scale(0.95);transform-origin:top right;transition:opacity 180ms var(--ease-out-strong),transform 180ms var(--ease-out-strong),visibility 180ms}
+  .column-selector-panel.open{opacity:1;visibility:visible;pointer-events:auto;transform:scale(1)}
   .column-selector-panel::-webkit-scrollbar{width:8px}
   .column-selector-panel::-webkit-scrollbar-track{background:transparent}
   .column-selector-panel::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
   .column-selector-panel::-webkit-scrollbar-thumb:hover{background:var(--border-strong)}
-  .chevron{transition:transform 150ms ease}
+  .chevron{transition:transform 150ms var(--ease-in-out)}
   .column-selector-dropdown:has(.column-selector-panel.open) .chevron{transform:rotate(180deg)}
 
   /* Ações da linha: só Editar fica visível; Documentos/Histórico/Excluir
@@ -116,8 +123,8 @@
      gap:8px garante que a área de toque de 40x40 de cada botão (ver
      .table-wrap .btn::after) não se sobreponha à do vizinho. */
   .row-actions{display:inline-flex;align-items:center;gap:8px}
-  #action-menu-dropdown{position:fixed;display:none;flex-direction:column;gap:2px;padding:4px;min-width:180px;background:var(--surface);border-radius:12px;box-shadow:0 1px 1px rgba(0,0,0,.04),0 4px 8px rgba(0,0,0,.06),0 16px 32px rgba(0,0,0,.10);z-index:60}
-  #action-menu-dropdown.open{display:flex}
+  #action-menu-dropdown{position:fixed;display:flex;flex-direction:column;gap:2px;padding:4px;min-width:180px;background:var(--surface);border-radius:12px;box-shadow:0 1px 1px rgba(0,0,0,.04),0 4px 8px rgba(0,0,0,.06),0 16px 32px rgba(0,0,0,.10);z-index:60;opacity:0;visibility:hidden;pointer-events:none;transform:scale(0.95);transform-origin:top right;transition:opacity 180ms var(--ease-out-strong),transform 180ms var(--ease-out-strong),visibility 180ms}
+  #action-menu-dropdown.open{opacity:1;visibility:visible;pointer-events:auto;transform:scale(1)}
   .action-menu-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;font-size:13px;font-family:inherit;color:var(--text);background:none;border:none;text-decoration:none;cursor:pointer;text-align:left;width:100%;transition:background-color 120ms ease}
   .action-menu-item:hover{background:var(--surface-alt)}
   .action-menu-item i{font-size:15px;color:var(--muted);width:16px;text-align:center}
@@ -130,7 +137,6 @@
   thead th{background:var(--surface-alt);padding:10px 16px;text-align:left;font-size:11px;font-weight:700;color:var(--muted-strong);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
   tbody tr{border-bottom:1px solid var(--border);transition:background-color 120ms ease}
   tbody tr:last-child{border-bottom:none}
-  tbody tr:hover{background:#fafaf8}
   tbody td{padding:10px 16px;font-size:13px;vertical-align:middle}
   .table-scroll{
     overflow-x:auto;
@@ -150,9 +156,11 @@
   .table-scroll table th,.table-scroll table td{white-space:nowrap}
   .google-drive-table th:last-child,.google-drive-table td:last-child{position:sticky;right:0;background:var(--surface);box-shadow:-1px 0 0 var(--border),-8px 0 12px -8px rgba(0,0,0,.18);z-index:1}
   .google-drive-table thead th:last-child{background:var(--surface-alt);z-index:2}
-  .google-drive-table tbody tr:hover td:last-child{background:#fafaf8}
   .google-drive-table tbody tr:last-child td:last-child{border-bottom-right-radius:10px}
-  
+  .col-locked-header{color:var(--muted)}
+  .col-locked-header .ti-lock{margin-left:4px;font-size:12px}
+  td.col-locked{background:repeating-linear-gradient(45deg,var(--surface-alt),var(--surface-alt) 4px,transparent 4px,transparent 8px)}
+
   /* BADGES */
   .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600}
   .badge-novo{background:var(--info-bg);color:var(--info)}
@@ -174,6 +182,9 @@
   .field input,.field select,.field textarea{padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;color:var(--text);background:var(--surface);font-family:inherit;transition:border-color 150ms ease,box-shadow 150ms ease}
   .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light)}
   .field textarea{resize:vertical;min-height:70px}
+  .field-locked label{color:var(--muted)}
+  .field-locked label .ti-lock{margin-left:4px;font-size:11px}
+  .field-locked input,.field-locked select{background:var(--surface-alt);filter:blur(3px);pointer-events:none;user-select:none}
   .modal-fieldset{border:0;padding:0;margin:0;min-width:0}
   .modal-fieldset+.modal-fieldset{margin-top:22px;padding-top:20px;border-top:1px solid var(--border)}
   .modal-fieldset legend{padding:0;margin-bottom:12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
@@ -182,19 +193,24 @@
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;visibility:hidden;pointer-events:none;transition:opacity 150ms ease-out,background-color 150ms ease-out,visibility 150ms}
   .modal-overlay.open{opacity:1;visibility:visible;pointer-events:auto;background:rgba(0,0,0,.4);transition:opacity 200ms ease-out,background-color 200ms ease-out,visibility 200ms}
   .modal{background:var(--surface);border-radius:12px;width:100%;max-width:680px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.2);transform:scale(0.95);opacity:0;transition:transform 150ms ease-out,opacity 150ms ease-out}
-  .modal-overlay.open .modal{transform:scale(1);opacity:1;transition:transform 200ms cubic-bezier(0.23,1,0.32,1),opacity 200ms ease-out}
+  .modal-overlay.open .modal{transform:scale(1);opacity:1;transition:transform 200ms var(--ease-out-strong),opacity 200ms ease-out}
   .modal-head{padding:18px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:var(--surface)}
   .modal-head h2{font-size:15px;font-weight:700}
   .modal-body{padding:20px;overflow-y:auto;flex:1;min-height:0}
   .modal-foot{padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0}
-  
+
+  @media (prefers-reduced-motion: reduce) {
+    .modal{transform:none;transition:opacity 150ms ease-out}
+    .modal-overlay.open .modal{transform:none;transition:opacity 200ms ease-out}
+    .kanban-card:hover{transform:none}
+  }
+
   /* KANBAN */
   .kanban{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;align-items:start}
   .kanban-col{background:var(--bg);border-radius:10px;padding:10px;transition:background-color .15s;min-height:100vh}
   .kanban-col.drag-over{background:var(--accent-light)}
   .kanban-col-head{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
-  .kanban-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;transition:all .15s;cursor:grab}
-  .kanban-card:hover{border-color:var(--border-strong);transform:translateY(-1px)}
+  .kanban-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;transition:border-color 150ms ease,transform 150ms var(--ease-out-strong);cursor:grab}
   .kanban-card.dragging{opacity:.5;cursor:grabbing}
   .kanban-card.drag-over-top{border-top:2px solid var(--accent)}
   .kanban-card.drag-over-bottom{border-bottom:2px solid var(--accent)}
@@ -202,7 +218,15 @@
   .kanban-card-sub{font-size:11px;color:var(--muted)}
   .kanban-card-footer{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
   .kanban-status-select{width:100%;margin-top:8px;padding:5px 8px;border:1px solid var(--border);border-radius:7px;font-size:12px;background:var(--surface);color:var(--text);font-family:inherit}
-  
+
+  @media (hover: hover) and (pointer: fine) {
+    .kanban-card:hover{border-color:var(--border-strong);transform:translateY(-1px)}
+  }
+  @media (hover: hover) and (pointer: fine) {
+    tbody tr:hover{background:#fafaf8}
+    .google-drive-table tbody tr:hover td:last-child{background:#fafaf8}
+  }
+
   /* ALERTS */
   .alert-list{display:flex;flex-direction:column;gap:8px}
   .alert-item{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 14px;display:flex;align-items:center;gap:12px}

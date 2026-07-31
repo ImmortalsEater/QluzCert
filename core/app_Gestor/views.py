@@ -1,11 +1,14 @@
 from datetime import date, datetime
+from functools import wraps
 from .models import DocumentoCliente, PagamentoCliente
-from django.shortcuts import render, redirect, get_object_or_404
+from django.shortcuts import render, redirect
 from django.urls import reverse
+from django.contrib.auth.hashers import make_password
+from django.contrib.auth.decorators import login_not_required
 from django.views.generic import TemplateView
 from django.contrib import messages
 from django.utils.decorators import method_decorator
-from django.http import JsonResponse, HttpResponseBadRequest, FileResponse, Http404
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseForbidden, FileResponse, Http404
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
@@ -14,14 +17,54 @@ import json
 import logging
 import os
 import re
+import shutil
+import uuid
 from .models import AppState
 from . import sheets_repository
-from .parsing import parse_date, parse_decimal, bool_from
+from . import drive_repository
+from .parsing import parse_date, parse_decimal, bool_from, PERM_KEYS
 import io
 import pandas as pd
 from django.http import HttpResponse
 
 logger = logging.getLogger(__name__)
+
+TIPO_DOCUMENTO_CHOICES = DocumentoCliente.TIPO_CHOICES
+TIPO_DOCUMENTO_LABELS = dict(TIPO_DOCUMENTO_CHOICES)
+
+
+def admin_required(view_func):
+    """Bloqueia a view pra quem não é admin. `request.user.is_superuser` é
+    definido a partir da coluna 'tipo' da aba Usuarios da planilha em cada
+    login -- ver core/app_Gestor/auth_backends.py. Reservada pra ações
+    verdadeiramente admin-only e não delegáveis (ex: gestão de usuários) --
+    pra ações que um admin pode delegar a um vendedor específico, use
+    permission_required."""
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_superuser:
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return JsonResponse({'error': 'Permissão negada.'}, status=403)
+            return HttpResponseForbidden('Permissão negada.')
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
+def permission_required(perm_key):
+    """Libera a view pra admin (sempre) ou pra vendedor com a chave
+    `perm_key` marcada como Sim na aba Usuarios (sincronizada na sessão no
+    login -- ver core/app_Gestor/auth_backends.py e parsing.PERM_KEYS)."""
+    def decorator(view_func):
+        @wraps(view_func)
+        def wrapper(request, *args, **kwargs):
+            allowed = request.user.is_superuser or request.session.get('perms', {}).get(perm_key, False)
+            if not allowed:
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return JsonResponse({'error': 'Permissão negada.'}, status=403)
+                return HttpResponseForbidden('Permissão negada.')
+            return view_func(request, *args, **kwargs)
+        return wrapper
+    return decorator
 
 
 def _safe_json_dumps(obj):
@@ -38,23 +81,10 @@ def _safe_json_dumps(obj):
 # Google Drive) para rótulos legíveis. Chave = nome do campo normalizado
 # (minúsculo, sem acentos/pontuação).
 FRIENDLY_COLUMN_LABELS = {
-    'id': 'ID',
-    'criadoem': 'Criado em',
-    'historico': 'Histórico',
-    'nome': 'Cliente',
     'cpfcnpj': 'CPF/CNPJ',
-    'datanasc': 'Data de Nascimento',
-    'telefone': 'Telefone',
     'email': 'E-mail',
-    'parceiroid': 'Parceiro',
     'status': 'Status',
-    'obs': 'Observações',
-    'tipocert': 'Tipo de Certificado',
-    'dataemissao': 'Data de Emissão',
     'datavencimento': 'Data de Vencimento',
-    'valorcobrado': 'Valor Cobrado',
-    'formapag': 'Forma de Pagamento',
-    'pago': 'Pago',
 }
 
 def _normalize_field_key(field_name):
@@ -129,7 +159,11 @@ def _format_sheet_cell_value(field, raw):
     return raw
 
 
-def _build_dashboard_from_sheets():
+CAMPOS_COMISSAO = {'percentual_comissao', 'valor_comissao', 'pago_comissao'}
+CAMPOS_FINANCEIRO = {'valor_venda', 'custo_certificado', 'valor_liquido'}
+
+
+def _build_dashboard_from_sheets(colunas_bloqueadas=frozenset()):
     cols = _annotate_columns(CLIENTES_COLUMNS)
     rows = []
     for row in sheets_repository.list_rows('Clientes'):
@@ -139,19 +173,23 @@ def _build_dashboard_from_sheets():
             # cabeçalho da planilha) -- ignorada em vez de derrubar a página
             # inteira quando o template tentar montar um link com id vazio.
             continue
-        cells = [
-            {
+        cells = []
+        for col in cols:
+            # Comissão/financeiro só são mandados pro navegador se o usuário
+            # tiver permissão -- mascarar só no CSS/JS não bastaria, o valor
+            # real continuaria visível no HTML/inspecionar elemento.
+            bloqueado = col['field'] in colunas_bloqueadas
+            cells.append({
                 'class': col['class'],
-                'value': _format_sheet_cell_value(col['field'], row.get(col['field'], '')),
+                'value': '' if bloqueado else _format_sheet_cell_value(col['field'], row.get(col['field'], '')),
+                'locked': bloqueado,
                 'default_visible': col['default_visible'],
-            }
-            for col in cols
-        ]
+            })
         rows.append({'id': row_id, 'cells': cells})
     return cols, rows
 
 
-def _build_alert_payload():
+def _build_alert_payload(pode_ver_faturamento=True):
     hoje = date.today()
     renovacoes_urgentes = []
     renovacoes_normais = []
@@ -224,7 +262,9 @@ def _build_alert_payload():
         # Incluído aqui (não só no contexto inicial da DashboardView) para
         # que syncBackendAlertCounts() também atualize o card de faturamento
         # ao consultar /alertas/, e não só no primeiro carregamento da página.
-        'faturamento_recebido': _build_faturamento_recebido(),
+        # Zerado (não só escondido no client) quando sem permissão de
+        # pagamentos -- senão o valor real ainda vaza no JSON de /alertas/.
+        'faturamento_recebido': _build_faturamento_recebido() if pode_ver_faturamento else 0,
     }
     counts['alertas_totais'] = (
         counts['renovacoes_urgentes']
@@ -327,7 +367,9 @@ def _build_notificacoes_recentes(limit=6):
 
 
 def alertas_dashboard(request):
-    return JsonResponse(_build_alert_payload())
+    perms = request.session.get('perms', {})
+    pode_ver_faturamento = request.user.is_superuser or perms.get('pagamentos', False)
+    return JsonResponse(_build_alert_payload(pode_ver_faturamento))
 
 
 def verificar_registro_existe(request, pk):
@@ -393,8 +435,42 @@ class LoginPreviewView(TemplateView):
     template_name = 'login.html'
 
 
-class CadastroPreviewView(TemplateView):
-    template_name = 'cadastro.html'
+@login_not_required
+def cadastro_signup(request):
+    if request.method != 'POST':
+        return render(request, 'cadastro.html')
+
+    username = request.POST.get('username', '').strip()
+    senha = request.POST.get('senha', '')
+    confirmar_senha = request.POST.get('confirmar_senha', '')
+
+    contexto = {'username': username}
+
+    if not username or not senha or not confirmar_senha:
+        contexto['erro'] = 'Preencha todos os campos.'
+        return render(request, 'cadastro.html', contexto)
+
+    if senha != confirmar_senha:
+        contexto['erro'] = 'As senhas não coincidem.'
+        return render(request, 'cadastro.html', contexto)
+
+    if any(row.get('username') == username for row in sheets_repository.list_rows('Usuarios')):
+        contexto['erro'] = 'Esse usuário já existe.'
+        return render(request, 'cadastro.html', contexto)
+
+    try:
+        sheets_repository.create_row('Usuarios', {
+            'username': username,
+            'password': make_password(senha),
+            'tipo': 'vendedor',
+        })
+    except Exception:
+        logger.exception('Falha ao criar usuário via cadastro: %s', username)
+        contexto['erro'] = 'Não foi possível concluir o cadastro. Tente novamente.'
+        return render(request, 'cadastro.html', contexto)
+
+    messages.success(request, 'Cadastro realizado! Faça login para continuar.')
+    return redirect('login')
 
 
 class RecuperarSenhaPreviewView(TemplateView):
@@ -407,8 +483,25 @@ class DashboardView(TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context['perms'] = self.request.session.get('perms', {})
+        is_admin = self.request.user.is_superuser
+        pode_ver_comissao = is_admin or context['perms'].get('comissoes', False)
+        pode_ver_financeiro = is_admin or context['perms'].get('financeiro', False)
+        pode_ver_faturamento = is_admin or context['perms'].get('pagamentos', False)
+        colunas_bloqueadas = set()
+        if not pode_ver_comissao:
+            colunas_bloqueadas |= CAMPOS_COMISSAO
+        if not pode_ver_financeiro:
+            colunas_bloqueadas |= CAMPOS_FINANCEIRO
+        context['pode_ver_comissao'] = pode_ver_comissao
+        context['pode_ver_financeiro'] = pode_ver_financeiro
+        context['colunas_bloqueadas'] = colunas_bloqueadas
         try:
-            context['google_columns'], context['google_rows'] = _build_dashboard_from_sheets()
+            context['perms_json'] = _safe_json_dumps(context['perms'])
+        except Exception:
+            context['perms_json'] = '{}'
+        try:
+            context['google_columns'], context['google_rows'] = _build_dashboard_from_sheets(colunas_bloqueadas)
         except Exception:
             logger.exception('Falha ao carregar Clientes da planilha do Google Sheets')
             context['google_columns'], context['google_rows'] = _annotate_columns(CLIENTES_COLUMNS), []
@@ -440,7 +533,7 @@ class DashboardView(TemplateView):
             initial_notificacoes = []
 
         try:
-            alertas = _build_alert_payload()
+            alertas = _build_alert_payload(pode_ver_faturamento)
         except Exception:
             logger.exception('Falha ao montar alertas a partir da planilha do Google Sheets')
             alertas = {
@@ -484,6 +577,11 @@ def editar_google_row(request, pk):
     if registro is None:
         raise Http404('Registro não encontrado na planilha.')
 
+    perms = request.session.get('perms', {})
+    is_admin = request.user.is_superuser
+    pode_ver_comissao = is_admin or perms.get('comissoes', False)
+    pode_ver_financeiro = is_admin or perms.get('financeiro', False)
+
     if request.method == 'POST':
         nome = request.POST.get('cliente', '').strip()
         if not nome:
@@ -505,16 +603,23 @@ def editar_google_row(request, pk):
             'chave_pix': request.POST.get('chave_pix', ''),
             'data_venda': request.POST.get('data_venda', ''),
             'data_vencimento': request.POST.get('data_vencimento', ''),
-            'valor_venda': request.POST.get('valor_venda', ''),
-            'percentual_comissao': request.POST.get('percentual_comissao', ''),
-            'valor_comissao': request.POST.get('valor_comissao', ''),
             'pago_venda': request.POST.get('pago_venda', 'Não'),
-            'pago_comissao': request.POST.get('pago_comissao', 'Não'),
             'certificado_feito': request.POST.get('certificado_feito', 'Não'),
             'venda': request.POST.get('venda', ''),
-            'custo_certificado': request.POST.get('custo_certificado', ''),
-            'valor_liquido': request.POST.get('valor_liquido', ''),
         }
+        # Campos de comissão/financeiro só entram no update se o usuário tiver
+        # a permissão -- omitir a chave (em vez de mandar '') preserva o valor
+        # já salvo na planilha, já que update_row faz merge com o registro
+        # atual. Sem isso, um vendedor sem permissão de ver o campo também
+        # conseguiria alterá-lo (o formulário manda o valor mesmo escondido).
+        if pode_ver_comissao:
+            fields['percentual_comissao'] = request.POST.get('percentual_comissao', '')
+            fields['valor_comissao'] = request.POST.get('valor_comissao', '')
+            fields['pago_comissao'] = request.POST.get('pago_comissao', 'Não')
+        if pode_ver_financeiro:
+            fields['valor_venda'] = request.POST.get('valor_venda', '')
+            fields['custo_certificado'] = request.POST.get('custo_certificado', '')
+            fields['valor_liquido'] = request.POST.get('valor_liquido', '')
 
         expected_atualizado_em = request.POST.get('expected_atualizado_em') or None
         try:
@@ -536,6 +641,14 @@ def editar_google_row(request, pk):
         'pago_venda': bool_from(registro.get('pago_venda')),
         'certificado_feito': bool_from(registro.get('certificado_feito')),
     }
+    if not pode_ver_comissao:
+        registro_view['percentual_comissao'] = ''
+        registro_view['valor_comissao'] = ''
+        registro_view['pago_comissao'] = False
+    if not pode_ver_financeiro:
+        registro_view['valor_venda'] = ''
+        registro_view['custo_certificado'] = ''
+        registro_view['valor_liquido'] = ''
     try:
         parceiros = _build_parceiros_from_source()
     except Exception:
@@ -559,6 +672,8 @@ def editar_google_row(request, pk):
         'status_opcoes': STATUS_OPCOES,
         'parceiros': parceiros,
         'precos': precos,
+        'pode_ver_comissao': pode_ver_comissao,
+        'pode_ver_financeiro': pode_ver_financeiro,
     })
 
 
@@ -571,6 +686,11 @@ def criar_google_row(request):
                 return JsonResponse({'error': 'Informe o nome do cliente.'}, status=400)
             messages.error(request, 'Informe o nome do cliente.')
             return render(request, 'google_create.html')
+
+        perms = request.session.get('perms', {})
+        is_admin = request.user.is_superuser
+        pode_ver_comissao = is_admin or perms.get('comissoes', False)
+        pode_ver_financeiro = is_admin or perms.get('financeiro', False)
 
         fields = {
             'cliente': nome,
@@ -587,12 +707,14 @@ def criar_google_row(request):
             'chave_pix': request.POST.get('chave_pix', ''),
             'data_venda': request.POST.get('data_venda', ''),
             'data_vencimento': request.POST.get('data_vencimento', ''),
-            'valor_venda': request.POST.get('valor_venda', ''),
-            'percentual_comissao': request.POST.get('percentual_comissao', ''),
-            'valor_comissao': request.POST.get('valor_comissao', ''),
             'pago_venda': request.POST.get('pago_venda', 'Não'),
-            'pago_comissao': request.POST.get('pago_comissao', 'Não'),
         }
+        if pode_ver_comissao:
+            fields['percentual_comissao'] = request.POST.get('percentual_comissao', '')
+            fields['valor_comissao'] = request.POST.get('valor_comissao', '')
+            fields['pago_comissao'] = request.POST.get('pago_comissao', 'Não')
+        if pode_ver_financeiro:
+            fields['valor_venda'] = request.POST.get('valor_venda', '')
 
         try:
             sheets_repository.create_row('Clientes', fields)
@@ -616,8 +738,13 @@ def criar_google_row(request):
     return render(request, 'google_create.html')
 
 
+@permission_required('excluir_cliente')
 @require_POST
 def cliente_excluir(request, pk):
+    # Lido antes de excluir -- depois que a linha some da planilha não dá
+    # mais pra descobrir qual era a pasta do Drive desse cliente.
+    registro = sheets_repository.get_row('Clientes', pk)
+
     try:
         sheets_repository.delete_row('Clientes', pk)
     except LookupError:
@@ -632,9 +759,19 @@ def cliente_excluir(request, pk):
     # nenhum. Falha aqui é só logada (não desfaz nem falha a exclusão em si,
     # que já aconteceu de verdade na planilha).
     try:
-        for documento in DocumentoCliente.objects.filter(cliente_ref=pk):
-            documento.arquivo.delete(save=False)
-            documento.delete()
+        for documento in sheets_repository.list_rows('Documentos'):
+            if documento.get('cliente_ref') == pk:
+                if documento.get('local_path'):
+                    caminho = os.path.join(settings.MEDIA_ROOT, documento['local_path'])
+                    if os.path.exists(caminho):
+                        os.remove(caminho)
+                sheets_repository.delete_row('Documentos', documento['id'])
+        folder_id = (registro or {}).get('drive_folder_id')
+        if folder_id:
+            drive_repository.delete_file(folder_id)
+        pasta_pendentes = os.path.join(settings.MEDIA_ROOT, 'documentos_pendentes', str(pk))
+        if os.path.isdir(pasta_pendentes):
+            shutil.rmtree(pasta_pendentes)
         PagamentoCliente.objects.filter(cliente_ref=pk).delete()
     except Exception:
         logger.exception('Cliente %s excluído da planilha, mas falhou ao limpar documentos/pagamentos associados', pk)
@@ -692,6 +829,7 @@ def contatos_cliente_registro(request, pk):
     return HttpResponseBadRequest('Método não permitido')
 
 
+@permission_required('parceiros')
 def parceiro_criar(request):
     if request.method != 'POST':
         return HttpResponseBadRequest('Método não permitido')
@@ -716,6 +854,7 @@ def parceiro_criar(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 
+@permission_required('parceiros')
 def parceiro_editar(request, id):
     if request.method != 'POST':
         return HttpResponseBadRequest('Método não permitido')
@@ -739,6 +878,7 @@ def parceiro_editar(request, id):
         return JsonResponse({'error': str(e)}, status=500)
 
 
+@permission_required('parceiros')
 @require_POST
 def parceiro_excluir(request, id):
     try:
@@ -751,6 +891,7 @@ def parceiro_excluir(request, id):
         return JsonResponse({'error': str(e)}, status=500)
 
 
+@permission_required('precos')
 def preco_criar(request):
     if request.method != 'POST':
         return HttpResponseBadRequest('Método não permitido')
@@ -772,6 +913,7 @@ def preco_criar(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 
+@permission_required('precos')
 def preco_editar(request, id):
     if request.method != 'POST':
         return HttpResponseBadRequest('Método não permitido')
@@ -795,6 +937,7 @@ def preco_editar(request, id):
         return JsonResponse({'error': str(e)}, status=500)
 
 
+@permission_required('precos')
 @require_POST
 def preco_excluir(request, id):
     try:
@@ -842,9 +985,7 @@ def app_state_download(request):
 
 def _validar_arquivo_documento(arquivo):
     """Retorna uma mensagem de erro se o arquivo não passar nas regras de
-    upload (extensão/tamanho), ou None se estiver tudo certo. Compartilhado
-    entre upload_documento e documentos_cliente para não ter duas regras
-    divergentes (ou uma delas esquecida) validando a mesma coisa."""
+    upload (extensão/tamanho), ou None se estiver tudo certo."""
     extensoes_permitidas = getattr(settings, 'UPLOAD_DOCUMENTO_EXTENSOES_PERMITIDAS', ['.pdf', '.jpg', '.jpeg', '.png'])
     tamanho_maximo_mb = getattr(settings, 'UPLOAD_DOCUMENTO_TAMANHO_MAXIMO_MB', 10)
     tamanho_maximo_bytes = tamanho_maximo_mb * 1024 * 1024
@@ -857,35 +998,141 @@ def _validar_arquivo_documento(arquivo):
     return None
 
 
-def upload_documento(request):
-    if request.method == 'POST':
-        arquivo = request.FILES.get('arquivo')
-        if not arquivo:
-            messages.error(request, 'Selecione um arquivo para envio.')
-            return redirect('upload_documento')
+def _documentos_do_cliente(cliente_ref):
+    documentos = [d for d in sheets_repository.list_rows('Documentos') if d.get('cliente_ref') == cliente_ref]
+    documentos.sort(key=lambda d: d.get('atualizado_em', ''), reverse=True)
+    return documentos
 
-        erro = _validar_arquivo_documento(arquivo)
-        if erro:
-            messages.error(request, erro)
-            return redirect('upload_documento')
 
-        cliente_ref = request.POST.get('cliente_ref', '').strip()
-        nome_cliente = request.POST.get('nome_cliente', '').strip()
-        observacao = request.POST.get('observacao', '').strip()
-
-        DocumentoCliente.objects.create(
-            cliente_ref=cliente_ref,
-            nome_cliente=nome_cliente,
-            observacao=observacao,
-            arquivo=arquivo,
-            nome_original=arquivo.name,
-            tamanho_bytes=arquivo.size,
+def _documentos_do_cliente_seguro(cliente_ref):
+    """Wrapper tolerante a falha pro caminho de leitura (GET): se a aba
+    Documentos ainda não estiver configurada na planilha, ou o Sheets/Drive
+    estiver fora do ar, não derruba a página inteira -- só a lista fica
+    vazia e quem chamou decide como avisar o usuário."""
+    try:
+        return _documentos_do_cliente(cliente_ref), None
+    except Exception as e:
+        logger.exception(
+            'Falha ao listar documentos do cliente %s -- aba Documentos pode não '
+            'estar configurada na planilha ainda', cliente_ref,
         )
-        messages.success(request, 'Documento enviado com sucesso.')
-        return redirect('upload_documento')
+        return [], str(e)
 
-    documentos = DocumentoCliente.objects.order_by('-data_envio')[:20]
-    return render(request, 'upload_documento.html', {'documentos': documentos})
+
+def _documento_encontrado(cliente_ref, doc_id):
+    return next(
+        (d for d in sheets_repository.list_rows('Documentos')
+         if d.get('id') == doc_id and d.get('cliente_ref') == cliente_ref),
+        None,
+    )
+
+
+def _documento_display(doc):
+    """Enriquece a linha crua da planilha com campos prontos pro template
+    (evita chamar |date/get_FOO_display em texto vindo do Sheets)."""
+    data_envio_display = '-'
+    if doc.get('atualizado_em'):
+        try:
+            data_envio_display = datetime.fromisoformat(doc['atualizado_em']).strftime('%d/%m/%Y %H:%M')
+        except ValueError:
+            data_envio_display = doc['atualizado_em']
+
+    return {
+        **doc,
+        'tipo_documento_display': TIPO_DOCUMENTO_LABELS.get(doc.get('tipo_documento'), doc.get('tipo_documento', '')),
+        'data_envio_display': data_envio_display,
+        'tamanho_bytes': int(doc.get('tamanho_bytes') or 0),
+    }
+
+
+def _documento_to_json(pk, doc):
+    display = _documento_display(doc)
+    return {
+        'id': display.get('id', ''),
+        'nome_original': display.get('nome_original', ''),
+        'tipo_documento': display.get('tipo_documento', ''),
+        'tipo_documento_display': display['tipo_documento_display'],
+        'data_envio': display.get('atualizado_em', ''),
+        'tamanho_bytes': display['tamanho_bytes'],
+        'armazenamento': 'drive' if display.get('drive_file_id') else 'local_pendente',
+        'download_url': f"/planilha/{pk}/documentos/{display.get('id')}/download/",
+        'delete_url': f"/planilha/{pk}/documentos/{display.get('id')}/excluir/",
+    }
+
+
+def _get_or_create_cliente_drive_folder(registro):
+    """Pasta é criada só no primeiro upload (não na criação do cliente), pra
+    não sujar o Drive com pastas vazias de leads que nunca mandam documento."""
+    folder_id = registro.get('drive_folder_id')
+    if folder_id:
+        return folder_id
+
+    folder_id = drive_repository.get_or_create_client_folder(registro['id'], registro.get('cliente', ''))
+    try:
+        sheets_repository.update_row(
+            'Clientes', registro['id'], {'drive_folder_id': folder_id},
+            expected_atualizado_em=registro.get('atualizado_em'),
+        )
+    except sheets_repository.ConcurrencyError:
+        # Outra requisição concorrente (2 uploads quase juntos) já deve ter
+        # criado e salvo a pasta -- usa a que ficou salva em vez da nossa.
+        atual = sheets_repository.get_row('Clientes', registro['id'])
+        folder_id = (atual or {}).get('drive_folder_id') or folder_id
+    return folder_id
+
+
+def _salvar_documento_fallback_local(cliente_id, nome_arquivo, conteudo):
+    """Rede de segurança: usada só quando o upload pro Drive falha (API não
+    habilitada, sem rede, quota etc.) pra não perder o arquivo enviado. Não
+    há sincronização automática depois -- fica salvo aqui até alguém tratar
+    manualmente."""
+    nome_seguro = os.path.basename(nome_arquivo)
+    pasta_relativa = os.path.join('documentos_pendentes', str(cliente_id))
+    pasta_absoluta = os.path.join(settings.MEDIA_ROOT, pasta_relativa)
+    os.makedirs(pasta_absoluta, exist_ok=True)
+    nome_unico = f"{uuid.uuid4().hex}_{nome_seguro}"
+    with open(os.path.join(pasta_absoluta, nome_unico), 'wb') as f:
+        f.write(conteudo)
+    return os.path.join(pasta_relativa, nome_unico)
+
+
+def _enviar_documento_para_drive(registro, arquivo, tipo_documento, observacao=''):
+    """Retorna True se foi enviado ao Drive, False se caiu no fallback local
+    (Drive indisponível) -- os chamadores usam isso pra diferenciar a
+    mensagem exibida ao usuário."""
+    conteudo = arquivo.read()
+    campos_base = {
+        'cliente_ref': registro['id'],
+        'nome_cliente': registro.get('cliente', ''),
+        'nome_original': arquivo.name,
+        'tipo_documento': tipo_documento,
+        'tamanho_bytes': arquivo.size,
+        'observacao': observacao,
+    }
+    try:
+        folder_id = _get_or_create_cliente_drive_folder(registro)
+        uploaded = drive_repository.upload_file(
+            folder_id, arquivo.name, conteudo, arquivo.content_type or 'application/octet-stream',
+        )
+        sheets_repository.create_row('Documentos', {
+            **campos_base,
+            'drive_file_id': uploaded['id'],
+            'drive_view_url': uploaded.get('webViewLink', ''),
+            'local_path': '',
+        })
+        return True
+    except Exception:
+        logger.exception(
+            'Falha ao enviar documento pro Drive (cliente %s) -- salvando fallback local', registro['id'],
+        )
+        local_path = _salvar_documento_fallback_local(registro['id'], arquivo.name, conteudo)
+        sheets_repository.create_row('Documentos', {
+            **campos_base,
+            'drive_file_id': '',
+            'drive_view_url': '',
+            'local_path': local_path,
+        })
+        return False
 
 
 def documentos_cliente(request, pk):
@@ -894,7 +1141,7 @@ def documentos_cliente(request, pk):
         raise Http404('Cliente não encontrado na planilha.')
 
     if request.method == 'GET' and request.GET.get('format') == 'json':
-        documentos = DocumentoCliente.objects.filter(cliente_ref=pk).order_by('-data_envio')
+        documentos, erro = _documentos_do_cliente_seguro(pk)
         return JsonResponse({
             'registro': {
                 'id': registro.get('id', ''),
@@ -903,19 +1150,8 @@ def documentos_cliente(request, pk):
                 'cpf_cnpj': registro.get('cpf_cnpj', ''),
                 'tipo_certificado': registro.get('tipo_certificado', ''),
             },
-            'documentos': [
-                {
-                    'id': doc.id,
-                    'nome_original': doc.nome_original or os.path.basename(doc.arquivo.name),
-                    'tipo_documento': doc.tipo_documento,
-                    'tipo_documento_display': doc.get_tipo_documento_display(),
-                    'data_envio': doc.data_envio.isoformat() if doc.data_envio else '',
-                    'tamanho_bytes': doc.tamanho_bytes,
-                    'download_url': f'/planilha/{pk}/documentos/{doc.id}/download/',
-                    'delete_url': f'/planilha/{pk}/documentos/{doc.id}/excluir/',
-                }
-                for doc in documentos
-            ],
+            'documentos': [_documento_to_json(pk, doc) for doc in documentos],
+            'documentos_erro': erro,
         })
 
     if request.method == 'POST':
@@ -931,45 +1167,137 @@ def documentos_cliente(request, pk):
             messages.error(request, erro)
             return redirect('documentos_cliente', pk=pk)
 
-        DocumentoCliente.objects.create(
-            cliente_ref=pk,
-            nome_cliente=registro.get('cliente', ''),
-            arquivo=arquivo,
-            nome_original=arquivo.name,
-            tipo_documento=tipo_documento,
-            tamanho_bytes=arquivo.size,
-        )
-        messages.success(request, f'Documento "{arquivo.name}" enviado com sucesso.')
+        try:
+            enviado_ao_drive = _enviar_documento_para_drive(registro, arquivo, tipo_documento)
+        except Exception as e:
+            logger.exception('Falha ao registrar documento: cliente %s', pk)
+            messages.error(request, f'Falha ao enviar documento: {e}')
+            return redirect('documentos_cliente', pk=pk)
+
+        if enviado_ao_drive:
+            messages.success(request, f'Documento "{arquivo.name}" enviado com sucesso.')
+        else:
+            messages.warning(
+                request,
+                f'Não foi possível enviar "{arquivo.name}" ao Drive agora. '
+                'Foi salvo localmente e precisa ser sincronizado manualmente depois.',
+            )
         return redirect('documentos_cliente', pk=pk)
 
-    documentos = DocumentoCliente.objects.filter(cliente_ref=pk).order_by('-data_envio')
+    documentos, erro = _documentos_do_cliente_seguro(pk)
+    if erro:
+        messages.warning(request, 'Não foi possível carregar o histórico de documentos agora (planilha/Drive indisponível). Você ainda pode enviar um novo arquivo.')
     return render(request, 'documentos_cliente.html', {
         'registro': registro,
-        'documentos': documentos,
-        'tipos_documento': DocumentoCliente.TIPO_CHOICES,
+        'documentos': [_documento_display(d) for d in documentos],
+        'tipos_documento': TIPO_DOCUMENTO_CHOICES,
         'pk': pk,
     })
 
 
 def download_documento(request, pk, doc_id):
     # cliente_ref=pk exigido aqui evita IDOR: sem essa checagem, doc_id
-    # (PK sequencial) sozinho deixaria baixar documento de identidade
-    # (RG/CNH, selfie) de qualquer cliente só variando o número na URL.
-    documento = get_object_or_404(DocumentoCliente, pk=doc_id, cliente_ref=pk)
-    try:
-        arquivo = documento.arquivo.open('rb')
-    except FileNotFoundError:
+    # sozinho deixaria baixar documento de identidade (RG/CNH, selfie) de
+    # qualquer cliente só trocando o id na URL. Por isso o download também
+    # passa pelo servidor (proxy) em vez de redirecionar pro link do Drive
+    # -- o link do Drive não tem essa mesma checagem de permissão.
+    documento = _documento_encontrado(pk, doc_id)
+    if documento is None:
+        raise Http404('Documento não encontrado.')
+    nome = documento.get('nome_original') or 'documento'
+
+    if documento.get('drive_file_id'):
+        try:
+            conteudo = drive_repository.download_file(documento['drive_file_id'])
+        except Exception:
+            logger.exception('Falha ao baixar documento %s do Drive', doc_id)
+            raise Http404('Arquivo não encontrado no armazenamento.')
+        return FileResponse(io.BytesIO(conteudo), as_attachment=True, filename=nome)
+
+    # local_path vem da planilha (editável por admin) -- checagem abaixo é
+    # defesa em profundidade contra path traversal, não resposta a uma
+    # ameaça de usuário comum (que nunca escreve nessa coluna).
+    base_pendentes = os.path.realpath(os.path.join(settings.MEDIA_ROOT, 'documentos_pendentes'))
+    caminho = os.path.realpath(os.path.join(settings.MEDIA_ROOT, documento.get('local_path', '')))
+    if (
+        not documento.get('local_path')
+        or os.path.commonpath([base_pendentes, caminho]) != base_pendentes
+        or not os.path.exists(caminho)
+    ):
         raise Http404('Arquivo não encontrado no armazenamento.')
-    return FileResponse(arquivo, as_attachment=True, filename=documento.nome_original or os.path.basename(documento.arquivo.name))
+    return FileResponse(open(caminho, 'rb'), as_attachment=True, filename=nome)
 
 
+@permission_required('excluir_documento')
 @require_POST
 def excluir_documento(request, pk, doc_id):
-    documento = get_object_or_404(DocumentoCliente, pk=doc_id, cliente_ref=pk)
-    documento.arquivo.delete(save=False)
-    documento.delete()
+    documento = _documento_encontrado(pk, doc_id)
+    if documento is None:
+        raise Http404('Documento não encontrado.')
+
+    try:
+        if documento.get('drive_file_id'):
+            drive_repository.delete_file(documento['drive_file_id'])
+        elif documento.get('local_path'):
+            caminho = os.path.join(settings.MEDIA_ROOT, documento['local_path'])
+            if os.path.exists(caminho):
+                os.remove(caminho)
+    except Exception:
+        logger.exception('Falha ao excluir arquivo %s do armazenamento', doc_id)
+
+    sheets_repository.delete_row('Documentos', doc_id)
     messages.success(request, 'Documento removido.')
     return redirect('documentos_cliente', pk=pk)
+
+
+@admin_required
+def usuarios_gestao(request):
+    """Lista os usuários da aba Usuarios pra um admin editar tipo/permissões.
+    Gestão de usuário é sempre admin-only -- não é uma permissão delegável
+    como as outras (evita um vendedor com todas as chaves se auto-promover)."""
+    try:
+        usuarios = sheets_repository.list_rows('Usuarios')
+    except Exception:
+        logger.exception('Falha ao carregar a aba Usuarios da planilha')
+        usuarios = []
+    usuarios_view = []
+    for u in usuarios:
+        is_admin = (u.get('tipo') or '').strip().lower() == 'admin'
+        # Admin bypassa toda checagem de permissão -- mostra tudo marcado
+        # (reflete o que já é verdade), mas os checkboxes ficam disabled
+        # pra não gravar 'Sim' de verdade na planilha e virar permissão
+        # real se essa pessoa um dia for rebaixada a vendedor.
+        perm_items = [(key, True if is_admin else bool_from(u.get(f'perm_{key}'))) for key in PERM_KEYS]
+        usuarios_view.append({**u, 'is_admin': is_admin, 'perm_items': perm_items})
+    return render(request, 'usuarios.html', {'usuarios': usuarios_view, 'perm_keys': PERM_KEYS})
+
+
+@admin_required
+@require_POST
+def usuarios_atualizar(request, id):
+    """Atualiza tipo e permissões granulares de um usuário já existente.
+    Nunca lê/escreve a coluna 'password' aqui -- reset de senha continua
+    fora de escopo, só via create_sheets_user ou edição manual da planilha."""
+    fields = {}
+    tipo = request.POST.get('tipo')
+    if tipo is not None:
+        fields['tipo'] = tipo
+    for key in PERM_KEYS:
+        fields[f'perm_{key}'] = 'Sim' if request.POST.get(f'perm_{key}') else 'Não'
+
+    expected_atualizado_em = request.POST.get('expected_atualizado_em') or None
+    try:
+        sheets_repository.update_row('Usuarios', id, fields, expected_atualizado_em=expected_atualizado_em)
+        messages.success(request, 'Usuário atualizado com sucesso.')
+    except sheets_repository.ConcurrencyError:
+        messages.error(request, 'Este usuário foi alterado por outra pessoa nesse meio tempo. Recarregue a página e tente novamente.')
+    except LookupError:
+        raise Http404('Usuário não encontrado na planilha.')
+    except Exception:
+        logger.exception('Falha ao atualizar usuário %s', id)
+        messages.error(request, 'Falha ao salvar as alterações na planilha do Google. Tente novamente.')
+
+    return redirect('usuarios_gestao')
 
 
 @csrf_exempt

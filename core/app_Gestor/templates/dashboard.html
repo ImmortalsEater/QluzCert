@@ -16,8 +16,12 @@
     <style>
       /* Toast simples */
       .toast-container{position:fixed;right:16px;bottom:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:min(380px,calc(100vw - 32px))}
-      .toast{display:flex;align-items:flex-start;gap:8px;min-width:200px;padding:12px 14px;border-radius:10px;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,0.16);font-size:13px;line-height:1.4;opacity:0;transform:translateY(8px) scale(0.98);transition:opacity 200ms cubic-bezier(0.23,1,0.32,1),transform 200ms cubic-bezier(0.23,1,0.32,1)}
+      .toast{display:flex;align-items:flex-start;gap:8px;min-width:200px;padding:12px 14px;border-radius:10px;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,0.16);font-size:13px;line-height:1.4;opacity:0;transform:translateY(8px) scale(0.98);transition:opacity 200ms var(--ease-out-strong),transform 200ms var(--ease-out-strong)}
       .toast.toast-visible{opacity:1;transform:translateY(0) scale(1)}
+      @media (prefers-reduced-motion: reduce) {
+        .toast{transform:none;transition:opacity 200ms ease-out}
+        .toast.toast-visible{transform:none}
+      }
       .toast .toast-icon{flex-shrink:0;font-size:16px;line-height:1.4;margin-top:1px}
       .toast .toast-text{flex:1;word-break:break-word}
       .toast.success{background:var(--success)}
@@ -47,11 +51,26 @@
     <div class="nav-item" onclick="nav('planilha')"><i class="ti ti-table"></i>Planilha</div>
     <div class="nav-section">Operacional</div>
     <div class="nav-item" onclick="nav('renovacoes')"><i class="ti ti-bell"></i>Renovações <span class="nav-badge" id="ren-badge">0</span></div>
+    {% if user.is_superuser or perms.pagamentos %}
     <div class="nav-item" onclick="nav('pagamentos')"><i class="ti ti-cash"></i>Pagamentos <span class="nav-badge" id="pag-badge">0</span></div>
+    {% endif %}
+    {% if user.is_superuser or perms.parceiros %}
     <div class="nav-item" onclick="nav('parceiros')"><i class="ti ti-building"></i>Parceiros</div>
+    {% endif %}
+    {% if user.is_superuser or perms.precos %}
     <div class="nav-section">Configurações</div>
     <div class="nav-item" onclick="nav('tabela')"><i class="ti ti-currency-dollar"></i>Tabela de Preços</div>
-    <div class="sidebar-footer">v1.0 · Dados locais · <span id="total-count">0</span> clientes</div>
+    {% endif %}
+    {% if user.is_superuser %}
+    <div class="nav-item" onclick="location.href='{% url 'usuarios_gestao' %}'"><i class="ti ti-users-group"></i>Usuários</div>
+    {% endif %}
+    <div class="sidebar-footer">
+      v1.0 · Dados locais · <span id="total-count">0</span> clientes
+      <form method="post" action="{% url 'logout' %}" style="margin-top:6px">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm" style="width:100%;justify-content:center"><i class="ti ti-logout" aria-hidden="true"></i> Sair</button>
+      </form>
+    </div>
   </div>
 
   <div id="main">
@@ -123,7 +142,7 @@
               <option>Novo Lead</option><option>Documentação Pendente</option><option>Aguardando Pagamento</option><option>Agendado para Vídeo</option><option>Emitido</option>
             </select>
             <div class="column-selector-dropdown" style="position:relative">
-              <button type="button" class="btn btn-sm" id="column-selector-toggle"><i class="ti ti-columns"></i>Colunas <i class="ti ti-chevron-down chevron" style="margin-left:4px;font-size:11px"></i></button>
+              <button type="button" class="btn btn-sm" id="column-selector-toggle"><i class="ti ti-columns" aria-hidden="true"></i>Colunas <i class="ti ti-chevron-down chevron" style="margin-left:4px;font-size:11px" aria-hidden="true"></i></button>
               <div class="column-selector-panel" id="column-selector-panel">
                 <label class="column-toggle-label"><input type="checkbox" id="column-toggle-all"> <strong>Selecionar todas</strong></label>
                 <div class="column-selector-divider"></div>
@@ -136,14 +155,14 @@
           <div class="table-scroll">
             <table class="google-drive-table" id="planilha-table"{% if not google_rows %} style="display:none"{% endif %}>
               <thead><tr>
-                {% for col in google_columns %}<th class  ="{{ col.class }}"{% if not col.default_visible %} style="display:none"{% endif %}>{{ col.label }}</th>{% endfor %}
+                {% for col in google_columns %}<th class="{{ col.class }}{% if col.field in colunas_bloqueadas %} col-locked-header{% endif %}"{% if not col.default_visible %} style="display:none"{% endif %}>{{ col.label }}{% if col.field in colunas_bloqueadas %} <i class="ti ti-lock" title="Requer permissão de administrador"></i>{% endif %}</th>{% endfor %}
                 <th>Ações</th>
               </tr></thead>
               <tbody id="planilha-tbody">
                 {% for row in google_rows %}
                   <tr>
                     {% for cell in row.cells %}
-                      <td class="{{ cell.class }}"{% if not cell.default_visible %} style="display:none"{% endif %}>{{ cell.value }}</td>
+                      <td class="{{ cell.class }}{% if cell.locked %} col-locked{% endif %}"{% if not cell.default_visible %} style="display:none"{% endif %}>{{ cell.value }}</td>
                     {% endfor %}
                     <td>
 
@@ -233,6 +252,11 @@
     </div><!-- /content -->
   </div><!-- /main -->
 </div><!-- /app -->
+
+<script>
+  window.IS_ADMIN = {{ user.is_superuser|yesno:"true,false" }};
+  window.PERMS = {{ perms_json|safe }};
+</script>
 
 <!-- Mensagens de sucesso/erro do Django são exibidas como toasts (ver script no final da página) -->
 {% if messages %}

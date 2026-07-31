@@ -160,6 +160,8 @@ function renderClienteModal(box){
 
 // ==================== NOVO CLIENTE (Planilha real) ====================
 function renderNovoClienteModal(box){
+  const _podeVerComissao = window.IS_ADMIN || window.PERMS.comissoes;
+  const _podeVerFinanceiro = window.IS_ADMIN || window.PERMS.financeiro;
   box.innerHTML=`
   <div class="modal-head">
     <div>
@@ -198,9 +200,9 @@ function renderNovoClienteModal(box){
           </div>
           <div class="field"><label for="ng-datavenda">Data da Venda</label><input id="ng-datavenda" name="data_venda" type="date"></div>
           <div class="field"><label for="ng-datavenc">Data de Vencimento</label><input id="ng-datavenc" name="data_vencimento" type="date" readonly></div>
-          <div class="field"><label for="ng-valorvenda">Valor da Venda (R$)</label><input id="ng-valorvenda" name="valor_venda" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0,00"></div>
-          <div class="field"><label for="ng-percentual">Percentual de Comissão (%)</label><input id="ng-percentual" name="percentual_comissao" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0,00"></div>
-          <div class="field"><label for="ng-valorcomissao">Valor da Comissão (R$)</label><input id="ng-valorcomissao" name="valor_comissao" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0,00"></div>
+          <div class="field${_podeVerFinanceiro?'':' field-locked'}"><label for="ng-valorvenda">Valor da Venda (R$)${_podeVerFinanceiro?'':' <i class="ti ti-lock" title="Requer permissão de administrador"></i>'}</label><input id="ng-valorvenda" name="valor_venda" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0,00" ${_podeVerFinanceiro?'':'disabled'}></div>
+          <div class="field${_podeVerComissao?'':' field-locked'}"><label for="ng-percentual">Percentual de Comissão (%)${_podeVerComissao?'':' <i class="ti ti-lock" title="Requer permissão de administrador"></i>'}</label><input id="ng-percentual" name="percentual_comissao" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0,00" ${_podeVerComissao?'':'disabled'}></div>
+          <div class="field${_podeVerComissao?'':' field-locked'}"><label for="ng-valorcomissao">Valor da Comissão (R$)${_podeVerComissao?'':' <i class="ti ti-lock" title="Requer permissão de administrador"></i>'}</label><input id="ng-valorcomissao" name="valor_comissao" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0,00" ${_podeVerComissao?'':'disabled'}></div>
         </div>
       </fieldset>
       <fieldset class="modal-fieldset">
@@ -210,7 +212,7 @@ function renderNovoClienteModal(box){
           <div class="field"><label for="ng-banco">Banco</label><input id="ng-banco" name="banco" autocomplete="off"></div>
           <div class="field"><label for="ng-pix">Chave PIX</label><input id="ng-pix" name="chave_pix" autocomplete="off"></div>
           <div class="field"><label for="ng-pagovenda">Pago (Venda)</label><select id="ng-pagovenda" name="pago_venda"><option value="Não" selected>Não</option><option value="Sim">Sim</option></select></div>
-          <div class="field"><label for="ng-pagocomissao">Pago (Comissão)</label><select id="ng-pagocomissao" name="pago_comissao"><option value="Não" selected>Não</option><option value="Sim">Sim</option></select></div>
+          <div class="field${_podeVerComissao?'':' field-locked'}"><label for="ng-pagocomissao">Pago (Comissão)${_podeVerComissao?'':' <i class="ti ti-lock" title="Requer permissão de administrador"></i>'}</label><select id="ng-pagocomissao" name="pago_comissao" ${_podeVerComissao?'':'disabled'}><option value="Não" selected>Não</option><option value="Sim">Sim</option></select></div>
         </div>
       </fieldset>
     </form>

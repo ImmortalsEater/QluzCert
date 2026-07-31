@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -38,6 +40,36 @@ DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
 # (ex: "qcert.empresa.com,10.0.0.5") ao publicar com DEBUG=False.
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if h.strip()]
 
+# Defina DJANGO_CSRF_TRUSTED_ORIGINS como uma lista separada por vírgula de
+# origens completas (ex: "https://qcert.empresa.com") se o app for acessado
+# por HTTPS atrás de um domínio próprio.
+CSRF_TRUSTED_ORIGINS = [
+    o.strip() for o in os.environ.get('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()
+]
+
+if not DEBUG:
+    # Fora do modo de desenvolvimento, não deixa subir com a chave de
+    # fallback nem sem ALLOWED_HOSTS -- as duas coisas que o README pede
+    # pra configurar manualmente e são fáceis de esquecer.
+    if SECRET_KEY.startswith('django-insecure-'):
+        raise ImproperlyConfigured(
+            'DJANGO_DEBUG=False exige DJANGO_SECRET_KEY definida (a chave de '
+            'desenvolvimento não pode ser usada fora da rede interna).'
+        )
+    if not ALLOWED_HOSTS:
+        raise ImproperlyConfigured(
+            'DJANGO_DEBUG=False exige DJANGO_ALLOWED_HOSTS definida.'
+        )
+
+    # Hardening de cookies/transporte -- só faz sentido fora do runserver
+    # local em HTTP puro, por isso condicionado a DEBUG=False.
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 60 * 60 * 24 * 7  # 7 dias, sobe gradualmente depois de validar em produção
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+
 
 # Application definition
 
@@ -58,9 +90,33 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Exige login em toda view por padrão (Django 5.1+). Views que devem
+    # ficar públicas usam o decorator @login_not_required.
+    'django.contrib.auth.middleware.LoginRequiredMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+LOGIN_URL = '/login/'
+LOGIN_REDIRECT_URL = '/'
+
+# Não há servidor com disco persistente -- login/senha não podem depender do
+# SQLite local sobrevivendo entre execuções. Credenciais vivem na aba
+# 'Usuarios' da planilha (mesma fonte de verdade de Clientes/Parceiros/
+# Preços/Contatos); ver core/app_Gestor/auth_backends.py.
+AUTHENTICATION_BACKENDS = [
+    'core.app_Gestor.auth_backends.SheetsBackend',
+    # Fallback só para permitir `createsuperuser` + /admin/ localmente em
+    # máquina de desenvolvimento -- não afeta o fluxo normal de login, já
+    # que usuários vindos do SheetsBackend sempre têm senha local inutilizável.
+    'django.contrib.auth.backends.ModelBackend',
+]
+
+# Sessão inteira num cookie assinado no navegador em vez da tabela
+# django_session -- sobrevive a reinícios/redeploys sem disco persistente,
+# desde que DJANGO_SECRET_KEY fique estável entre execuções (já exigido
+# acima quando DEBUG=False).
+SESSION_ENGINE = 'django.contrib.sessions.backends.signed_cookies'
 
 ROOT_URLCONF = 'core.urls'
 
@@ -115,9 +171,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'pt-br'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'America/Sao_Paulo'
 
 USE_I18N = True
 
@@ -163,6 +219,14 @@ GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID', '1L-MX27Y6iwCOyd0e4FqLxZJyRFCpHIP
 # TTL (segundos) do cache de leitura em memória do sheets_repository — evita
 # que cada carregamento de tela de cada pessoa dispare uma chamada nova à API.
 GOOGLE_SHEETS_CACHE_TTL_SECONDS = int(os.getenv('GOOGLE_SHEETS_CACHE_TTL_SECONDS', '20'))
+
+# Pasta raiz no Google Drive onde as pastas por cliente são criadas (uma
+# subpasta "<id> - <nome>" por cliente, na primeira vez que um documento é
+# enviado). Precisa estar dentro de um Shared Drive (Workspace) compartilhado
+# com o email do service account (permissão Editor) -- uma pasta comum
+# compartilhada cria subpasta mas falha no upload (service account não tem
+# quota própria fora de Shared Drive). Ver drive_repository.py.
+GOOGLE_DRIVE_ROOT_FOLDER_ID = os.getenv('GOOGLE_DRIVE_ROOT_FOLDER_ID', '')
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -211,3 +275,11 @@ LOGGING = {
         },
     },
 }
+
+# Monitoramento de erros (opcional) -- só ativa se SENTRY_DSN estiver
+# definida; sem ela, é um no-op completo (dev local não precisa de conta).
+SENTRY_DSN = os.getenv('SENTRY_DSN', '')
+if SENTRY_DSN:
+    import sentry_sdk
+
+    sentry_sdk.init(dsn=SENTRY_DSN, send_default_pii=False, traces_sample_rate=0.0)
