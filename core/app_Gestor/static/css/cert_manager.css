@@ -54,9 +54,14 @@
   
   /* SIDEBAR */
   #sidebar{width:var(--sidebar-w);height:100vh;position:sticky;top:0;overflow-y:auto;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
-  .sidebar-logo{padding:8px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;align-items:center;gap:6px}
-  .logo-mark{width:auto;height: 72px}
-  .logo-sub{font-size:10px;color:var(--muted)}
+  .sidebar-logo{padding:8px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;align-items:center;gap:6px;position:relative;overflow:hidden}
+  .sidebar-logo::after{content:'';position:absolute;inset:0;background:var(--surface-alt);opacity:0;transition:opacity .15s ease;pointer-events:none}
+  .sidebar-logo:hover::after{opacity:.15}
+  .sidebar-logo:active::after{opacity:.25}
+  .sidebar-logo:active .logo-mark{transform:scale(.96)}
+  .logo-mark{width:auto;height: 72px;transition:transform .15s ease}
+  .logo-sub{font-size:10px;color:var(--muted);transition:color .15s ease}
+  .sidebar-logo:hover .logo-sub{color:var(--text)}
   .nav-section{padding:12px 8px 4px;font-size:10px;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase}
   .nav-section~.nav-section{margin:8px 12px 0;padding:12px 0 4px;border-top:1px solid var(--border)}
   .nav-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;margin:1px 6px;cursor:pointer;font-size:13px;color:var(--muted);transition:background-color .15s ease,color .15s ease}
