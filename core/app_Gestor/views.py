@@ -440,15 +440,13 @@ def cadastro_signup(request):
     if request.method != 'POST':
         return render(request, 'cadastro.html')
 
-    nome = request.POST.get('nome', '').strip()
-    email = request.POST.get('email', '').strip()
     username = request.POST.get('username', '').strip()
     senha = request.POST.get('senha', '')
     confirmar_senha = request.POST.get('confirmar_senha', '')
 
-    contexto = {'nome': nome, 'email': email, 'username': username}
+    contexto = {'username': username}
 
-    if not nome or not email or not username or not senha or not confirmar_senha:
+    if not username or not senha or not confirmar_senha:
         contexto['erro'] = 'Preencha todos os campos.'
         return render(request, 'cadastro.html', contexto)
 
@@ -465,8 +463,6 @@ def cadastro_signup(request):
             'username': username,
             'password': make_password(senha),
             'tipo': 'vendedor',
-            'nome': nome,
-            'email': email,
         })
     except Exception:
         logger.exception('Falha ao criar usuário via cadastro: %s', username)

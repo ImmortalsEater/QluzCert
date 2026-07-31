@@ -2067,7 +2067,7 @@ class CadastroSignupTests(DjangoTestCase):
     por um visitante anônimo (é a própria página que cria a conta)."""
 
     def test_get_renders_form(self):
-        response = self.client.get(reverse('cadastro_preview'))
+        response = self.client.get(reverse('cadastro'))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, '<form method="post">')
@@ -2075,8 +2075,7 @@ class CadastroSignupTests(DjangoTestCase):
     def test_success_creates_vendedor_with_hashed_password_and_redirects(self):
         with patch.object(repo, 'list_rows', return_value=[]), \
              patch.object(repo, 'create_row', return_value={'id': 'USR-xxxxxxxx'}) as mock_create:
-            response = self.client.post(reverse('cadastro_preview'), {
-                'nome': 'Ana Silva', 'email': 'ana@example.com',
+            response = self.client.post(reverse('cadastro'), {
                 'username': 'ana.silva', 'senha': 'senha-forte-123',
                 'confirmar_senha': 'senha-forte-123',
             })
@@ -2093,8 +2092,7 @@ class CadastroSignupTests(DjangoTestCase):
     def test_mismatched_passwords_shows_error_and_does_not_create(self):
         with patch.object(repo, 'list_rows', return_value=[]), \
              patch.object(repo, 'create_row') as mock_create:
-            response = self.client.post(reverse('cadastro_preview'), {
-                'nome': 'Ana Silva', 'email': 'ana@example.com',
+            response = self.client.post(reverse('cadastro'), {
                 'username': 'ana.silva', 'senha': 'senha-a',
                 'confirmar_senha': 'senha-b',
             })
@@ -2106,9 +2104,8 @@ class CadastroSignupTests(DjangoTestCase):
     def test_missing_field_shows_error_and_does_not_create(self):
         with patch.object(repo, 'list_rows', return_value=[]), \
              patch.object(repo, 'create_row') as mock_create:
-            response = self.client.post(reverse('cadastro_preview'), {
-                'nome': '', 'email': 'ana@example.com',
-                'username': 'ana.silva', 'senha': 'senha-forte-123',
+            response = self.client.post(reverse('cadastro'), {
+                'username': '', 'senha': 'senha-forte-123',
                 'confirmar_senha': 'senha-forte-123',
             })
 
@@ -2119,8 +2116,7 @@ class CadastroSignupTests(DjangoTestCase):
     def test_duplicate_username_shows_error_and_does_not_create(self):
         with patch.object(repo, 'list_rows', return_value=[{'username': 'ana.silva'}]), \
              patch.object(repo, 'create_row') as mock_create:
-            response = self.client.post(reverse('cadastro_preview'), {
-                'nome': 'Ana Silva', 'email': 'ana@example.com',
+            response = self.client.post(reverse('cadastro'), {
                 'username': 'ana.silva', 'senha': 'senha-forte-123',
                 'confirmar_senha': 'senha-forte-123',
             })
@@ -2132,8 +2128,7 @@ class CadastroSignupTests(DjangoTestCase):
     def test_create_row_failure_shows_generic_error(self):
         with patch.object(repo, 'list_rows', return_value=[]), \
              patch.object(repo, 'create_row', side_effect=Exception('sem credenciais')):
-            response = self.client.post(reverse('cadastro_preview'), {
-                'nome': 'Ana Silva', 'email': 'ana@example.com',
+            response = self.client.post(reverse('cadastro'), {
                 'username': 'ana.silva', 'senha': 'senha-forte-123',
                 'confirmar_senha': 'senha-forte-123',
             })
@@ -2152,8 +2147,7 @@ class CadastroSignupTests(DjangoTestCase):
 
         with patch.object(repo, 'list_rows', return_value=[]), \
              patch.object(repo, 'create_row', side_effect=fake_create_row):
-            self.client.post(reverse('cadastro_preview'), {
-                'nome': 'Ana Silva', 'email': 'ana@example.com',
+            self.client.post(reverse('cadastro'), {
                 'username': 'ana.silva', 'senha': 'senha-forte-123',
                 'confirmar_senha': 'senha-forte-123',
             })

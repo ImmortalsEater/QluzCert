@@ -21,43 +21,33 @@
     <form method="post">
       {% csrf_token %}
 
-      <h1>Criar Conta</h1>
+      <h1 class="enter" style="--i:0">Criar Conta</h1>
 
       {% if erro %}
-        <p role="alert" style="color:#fff;background:rgba(195,28,30,0.6);border-radius:8px;padding:10px 15px;margin-bottom:15px;font-size:14px;text-align:center;">
+        <p class="enter" style="--i:1;color:#fff;background:rgba(195,28,30,0.6);border-radius:8px;padding:10px 15px;margin-bottom:15px;font-size:14px;text-align:center;" role="alert">
           {{ erro }}
         </p>
       {% endif %}
 
-      <div class="input-box">
-        <input name="nome" value="{{ nome|default:'' }}" placeholder="Nome completo" type="text" required>
-        <i class="bx bxs-user" aria-hidden="true"></i>
-      </div>
-
-      <div class="input-box">
-        <input name="email" value="{{ email|default:'' }}" placeholder="E-mail" type="email" required>
-        <i class="bx bxs-envelope" aria-hidden="true"></i>
-      </div>
-
-      <div class="input-box">
+      <div class="input-box enter" style="--i:2">
         <input name="username" value="{{ username|default:'' }}" placeholder="Usuário" type="text" required>
         <i class="bx bxs-id-card" aria-hidden="true"></i>
       </div>
 
-      <div class="input-box">
+      <div class="input-box enter" style="--i:3">
         <input name="senha" placeholder="Senha" type="password" required>
         <i class="bx bxs-lock-alt" aria-hidden="true"></i>
       </div>
 
-      <div class="input-box">
+      <div class="input-box enter" style="--i:4">
         <input name="confirmar_senha" placeholder="Confirmar senha" type="password" required>
         <i class="bx bxs-lock-alt" aria-hidden="true"></i>
       </div>
 
-      <button type="submit" class="login">Cadastrar</button>
+      <button type="submit" class="login enter" style="--i:5">Cadastrar</button>
 
-      <div class="register-link">
-        <p>Já tem uma conta? <a href="{% url 'login_preview' %}">Faça login</a></p>
+      <div class="register-link enter" style="--i:6">
+        <p>Já tem uma conta? <a href="{% url 'login' %}">Faça login</a></p>
       </div>
 
     </form>

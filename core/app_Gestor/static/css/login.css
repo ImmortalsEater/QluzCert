@@ -26,11 +26,10 @@ body {
     width: 90%;
     max-width: 420px;
     background-color: rgba(95, 140, 197, 0.5);
-    border: 2px solid rgba(255, 255, 255, 0.2);
-    border-radius: 10px;
+    border-radius: 20px;
     color: #fff;
     padding: 30px 40px;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2) inset, 0 8px 24px rgba(0, 0, 0, 0.25);
 }
 
 .container h1 {
@@ -53,11 +52,15 @@ body {
     height: 100%;
     background-color: rgb(255, 255, 255);
     border-radius: 40px;
-    border: 2px solid rgba(255, 255, 255, 0.2);
+    border: none;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
     outline: none;
     font-size: 16px;
     color: rgb(7, 7, 75);
     padding: 20px 45px 20px 20px;
+    transition-property: box-shadow;
+    transition-duration: 0.2s;
+    transition-timing-function: ease;
 }
 
 .input-box input::placeholder {
@@ -65,7 +68,7 @@ body {
 }
 
 .input-box input:focus {
-    border-color: #fff;
+    box-shadow: 0 0 0 2px #2451b8, 0 0 12px rgba(36, 81, 184, 0.35);
 }
 
 .input-box i {
@@ -75,27 +78,6 @@ body {
     transform: translateY(-50%);
     font-size: 20px;
     color: rgb(3, 3, 50);
-}
-
-.remember-forgot {
-    display: flex;
-    justify-content: space-between;
-    font-size: 14px;
-    margin: -10px 0 15px;
-}
-
-.remember-forgot label input {
-    accent-color: #fff;
-    margin-right: 5px;
-}
-
-.remember-forgot a {
-    text-decoration: none;
-    color: #fff;
-}
-
-.remember-forgot a:hover {
-    text-decoration: underline;
 }
 
 .login {
@@ -109,13 +91,59 @@ body {
     color: #333;
     font-weight: 600;
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-    transition: background-color 0.3s, border 0.3s, color 0.3s;
+    transition-property: background-color, border, color, transform;
+    transition-duration: 0.3s, 0.3s, 0.3s, 0.15s;
+    transition-timing-function: ease, ease, ease, cubic-bezier(0.2, 0, 0, 1);
 }
 
 .login:hover {
     background-color: transparent;
     border: 2px solid rgba(255, 255, 255, 0.5);
     color: #fff;
+}
+
+.login:active {
+    transform: scale(0.96);
+}
+
+.login:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}
+
+.login-secondary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 50px;
+    margin-top: 15px;
+    background-color: transparent;
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    border-radius: 40px;
+    cursor: pointer;
+    font-size: 16px;
+    color: #fff;
+    font-weight: 600;
+    text-decoration: none;
+    transition-property: background-color, border-color, color, transform;
+    transition-duration: 0.3s, 0.3s, 0.3s, 0.15s;
+    transition-timing-function: ease, ease, ease, cubic-bezier(0.2, 0, 0, 1);
+}
+
+.login-secondary:hover {
+    background-color: #fff;
+    border-color: #fff;
+    color: #333;
+}
+
+.login-secondary:active {
+    transform: scale(0.96);
+}
+
+.login-secondary:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
 }
 
 .register-link {
@@ -125,6 +153,9 @@ body {
 }
 
 .register-link a {
+    display: inline-block;
+    padding: 13px 6px;
+    margin: -13px -6px;
     color: #fff;
     text-decoration: none;
     font-weight: 600;
@@ -140,4 +171,28 @@ body {
     text-align: center;
     margin-bottom: 25px;
     color: rgba(255, 255, 255, 0.85);
+}
+
+@keyframes card-enter {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.enter {
+    opacity: 0;
+    animation: card-enter 0.4s cubic-bezier(0.2, 0, 0, 1) forwards;
+    animation-delay: calc(var(--i, 0) * 90ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .enter {
+        animation: none;
+        opacity: 1;
+    }
 }
