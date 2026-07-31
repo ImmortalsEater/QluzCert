@@ -73,6 +73,7 @@
     <div class="topbar">
       <span class="topbar-title" id="page-title">Dashboard</span>
       <div class="topbar-actions" id="topbar-actions"></div>
+      <span class="topbar-divider" aria-hidden="true"></span>
       <div class="user-menu" style="position:relative">
         <button type="button" class="user-menu-trigger btn" id="user-menu-toggle" aria-haspopup="true" aria-expanded="false">
           <span class="user-avatar">{{ user.get_full_name|default:user.username|first|upper }}</span>
@@ -85,7 +86,7 @@
             {% if user.is_superuser %}
             <span class="user-menu-role role-admin">Administrador</span>
             {% else %}
-            <span class="user-menu-role">Vendedor</span>
+            <span class="user-menu-role role-vendedor">Vendedor</span>
             {% endif %}
           </div>
           <div class="action-menu-divider"></div>

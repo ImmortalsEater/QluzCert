@@ -308,6 +308,69 @@
   width: 100%;
 }
 
+/* ---------- Segmented group ---------- */
+/* Related actions that should read as one toolbar instead of separate
+   floating pills — e.g. the topbar's "Atualizar agora" + "Salvar" pair.
+   Corners live on `.btn-segment-start`/`-end` rather than :first-child/
+   :last-child, since a dropdown wrapper can sit between segments (as it
+   does for "Salvar") and would break child-position matching. */
+.btn-segmented {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+}
+
+.btn-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: none;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.btn-segment:hover {
+  background: var(--surface-alt);
+}
+
+.btn-segment:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  position: relative;
+  z-index: 1;
+}
+
+.btn-segment-start {
+  border-radius: 20px 0 0 20px;
+}
+
+.btn-segment-end {
+  border-radius: 0 20px 20px 0;
+}
+
+.btn-segmented > .btn-segment-end,
+.btn-segmented > .btn-segment-end-wrap {
+  border-left: 1px solid var(--border);
+}
+
+.btn-segment-primary {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn-segment-primary:hover {
+  background: var(--accent-hover);
+}
+
 /* ---------- Loading state ---------- */
 /* Keeps the button's footprint and label in the DOM (no layout shift,
    no text reflow) and swaps in a spinner in its place. */

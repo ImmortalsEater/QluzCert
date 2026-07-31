@@ -42,8 +42,8 @@
     --secondary:#1c2a5e;
     --secondary-hover:#14204a;
     --secondary-bg:#dde1f0;
-    --tertiary:#b8860b;
-    --tertiary-hover:#8f6a08;
+    --tertiary:#7d5b07;
+    --tertiary-hover:#644807;
     --tertiary-bg:#f4e8c8;
     --quaternary:#b8501f;
     --quaternary-hover:#943f18;
@@ -76,6 +76,7 @@
   .topbar{height:var(--hdr);background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0}
   .topbar-title{font-family:'Bricolage Grotesque',Inter,sans-serif;font-size:16px;font-weight:600;letter-spacing:-0.01em;color:var(--text)}
   .topbar-actions{margin-left:auto;display:flex;gap:8px}
+  .topbar-divider{width:1px;align-self:stretch;margin:10px 2px;background:var(--border-strong)}
   .user-menu-trigger{gap:8px}
   .user-avatar{display:flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--accent);color:#fff;font-size:9px;font-weight:700;flex-shrink:0}
   .user-menu-name{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -87,6 +88,7 @@
   .user-menu-fullname{font-size:13px;font-weight:600;color:var(--text)}
   .user-menu-role{display:inline-flex;align-items:center;width:fit-content;padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg);color:var(--muted-strong);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
   .user-menu-role.role-admin{background:var(--accent-light);color:var(--accent);border-color:var(--accent-light)}
+  .user-menu-role.role-vendedor{background:var(--tertiary-bg);color:var(--tertiary);border-color:var(--tertiary-bg)}
 
   #content{flex:1;overflow-y:auto;padding:20px}
   
