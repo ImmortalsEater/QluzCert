@@ -25,6 +25,7 @@ _TAB_PREFIXES = {
 
 _service = None
 _cache = {}  # tab -> (rows, fetched_at_monotonic)
+_sheet_id_cache = {}  # tab -> sheetId (gid) -- estático em runtime, só recriar a aba na planilha muda
 
 
 class ConcurrencyError(Exception):
@@ -93,9 +94,14 @@ def _invalidate(tab):
 
 def invalidate_cache(tab=None):
     """Força a próxima leitura de `tab` (ou de todas as abas, se omitido) a
-    buscar dados frescos da API em vez de servir do cache em memória."""
+    buscar dados frescos da API em vez de servir do cache em memória.
+
+    `_sheet_id_cache` só é limpo aqui (forma global, sem `tab`) -- o sheetId
+    de uma aba não muda quando uma linha é criada/editada/apagada, então
+    limpá-lo a cada `_invalidate(tab)` anularia o ganho de cachear."""
     if tab is None:
         _cache.clear()
+        _sheet_id_cache.clear()
     else:
         _invalidate(tab)
 
