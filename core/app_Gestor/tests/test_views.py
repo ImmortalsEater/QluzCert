@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.contrib.auth.hashers import make_password
+from django.contrib.auth.hashers import check_password, make_password
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.test import TestCase as DjangoTestCase
@@ -2059,3 +2059,108 @@ class PermissionRequiredTests(DjangoTestCase):
         self.assertEqual(called_fields['tipo'], 'vendedor')
         self.assertEqual(called_fields['perm_parceiros'], 'Sim')
         self.assertEqual(called_fields['perm_precos'], 'Não')
+
+
+@override_settings(GOOGLE_SHEET_ID='fake-sheet-id')
+class CadastroSignupTests(DjangoTestCase):
+    """Sem login automático -- cadastro é público, precisa ser acessível
+    por um visitante anônimo (é a própria página que cria a conta)."""
+
+    def test_get_renders_form(self):
+        response = self.client.get(reverse('cadastro_preview'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '<form method="post">')
+
+    def test_success_creates_vendedor_with_hashed_password_and_redirects(self):
+        with patch.object(repo, 'list_rows', return_value=[]), \
+             patch.object(repo, 'create_row', return_value={'id': 'USR-xxxxxxxx'}) as mock_create:
+            response = self.client.post(reverse('cadastro_preview'), {
+                'nome': 'Ana Silva', 'email': 'ana@example.com',
+                'username': 'ana.silva', 'senha': 'senha-forte-123',
+                'confirmar_senha': 'senha-forte-123',
+            })
+
+        self.assertRedirects(response, reverse('login'))
+        tab, fields = mock_create.call_args.args
+        self.assertEqual(tab, 'Usuarios')
+        self.assertEqual(fields['username'], 'ana.silva')
+        self.assertEqual(fields['tipo'], 'vendedor')
+        self.assertTrue(check_password('senha-forte-123', fields['password']))
+        for key in PERM_KEYS:
+            self.assertNotIn(f'perm_{key}', fields)
+
+    def test_mismatched_passwords_shows_error_and_does_not_create(self):
+        with patch.object(repo, 'list_rows', return_value=[]), \
+             patch.object(repo, 'create_row') as mock_create:
+            response = self.client.post(reverse('cadastro_preview'), {
+                'nome': 'Ana Silva', 'email': 'ana@example.com',
+                'username': 'ana.silva', 'senha': 'senha-a',
+                'confirmar_senha': 'senha-b',
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'As senhas não coincidem.')
+        mock_create.assert_not_called()
+
+    def test_missing_field_shows_error_and_does_not_create(self):
+        with patch.object(repo, 'list_rows', return_value=[]), \
+             patch.object(repo, 'create_row') as mock_create:
+            response = self.client.post(reverse('cadastro_preview'), {
+                'nome': '', 'email': 'ana@example.com',
+                'username': 'ana.silva', 'senha': 'senha-forte-123',
+                'confirmar_senha': 'senha-forte-123',
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Preencha todos os campos.')
+        mock_create.assert_not_called()
+
+    def test_duplicate_username_shows_error_and_does_not_create(self):
+        with patch.object(repo, 'list_rows', return_value=[{'username': 'ana.silva'}]), \
+             patch.object(repo, 'create_row') as mock_create:
+            response = self.client.post(reverse('cadastro_preview'), {
+                'nome': 'Ana Silva', 'email': 'ana@example.com',
+                'username': 'ana.silva', 'senha': 'senha-forte-123',
+                'confirmar_senha': 'senha-forte-123',
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Esse usuário já existe.')
+        mock_create.assert_not_called()
+
+    def test_create_row_failure_shows_generic_error(self):
+        with patch.object(repo, 'list_rows', return_value=[]), \
+             patch.object(repo, 'create_row', side_effect=Exception('sem credenciais')):
+            response = self.client.post(reverse('cadastro_preview'), {
+                'nome': 'Ana Silva', 'email': 'ana@example.com',
+                'username': 'ana.silva', 'senha': 'senha-forte-123',
+                'confirmar_senha': 'senha-forte-123',
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Não foi possível concluir o cadastro. Tente novamente.')
+
+    def test_created_user_can_then_log_in(self):
+        """Confere a ponta a ponta: a senha gravada pelo cadastro precisa
+        bater com o check_password que o SheetsBackend usa no login real."""
+        captured = {}
+
+        def fake_create_row(tab, fields):
+            captured.update(fields)
+            return {**fields, 'id': 'USR-xxxxxxxx'}
+
+        with patch.object(repo, 'list_rows', return_value=[]), \
+             patch.object(repo, 'create_row', side_effect=fake_create_row):
+            self.client.post(reverse('cadastro_preview'), {
+                'nome': 'Ana Silva', 'email': 'ana@example.com',
+                'username': 'ana.silva', 'senha': 'senha-forte-123',
+                'confirmar_senha': 'senha-forte-123',
+            })
+
+        with patch.object(repo, 'list_rows', side_effect=lambda tab: [captured] if tab == 'Usuarios' else []):
+            response = self.client.post(reverse('login'), {
+                'username': 'ana.silva', 'password': 'senha-forte-123',
+            })
+
+        self.assertRedirects(response, reverse('dashboard'))

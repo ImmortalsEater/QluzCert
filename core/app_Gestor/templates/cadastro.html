@@ -18,27 +18,39 @@
 
   <main class="container">
 
-    <form>
+    <form method="post">
+      {% csrf_token %}
 
       <h1>Criar Conta</h1>
 
+      {% if erro %}
+        <p role="alert" style="color:#fff;background:rgba(195,28,30,0.6);border-radius:8px;padding:10px 15px;margin-bottom:15px;font-size:14px;text-align:center;">
+          {{ erro }}
+        </p>
+      {% endif %}
+
       <div class="input-box">
-        <input placeholder="Nome completo" type="text" required>
+        <input name="nome" value="{{ nome|default:'' }}" placeholder="Nome completo" type="text" required>
         <i class="bx bxs-user" aria-hidden="true"></i>
       </div>
 
       <div class="input-box">
-        <input placeholder="E-mail" type="email" required>
+        <input name="email" value="{{ email|default:'' }}" placeholder="E-mail" type="email" required>
         <i class="bx bxs-envelope" aria-hidden="true"></i>
       </div>
 
       <div class="input-box">
-        <input placeholder="Senha" type="password" required>
+        <input name="username" value="{{ username|default:'' }}" placeholder="Usuário" type="text" required>
+        <i class="bx bxs-id-card" aria-hidden="true"></i>
+      </div>
+
+      <div class="input-box">
+        <input name="senha" placeholder="Senha" type="password" required>
         <i class="bx bxs-lock-alt" aria-hidden="true"></i>
       </div>
 
       <div class="input-box">
-        <input placeholder="Confirmar senha" type="password" required>
+        <input name="confirmar_senha" placeholder="Confirmar senha" type="password" required>
         <i class="bx bxs-lock-alt" aria-hidden="true"></i>
       </div>
 

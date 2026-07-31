@@ -3,6 +3,8 @@ from functools import wraps
 from .models import DocumentoCliente, PagamentoCliente
 from django.shortcuts import render, redirect
 from django.urls import reverse
+from django.contrib.auth.hashers import make_password
+from django.contrib.auth.decorators import login_not_required
 from django.views.generic import TemplateView
 from django.contrib import messages
 from django.utils.decorators import method_decorator
@@ -433,8 +435,46 @@ class LoginPreviewView(TemplateView):
     template_name = 'login.html'
 
 
-class CadastroPreviewView(TemplateView):
-    template_name = 'cadastro.html'
+@login_not_required
+def cadastro_signup(request):
+    if request.method != 'POST':
+        return render(request, 'cadastro.html')
+
+    nome = request.POST.get('nome', '').strip()
+    email = request.POST.get('email', '').strip()
+    username = request.POST.get('username', '').strip()
+    senha = request.POST.get('senha', '')
+    confirmar_senha = request.POST.get('confirmar_senha', '')
+
+    contexto = {'nome': nome, 'email': email, 'username': username}
+
+    if not nome or not email or not username or not senha or not confirmar_senha:
+        contexto['erro'] = 'Preencha todos os campos.'
+        return render(request, 'cadastro.html', contexto)
+
+    if senha != confirmar_senha:
+        contexto['erro'] = 'As senhas não coincidem.'
+        return render(request, 'cadastro.html', contexto)
+
+    if any(row.get('username') == username for row in sheets_repository.list_rows('Usuarios')):
+        contexto['erro'] = 'Esse usuário já existe.'
+        return render(request, 'cadastro.html', contexto)
+
+    try:
+        sheets_repository.create_row('Usuarios', {
+            'username': username,
+            'password': make_password(senha),
+            'tipo': 'vendedor',
+            'nome': nome,
+            'email': email,
+        })
+    except Exception:
+        logger.exception('Falha ao criar usuário via cadastro: %s', username)
+        contexto['erro'] = 'Não foi possível concluir o cadastro. Tente novamente.'
+        return render(request, 'cadastro.html', contexto)
+
+    messages.success(request, 'Cadastro realizado! Faça login para continuar.')
+    return redirect('login')
 
 
 class RecuperarSenhaPreviewView(TemplateView):
