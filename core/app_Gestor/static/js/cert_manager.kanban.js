@@ -26,8 +26,88 @@ async function mudarStatusLead(id, novoStatus){
 function getOrdemColuna(status){ return DB.get('kanban_ordem_' + status) || []; }
 function setOrdemColuna(status, ids){ DB.set('kanban_ordem_' + status, ids); }
 
+// Filtro por parceiro do funil -- fica em memória (não persiste), só some
+// cards de outros parceiros visualmente (esmaece) pra não perder a noção
+// do funil inteiro enquanto foca numa rodada de follow-up.
+let kanbanFiltroParceiro = null; // null = "Todos" | '__none__' = sem parceiro | nome do parceiro
+function setFiltroParceiro(nome){
+  kanbanFiltroParceiro = (kanbanFiltroParceiro === nome) ? null : nome;
+  renderKanban();
+}
+function leadMatchesFiltroParceiro(l){
+  if(!kanbanFiltroParceiro) return true;
+  if(kanbanFiltroParceiro === '__none__') return !l.parceiro;
+  return l.parceiro === kanbanFiltroParceiro;
+}
+function renderFiltroParceiros(){
+  const el = document.getElementById('funil-filtros');
+  if(!el) return;
+  const nomes = [...new Set(leads.map(l=>l.parceiro).filter(Boolean))].sort();
+  if(!nomes.length){ el.innerHTML=''; el.style.display='none'; return; }
+  el.style.display='';
+  const semParceiroCount = leads.filter(l=>!l.parceiro).length;
+  const chip = (valor, label, count)=>`<button type="button" class="funil-filtro-chip${kanbanFiltroParceiro===valor?' active':''}" onclick="setFiltroParceiro(${valor===null?'null':`'${String(valor).replace(/'/g,"\\'")}'`})">${escapeHtml(label)} (${count})</button>`;
+  el.innerHTML = [
+    chip(null, 'Todos', leads.length),
+    ...nomes.map(n=>chip(n, n, leads.filter(l=>l.parceiro===n).length)),
+    semParceiroCount ? chip('__none__', 'Sem parceiro', semParceiroCount) : ''
+  ].join('');
+}
+
+function clearDropPlaceholder(){
+  document.querySelectorAll('.drop-placeholder').forEach(el=>el.remove());
+}
+
+// Menu de status do card -- mesmo padrão do #action-menu-dropdown (elemento
+// único reaproveitado por todos os cards, position:fixed calculado em JS
+// pra não ser cortado pelo overflow do board). Substitui o antigo
+// <select> nativo por um gatilho colorido (cor do status atual) que abre
+// esse menu, no mesmo estilo dos outros dropdowns do app.
+function closeKanbanStatusMenu(){
+  const menu = document.getElementById('kanban-status-menu');
+  if(!menu) return;
+  menu.classList.remove('open');
+  menu.dataset.forId = '';
+}
+
+function openKanbanStatusMenu(e, id){
+  e.stopPropagation();
+  const menu = document.getElementById('kanban-status-menu');
+  if(!menu) return;
+  const wasOpenForThisLead = menu.classList.contains('open') && menu.dataset.forId === id;
+  closeKanbanStatusMenu();
+  if(typeof closeActionMenu === 'function') closeActionMenu();
+  document.getElementById('column-selector-panel')?.classList.remove('open');
+  document.getElementById('save-menu')?.classList.remove('open');
+  document.getElementById('user-menu-panel')?.classList.remove('open');
+  if(wasOpenForThisLead) return;
+
+  const lead = leads.find(l=>l.id===id);
+  if(!lead) return;
+  menu.dataset.forId = id;
+  menu.innerHTML = STATUS_LIST.map(st=>`<button type="button" class="action-menu-item" role="menuitem" onclick="closeKanbanStatusMenu(); mudarStatusLead('${id}', '${st.replace(/'/g,"\\'")}')">${st===lead.status?'<i class="ti ti-check"></i>':'<i></i>'}${escapeHtml(st)}</button>`).join('');
+
+  const btn = e.currentTarget;
+  const rect = btn.getBoundingClientRect();
+  menu.classList.add('open');
+  const menuRect = menu.getBoundingClientRect();
+  let top = rect.bottom + 6;
+  let left = rect.left;
+  if(left + menuRect.width > window.innerWidth - 8) left = window.innerWidth - menuRect.width - 8;
+  let flipped = false;
+  if(top + menuRect.height > window.innerHeight - 8){ top = rect.top - menuRect.height - 6; flipped = true; }
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+  menu.style.transformOrigin = flipped ? 'bottom left' : 'top left';
+}
+
+document.addEventListener('click', closeKanbanStatusMenu);
+document.addEventListener('scroll', closeKanbanStatusMenu, true);
+window.addEventListener('resize', closeKanbanStatusMenu);
+
 // ==================== KANBAN ====================
 function renderKanban(){
+  renderFiltroParceiros();
   const board=document.getElementById('kanban-board');
   board.innerHTML=STATUS_LIST.map((s,i)=>{
     let cards=leads.filter(l=>l.status===s);
@@ -42,16 +122,21 @@ function renderKanban(){
     }
     return`<div class="kanban-col" ondragover="handleKanbanDragOver(event)" ondragleave="handleKanbanDragLeave(event)" ondrop="handleKanbanDrop(event,'${s}')">
       <div class="kanban-col-head" style="color:${KANBAN_COLORS[i]}">${s} <span style="background:${KANBAN_COLORS[i]}22;color:${KANBAN_COLORS[i]};padding:1px 7px;border-radius:10px;font-size:11px">${cards.length}</span></div>
-      ${cards.map(l=>`<div class="kanban-card" draggable="true" data-lead-id="${l.id}" onclick="openDetail('${l.id}')" ondragstart="handleKanbanDragStart(event,'${l.id}')" ondragend="handleKanbanDragEnd(event)" ondragover="handleCardDragOver(event)">
+      ${cards.map(l=>`<div class="kanban-card${leadMatchesFiltroParceiro(l)?'':' dimmed'}" draggable="true" data-lead-id="${l.id}" onclick="openDetail('${l.id}')" ondragstart="handleKanbanDragStart(event,'${l.id}')" ondragend="handleKanbanDragEnd(event)" ondragover="handleCardDragOver(event)">
+        <i class="ti ti-grip-vertical kanban-card-grip" aria-hidden="true"></i>
         <div class="kanban-card-name">${escapeHtml(l.nome)}</div>
         <div class="kanban-card-sub">${escapeHtml(l.tipoCert)||'Tipo não definido'}</div>
         <div class="kanban-card-footer">
           ${!l.pago&&l.dataVencimento&&daysUntil(l.dataVencimento)<=30?`<span class="parceiro-tag" style="font-size:10px;background:${daysUntil(l.dataVencimento)<0?'var(--danger)':'var(--warn)'}22;color:${daysUntil(l.dataVencimento)<0?'var(--danger)':'var(--warn)'}">${daysUntil(l.dataVencimento)<0?`Pagamento vencido há ${Math.abs(daysUntil(l.dataVencimento))} dias`:'Pagamento pendente'}</span>`:''}
           ${l.parceiro?`<span class="parceiro-tag" style="font-size:10px">${escapeHtml(l.parceiro)}</span>`:''}
         </div>
-        <select class="kanban-status-select" onclick="event.stopPropagation()" onchange="mudarStatusLead('${l.id}', this.value)">
-          ${STATUS_LIST.map(st=>`<option${l.status===st?' selected':''}>${st}</option>`).join('')}
-        </select>
+        ${!l.pago&&Number(l.valorCobrado)>0?`<div class="valor-chip${Number(l.valorCobrado)>=200?' valor-chip-alto':''}">${fmtMoney(l.valorCobrado)} em aberto</div>`:''}
+        <div class="kanban-status-block">
+          <div class="kanban-status-eyebrow">Status</div>
+          <button type="button" class="kanban-status-trigger" style="background:color-mix(in srgb, ${KANBAN_COLORS[statusIndex(l.status)]} 14%, transparent);border-color:${KANBAN_COLORS[statusIndex(l.status)]};color:${KANBAN_COLORS[statusIndex(l.status)]}" onclick="openKanbanStatusMenu(event,'${l.id}')">
+            <span>${escapeHtml(l.status)}</span><i class="ti ti-chevron-down"></i>
+          </button>
+        </div>
       </div>`).join('')}
     </div>`;
   }).join('');
@@ -65,32 +150,40 @@ function handleKanbanDragStart(event, id){
 
 function handleKanbanDragEnd(event){
   event.currentTarget.classList.remove('dragging');
-  document.querySelectorAll('.kanban-card.drag-over-top,.kanban-card.drag-over-bottom').forEach(el=>{
-    el.classList.remove('drag-over-top','drag-over-bottom');
-  });
+  clearDropPlaceholder();
 }
 
 function handleKanbanDragOver(event){
   event.preventDefault();
   event.dataTransfer.dropEffect = 'move';
   event.currentTarget.classList.add('drag-over');
+  // Só cria o placeholder de "fim da coluna" quando o cursor está sobre a
+  // área vazia da coluna, não sobre um card (esse caso já é tratado --e
+  // interrompido via stopPropagation-- por handleCardDragOver).
+  if(event.target === event.currentTarget){
+    clearDropPlaceholder();
+    const placeholder = document.createElement('div');
+    placeholder.className = 'drop-placeholder';
+    event.currentTarget.appendChild(placeholder);
+  }
 }
 
 function handleKanbanDragLeave(event){
   event.currentTarget.classList.remove('drag-over');
 }
 
-// Ao arrastar sobre outro card (não a coluna), marca visualmente se o card
-// arrastado vai ser inserido antes ou depois dependendo da metade sobre a
-// qual o cursor está.
+// Ao arrastar sobre outro card (não a coluna), ocupa o lugar de verdade
+// onde o card vai cair com um slot tracejado, em vez de só marcar borda.
 function handleCardDragOver(event){
   event.preventDefault();
   event.stopPropagation();
   const card = event.currentTarget;
   const rect = card.getBoundingClientRect();
   const isAfter = (event.clientY - rect.top) > (rect.height / 2);
-  card.classList.toggle('drag-over-top', !isAfter);
-  card.classList.toggle('drag-over-bottom', isAfter);
+  clearDropPlaceholder();
+  const placeholder = document.createElement('div');
+  placeholder.className = 'drop-placeholder';
+  if(isAfter){ card.after(placeholder); } else { card.before(placeholder); }
 }
 
 function handleKanbanDrop(event, novoStatus){
@@ -98,24 +191,21 @@ function handleKanbanDrop(event, novoStatus){
   event.currentTarget.classList.remove('drag-over');
   const id = event.dataTransfer.getData('text/plain');
   const lead = leads.find(l=>l.id===id);
+  const placeholder = event.currentTarget.querySelector('.drop-placeholder');
+  clearDropPlaceholder();
   if(!lead) return;
 
   if(lead.status === novoStatus){
-    const targetCard = event.target.closest('.kanban-card');
     const cardsNaColuna = leads.filter(l => l.status === novoStatus).map(l => l.id);
     let ordemAtual = getOrdemColuna(novoStatus);
     if(!ordemAtual.length) ordemAtual = cardsNaColuna.slice();
     ordemAtual = ordemAtual.filter(cid => cardsNaColuna.includes(cid));
     cardsNaColuna.forEach(cid => { if(!ordemAtual.includes(cid)) ordemAtual.push(cid); });
     ordemAtual = ordemAtual.filter(cid => cid !== id);
-    if(targetCard){
-      const targetId = targetCard.dataset.leadId;
-      const isAfter = targetCard.classList.contains('drag-over-bottom');
-      const targetIdx = ordemAtual.indexOf(targetId);
-      ordemAtual.splice(isAfter ? targetIdx + 1 : targetIdx, 0, id);
-    } else {
-      ordemAtual.push(id);
-    }
+    const nextCard = placeholder && placeholder.nextElementSibling && placeholder.nextElementSibling.classList.contains('kanban-card')
+      ? placeholder.nextElementSibling : null;
+    const insertIdx = nextCard ? ordemAtual.indexOf(nextCard.dataset.leadId) : -1;
+    ordemAtual.splice(insertIdx < 0 ? ordemAtual.length : insertIdx, 0, id);
     setOrdemColuna(novoStatus, ordemAtual);
     renderKanban();
     return;

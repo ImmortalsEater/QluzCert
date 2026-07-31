@@ -206,6 +206,7 @@
           <button class="btn btn-secondary" onclick="openModal('novoCliente', null, this)"><i class="ti ti-plus"></i>Novo Lead</button>
           <span style="font-size:12px;color:var(--muted);margin-left:4px">Arraste os cards entre as colunas ou use o seletor para mudar o status</span>
         </div>
+        <div class="funil-filtros" id="funil-filtros"></div>
         <div class="kanban" id="kanban-board"></div>
       </div>
 
@@ -309,6 +310,11 @@
      cortado pelo overflow:hidden/auto das tabelas (ver openRowActionMenu). -->
 <div id="action-menu-dropdown" class="action-menu-dropdown" role="menu"></div>
 
+<!-- MENU DE STATUS DO CARD DO FUNIL -- mesmo padrão do menu acima (elemento
+     único reaproveitado por todos os cards via JS, position:fixed pra não
+     ser cortado pelo overflow do board -- ver openKanbanStatusMenu). -->
+<div id="kanban-status-menu" class="action-menu-dropdown" role="menu"></div>
+
 <!-- OVERLAY EXPORTAÇÃO -->
 <div id="export-overlay">
   <div class="export-box">
@@ -402,6 +408,7 @@
         // que cada um usa stopPropagation() no próprio clique e por isso
         // nunca enxerga o listener global de fechamento dos outros.
         if (typeof closeActionMenu === 'function') closeActionMenu();
+        if (typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
         document.getElementById('save-menu')?.classList.remove('open');
         document.getElementById('user-menu-panel')?.classList.remove('open');
         columnPanel.classList.toggle('open');
@@ -419,6 +426,7 @@
       userMenuToggle.addEventListener('click', function(e) {
         e.stopPropagation();
         if (typeof closeActionMenu === 'function') closeActionMenu();
+        if (typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
         document.getElementById('save-menu')?.classList.remove('open');
         document.getElementById('column-selector-panel')?.classList.remove('open');
         var willOpen = !userMenuPanel.classList.contains('open');

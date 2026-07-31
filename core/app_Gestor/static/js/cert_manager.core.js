@@ -80,6 +80,7 @@ function initSaveMenu(){
     e.stopPropagation();
     const wasOpen = menu.classList.contains('open');
     closeActionMenu();
+    if(typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
     document.getElementById('column-selector-panel')?.classList.remove('open');
     document.getElementById('user-menu-panel')?.classList.remove('open');
     menu.classList.toggle('open', !wasOpen);
@@ -567,6 +568,7 @@ function openRowActionMenu(e, id){
   // Só um popover flutuante aberto por vez: o painel de colunas da Planilha
   // e o menu "Salvar" também usam stopPropagation() no próprio botão, então
   // nunca veem o clique que abriria este menu -- fecha os dois aqui.
+  if(typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
   document.getElementById('column-selector-panel')?.classList.remove('open');
   document.getElementById('save-menu')?.classList.remove('open');
   document.getElementById('user-menu-panel')?.classList.remove('open');
