@@ -30,9 +30,19 @@ function setOrdemColuna(status, ids){ DB.set('kanban_ordem_' + status, ids); }
 // cards de outros parceiros visualmente (esmaece) pra não perder a noção
 // do funil inteiro enquanto foca numa rodada de follow-up.
 let kanbanFiltroParceiro = null; // null = "Todos" | '__none__' = sem parceiro | nome do parceiro
+// Só os N parceiros com mais leads aparecem direto -- com muitos parceiros
+// cadastrados a fila de chips ia crescer sem limite; o resto fica atrás de
+// um "+N parceiros" que expande a linha inteira (nada escondido, só dobrado).
+const KANBAN_FILTRO_TOP_N = 4;
+let kanbanFiltroParceirosExpandido = false;
+
 function setFiltroParceiro(nome){
   kanbanFiltroParceiro = (kanbanFiltroParceiro === nome) ? null : nome;
   renderKanban();
+}
+function toggleFiltroParceirosExpandido(){
+  kanbanFiltroParceirosExpandido = !kanbanFiltroParceirosExpandido;
+  renderFiltroParceiros();
 }
 function leadMatchesFiltroParceiro(l){
   if(!kanbanFiltroParceiro) return true;
@@ -42,15 +52,26 @@ function leadMatchesFiltroParceiro(l){
 function renderFiltroParceiros(){
   const el = document.getElementById('funil-filtros');
   if(!el) return;
-  const nomes = [...new Set(leads.map(l=>l.parceiro).filter(Boolean))].sort();
-  if(!nomes.length){ el.innerHTML=''; el.style.display='none'; return; }
-  el.style.display='';
+  const nomes = [...new Set(leads.map(l=>l.parceiro).filter(Boolean))];
   const semParceiroCount = leads.filter(l=>!l.parceiro).length;
+  const categorias = [
+    ...nomes.map(n=>({valor:n, label:n, count:leads.filter(l=>l.parceiro===n).length})),
+    ...(semParceiroCount ? [{valor:'__none__', label:'Sem parceiro', count:semParceiroCount}] : [])
+  ].sort((a,b)=>b.count-a.count || a.label.localeCompare(b.label));
+  if(!categorias.length){ el.innerHTML=''; el.style.display='none'; return; }
+  el.style.display='';
+
   const chip = (valor, label, count)=>`<button type="button" class="funil-filtro-chip${kanbanFiltroParceiro===valor?' active':''}" onclick="setFiltroParceiro(${valor===null?'null':`'${String(valor).replace(/'/g,"\\'")}'`})">${escapeHtml(label)} (${count})</button>`;
+
+  const podeColapsar = categorias.length > KANBAN_FILTRO_TOP_N;
+  const visiveis = (kanbanFiltroParceirosExpandido || !podeColapsar) ? categorias : categorias.slice(0, KANBAN_FILTRO_TOP_N);
+  const restantes = categorias.length - visiveis.length;
+
   el.innerHTML = [
     chip(null, 'Todos', leads.length),
-    ...nomes.map(n=>chip(n, n, leads.filter(l=>l.parceiro===n).length)),
-    semParceiroCount ? chip('__none__', 'Sem parceiro', semParceiroCount) : ''
+    ...visiveis.map(c=>chip(c.valor, c.label, c.count)),
+    restantes > 0 ? `<button type="button" class="funil-filtro-chip-more" onclick="toggleFiltroParceirosExpandido()">+${restantes} parceiro${restantes>1?'s':''}</button>` : '',
+    (podeColapsar && kanbanFiltroParceirosExpandido) ? `<button type="button" class="funil-filtro-chip-more" onclick="toggleFiltroParceirosExpandido()">mostrar menos</button>` : ''
   ].join('');
 }
 
@@ -127,8 +148,8 @@ function renderKanban(){
         <div class="kanban-card-name">${escapeHtml(l.nome)}</div>
         <div class="kanban-card-sub">${escapeHtml(l.tipoCert)||'Tipo não definido'}</div>
         <div class="kanban-card-footer">
-          ${!l.pago&&l.dataVencimento&&daysUntil(l.dataVencimento)<=30?`<span class="parceiro-tag" style="font-size:10px;background:${daysUntil(l.dataVencimento)<0?'var(--danger)':'var(--warn)'}22;color:${daysUntil(l.dataVencimento)<0?'var(--danger)':'var(--warn)'}">${daysUntil(l.dataVencimento)<0?`Pagamento vencido há ${Math.abs(daysUntil(l.dataVencimento))} dias`:'Pagamento pendente'}</span>`:''}
-          ${l.parceiro?`<span class="parceiro-tag" style="font-size:10px">${escapeHtml(l.parceiro)}</span>`:''}
+          ${!l.pago&&l.dataVencimento&&daysUntil(l.dataVencimento)<=30?(()=>{const vencTexto=daysUntil(l.dataVencimento)<0?`Pagamento vencido há ${Math.abs(daysUntil(l.dataVencimento))} dias`:'Pagamento pendente';return `<span class="kanban-venc-tag" title="${vencTexto}" style="color:${daysUntil(l.dataVencimento)<0?'var(--danger)':'var(--warn)'}">${vencTexto}</span>`})():''}
+          ${l.parceiro?`<span class="parceiro-tag" title="${escapeHtml(l.parceiro)}" style="font-size:10px">${escapeHtml(l.parceiro)}</span>`:''}
         </div>
         ${!l.pago&&Number(l.valorCobrado)>0?`<div class="valor-chip${Number(l.valorCobrado)>=200?' valor-chip-alto':''}">${fmtMoney(l.valorCobrado)} em aberto</div>`:''}
         <div class="kanban-status-block">

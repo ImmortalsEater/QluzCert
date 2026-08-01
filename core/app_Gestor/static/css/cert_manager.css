@@ -230,7 +230,7 @@
 
   /* KANBAN */
   .kanban{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;align-items:start}
-  .kanban-col{background:var(--bg);border-radius:10px;padding:10px;transition:background-color .15s;min-height:100vh}
+  .kanban-col{background:var(--bg);border-radius:10px;padding:10px;transition:background-color .15s;min-height:100vh;min-width:0}
   .kanban-col.drag-over{background:var(--accent-light)}
   .kanban-col-head{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
   .kanban-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;position:relative;transition:border-color 150ms ease,transform 150ms var(--ease-out-strong),opacity 150ms ease;cursor:grab}
@@ -239,7 +239,10 @@
   .kanban-card-grip{position:absolute;top:9px;right:9px;color:var(--muted);opacity:.45;font-size:12px;pointer-events:none}
   .kanban-card-name{font-size:13px;font-weight:600;margin-bottom:4px;padding-right:16px}
   .kanban-card-sub{font-size:11px;color:var(--muted)}
-  .kanban-card-footer{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+  .kanban-card-footer{display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin-top:8px}
+  .kanban-venc-tag{font-size:10px;font-weight:600}
+  .kanban-card-footer .kanban-venc-tag,
+  .kanban-card-footer .parceiro-tag{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .kanban-status-block{margin-top:9px}
   .kanban-status-eyebrow{font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:3px}
   .kanban-status-trigger{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:3px 9px;border:1px solid transparent;border-radius:20px;font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;transition:filter 120ms ease}
@@ -254,6 +257,8 @@
   .funil-filtro-chip{font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface);color:var(--muted-strong);cursor:pointer;font-family:inherit}
   .funil-filtro-chip:hover{background:var(--surface-alt);border-color:var(--border-strong)}
   .funil-filtro-chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
+  .funil-filtro-chip-more{font-size:11.5px;font-weight:700;padding:5px 12px;border-radius:20px;border:1px dashed var(--border-strong);background:none;color:var(--muted-strong);cursor:pointer;font-family:inherit}
+  .funil-filtro-chip-more:hover{background:var(--surface-alt)}
 
   @media (hover: hover) and (pointer: fine) {
     .kanban-card:hover{border-color:var(--border-strong);transform:translateY(-1px)}
