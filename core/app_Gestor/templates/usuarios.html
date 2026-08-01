@@ -11,11 +11,91 @@
   <link rel="apple-touch-icon" sizes="192x192" href="{% static 'img/favicon/favicon-192x192.png' %}">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
   <link rel="stylesheet" href="{% static 'css/cert_manager.css' %}">
+  <style>
+    .usuarios-wrap{max-width:720px;margin:0 auto;padding:24px}
+    .usuarios-sticky-head{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;
+      margin:0 -24px 20px;padding:16px 24px;background:color-mix(in srgb, var(--bg) 92%, transparent);
+      backdrop-filter:blur(6px);border-bottom:1px solid var(--border)}
+    .usuarios-sticky-head h1{margin:0;font-size:17px}
+    .voltar-link{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;
+      border:1px solid var(--border);color:var(--muted-strong);text-decoration:none;flex-shrink:0}
+    .voltar-link:hover{background:var(--surface-alt);border-color:var(--border-strong);color:var(--text)}
+    .voltar-link svg{width:14px;height:14px}
+    .usuarios-intro{font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.6}
+    .usuarios-intro code{background:var(--surface-alt);padding:1px 5px;border-radius:4px;font-size:12px}
+
+    .user-cards{display:flex;flex-direction:column;gap:10px}
+    .user-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+      transition:border-color 150ms ease,box-shadow 150ms ease}
+    .user-card:hover{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light)}
+    .user-card-head{display:flex;align-items:center;gap:10px;padding:12px 14px}
+    .usr-avatar{width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;font-size:11px;
+      font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    .user-card-name{font-size:13.5px;font-weight:700;color:var(--text)}
+    .user-card-sub{font-size:11px;color:var(--muted)}
+    .acesso-total-badge{font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:20px;
+      background:var(--success-bg);color:var(--success)}
+    .expand-btn{margin-left:auto;flex-shrink:0;width:26px;height:26px;border-radius:50%;border:1px solid var(--border);
+      background:var(--surface);color:var(--muted-strong);display:flex;align-items:center;justify-content:center;
+      cursor:pointer;padding:0}
+    .expand-btn:hover{background:var(--surface-alt);border-color:var(--border-strong)}
+    .user-card.editing .expand-btn{background:var(--accent-light);border-color:var(--accent);color:var(--accent)}
+    .expand-btn svg{width:12px;height:12px;transition:transform 150ms ease}
+    .user-card.editing .expand-btn svg{transform:rotate(180deg)}
+
+    .user-card-body{padding:0 14px 14px}
+    .user-card-body[hidden]{display:none}
+    .user-card-field{margin-bottom:12px;padding-top:12px;border-top:1px solid var(--border)}
+    .user-card-field label.field-label{display:block;font-size:10.5px;font-weight:700;letter-spacing:.04em;
+      text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+    .user-card-field select{padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:12.5px;
+      background:var(--surface);color:var(--text);font-family:inherit}
+
+    .perm-chips{display:flex;flex-wrap:wrap;gap:8px}
+    .perm-chip-input{position:absolute;opacity:0;width:1px;height:1px}
+    .perm-chip{display:inline-flex;font-size:13px;font-weight:600;padding:7px 15px;border-radius:20px;
+      border:1.5px solid var(--border);color:var(--muted-strong);cursor:pointer;user-select:none;
+      transition:background-color 120ms ease,border-color 120ms ease,color 120ms ease}
+    .perm-chip:hover{border-color:var(--border-strong)}
+    .perm-chip-input:checked + .perm-chip{background:var(--accent-light);border-color:var(--accent-light);color:var(--accent)}
+    .perm-chip-input.sensivel:checked + .perm-chip{background:var(--danger-bg);border-color:var(--danger-bg);color:var(--danger)}
+    .perm-chip-input:focus-visible + .perm-chip{outline:2px solid var(--accent);outline-offset:2px}
+
+    .user-card-foot{display:flex;align-items:center;gap:8px;margin-top:12px}
+    .btn-usr-primary{margin-left:auto;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:600;
+      border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;font-family:inherit;position:relative}
+    .btn-usr-primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+    .btn-usr-primary.is-loading{color:transparent;pointer-events:none}
+    .btn-usr-primary.is-loading::before{content:"";position:absolute;top:50%;left:50%;width:13px;height:13px;
+      margin:-6.5px 0 0 -6.5px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;
+      animation:usr-spin 700ms linear infinite}
+    @keyframes usr-spin{to{transform:rotate(360deg)}}
+    .saved-pill{display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:20px;font-size:12px;
+      font-weight:600;background:var(--success-bg);color:var(--success);margin-left:auto}
+    .saved-pill svg{width:12px;height:12px}
+    .save-error{font-size:11px;color:var(--danger)}
+
+    .btn-usr-excluir{padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid transparent;
+      background:none;color:var(--danger);cursor:pointer;font-family:inherit}
+    .btn-usr-excluir:hover{background:var(--danger-bg)}
+    .btn-usr-excluir:disabled{color:var(--muted);cursor:not-allowed}
+    .btn-usr-excluir:disabled:hover{background:none}
+    .user-card.is-removing{opacity:.4;pointer-events:none}
+
+    @media (prefers-reduced-motion: reduce){
+      .btn-usr-primary.is-loading::before{animation-duration:1400ms}
+    }
+  </style>
 </head>
 <body>
-  <div style="max-width:960px;margin:40px auto;padding:24px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,.05);">
-    <h1 style="margin-bottom:4px;font-size:22px;">Gestão de Usuários</h1>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:20px">
+  <div class="usuarios-wrap">
+    <div class="usuarios-sticky-head">
+      <a href="{% url 'dashboard' %}" class="voltar-link" aria-label="Voltar ao painel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      </a>
+      <h1>Gestão de Usuários</h1>
+    </div>
+    <p class="usuarios-intro">
       Tipo e permissões são gravados direto na aba Usuarios da planilha e valem a partir do próximo login da pessoa.
       Criar usuário novo ou trocar senha continua sendo feito via <code>create_sheets_user</code> — esta tela só edita usuários já existentes.
     </p>
@@ -27,54 +107,207 @@
     {% endif %}
 
     {% if usuarios %}
-      <table style="width:100%;border-collapse:collapse;font-size:14px;">
-        <thead>
-          <tr style="text-align:left;border-bottom:2px solid var(--border);">
-            <th style="padding:8px 4px;">Usuário</th>
-            <th style="padding:8px 4px;">Tipo</th>
-            {% for key in perm_keys %}
-              <th style="padding:8px 4px;text-align:center;">{{ key }}</th>
-            {% endfor %}
-            <th style="padding:8px 4px;">&nbsp;</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for usuario in usuarios %}
-            <tr style="border-bottom:1px solid var(--border);">
-              <form method="post" action="{% url 'usuarios_atualizar' usuario.id %}">
-                {% csrf_token %}
-                <input type="hidden" name="expected_atualizado_em" value="{{ usuario.atualizado_em }}">
-                <td style="padding:8px 4px;">{{ usuario.username }}</td>
-                <td style="padding:8px 4px;">
-                  <select name="tipo">
+      <div class="user-cards">
+        {% for usuario in usuarios %}
+          <div class="user-card editing" data-user-card>
+            <form method="post" action="{% url 'usuarios_atualizar' usuario.id %}" data-user-form>
+              {% csrf_token %}
+              <input type="hidden" name="expected_atualizado_em" value="{{ usuario.atualizado_em }}">
+              <div class="user-card-head">
+                <span class="usr-avatar">{{ usuario.username|first|upper }}</span>
+                <div>
+                  <div class="user-card-name">{{ usuario.username }}</div>
+                  <div class="user-card-sub">
+                    {% if usuario.is_admin %}Admin{% else %}Vendedor · <span data-perm-count>{{ usuario.perm_ativas }}</span> de {{ total_perms }} permissões ativas{% endif %}
+                  </div>
+                </div>
+                {% if usuario.is_admin %}<span class="acesso-total-badge">Acesso total</span>{% endif %}
+                <button type="button" class="expand-btn" aria-expanded="true" data-expand-toggle aria-label="Editar {{ usuario.username }}">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+              </div>
+              <div class="user-card-body" data-user-body>
+                <div class="user-card-field">
+                  <label class="field-label" for="tipo-{{ usuario.id }}">Tipo</label>
+                  <select name="tipo" id="tipo-{{ usuario.id }}">
                     <option value="vendedor" {% if not usuario.is_admin %}selected{% endif %}>Vendedor</option>
                     <option value="admin" {% if usuario.is_admin %}selected{% endif %}>Admin</option>
                   </select>
-                </td>
-                {% for key, checked in usuario.perm_items %}
-                  <td style="padding:8px 4px;text-align:center;">
-                    <input type="checkbox" name="perm_{{ key }}" {% if checked %}checked{% endif %} {% if usuario.is_admin %}disabled{% endif %}>
-                  </td>
-                {% endfor %}
-                <td style="padding:8px 4px;">
-                  <button type="submit" class="btn btn-sm">Salvar</button>
-                </td>
-              </form>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+                </div>
+                {% if not usuario.is_admin %}
+                  <div class="user-card-field">
+                    <label class="field-label">Permissões</label>
+                    <div class="perm-chips">
+                      {% for perm in usuario.perm_items %}
+                        <input type="checkbox" class="perm-chip-input{% if perm.sensitive %} sensivel{% endif %}"
+                               id="perm-{{ usuario.id }}-{{ perm.key }}" name="perm_{{ perm.key }}" {% if perm.checked %}checked{% endif %}>
+                        <label class="perm-chip" for="perm-{{ usuario.id }}-{{ perm.key }}">{{ perm.label }}</label>
+                      {% endfor %}
+                    </div>
+                  </div>
+                {% endif %}
+                <div class="user-card-foot" data-user-foot>
+                  <button type="button" class="btn-usr-excluir" data-excluir-btn data-id="{{ usuario.id }}"
+                          data-username="{{ usuario.username }}"
+                          {% if usuario.is_admin %}disabled title="Não é possível excluir uma conta admin"
+                          {% elif usuario.is_self %}disabled title="Você não pode excluir a própria conta"{% endif %}>Excluir usuário</button>
+                  <button type="submit" class="btn-usr-primary">Salvar alterações</button>
+                </div>
+              </div>
+            </form>
+          </div>
+        {% endfor %}
+      </div>
     {% else %}
       <p style="color:var(--muted, #888);">Nenhum usuário encontrado na aba Usuarios da planilha.</p>
     {% endif %}
 
     <p style="font-size:12px;color:var(--muted);margin-top:16px">
-      Admin sempre tem acesso total — os checkboxes aparecem marcados e travados (não editáveis) pra refletir isso, mas a planilha não é alterada com eles. Vendedor sem nenhuma marcada fica restrito ao básico (Dashboard, Funil, Clientes, Planilha, Renovações).
+      Admin sempre tem acesso total — por isso não mostra checkboxes de permissão (mudar o Tipo continua disponível).
+      Vendedor sem nenhuma marcada fica restrito ao básico (Dashboard, Funil, Clientes, Planilha, Renovações).
     </p>
+  </div>
 
-    <div style="margin-top:24px;">
-      <a href="{% url 'dashboard' %}" class="btn">Voltar ao painel</a>
+  <div class="modal-overlay" data-excluir-overlay>
+    <div class="modal" style="max-width:360px" role="dialog" aria-modal="true" aria-labelledby="excluir-modal-title">
+      <div class="modal-head">
+        <h2 id="excluir-modal-title">Excluir usuário</h2>
+      </div>
+      <div class="modal-body" style="font-size:13px;color:var(--muted-strong);line-height:1.5">
+        Excluir <strong data-excluir-modal-username style="color:var(--text)"></strong> da planilha? Essa ação não pode ser desfeita.
+        <div data-excluir-modal-error style="color:var(--danger);font-size:12px;margin-top:10px"></div>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn" data-excluir-cancelar>Cancelar</button>
+        <button type="button" class="btn btn-danger" data-excluir-confirmar>Excluir</button>
+      </div>
     </div>
   </div>
+
+  <script>
+    document.querySelectorAll('[data-expand-toggle]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var card = btn.closest('[data-user-card]');
+        var body = card.querySelector('[data-user-body]');
+        var willOpen = body.hidden;
+        body.hidden = !willOpen;
+        card.classList.toggle('editing', willOpen);
+        btn.setAttribute('aria-expanded', String(willOpen));
+      });
+    });
+
+    document.querySelectorAll('[data-user-form]').forEach(function(form){
+      var permCount = form.querySelector('[data-perm-count]');
+      if(permCount){
+        form.querySelectorAll('.perm-chip-input').forEach(function(cb){
+          cb.addEventListener('change', function(){
+            permCount.textContent = form.querySelectorAll('.perm-chip-input:checked').length;
+          });
+        });
+      }
+
+      form.addEventListener('submit', function(e){
+        e.preventDefault();
+        var btn = form.querySelector('.btn-usr-primary');
+        var foot = form.querySelector('[data-user-foot]');
+        var existingError = foot.querySelector('.save-error');
+        if(existingError) existingError.remove();
+        btn.classList.add('is-loading');
+        btn.disabled = true;
+
+        fetch(form.action, {
+          method: 'POST',
+          headers: {'X-Requested-With': 'XMLHttpRequest'},
+          body: new FormData(form),
+        })
+          .then(function(resp){ return resp.json().then(function(data){ return {ok: resp.ok, data: data}; }); })
+          .then(function(result){
+            btn.classList.remove('is-loading');
+            btn.disabled = false;
+            if(!result.ok){
+              var err = document.createElement('span');
+              err.className = 'save-error';
+              err.textContent = result.data.error || 'Falha ao salvar.';
+              foot.prepend(err);
+              return;
+            }
+            var expectedField = form.querySelector('[name=expected_atualizado_em]');
+            if(expectedField && result.data.atualizado_em) expectedField.value = result.data.atualizado_em;
+            var pill = document.createElement('span');
+            pill.className = 'saved-pill';
+            pill.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6 9 17l-5-5"/></svg>Salvo';
+            btn.replaceWith(pill);
+            setTimeout(function(){ pill.replaceWith(btn); }, 1600);
+          })
+          .catch(function(){
+            btn.classList.remove('is-loading');
+            btn.disabled = false;
+            var err = document.createElement('span');
+            err.className = 'save-error';
+            err.textContent = 'Falha de conexão. Tente novamente.';
+            foot.prepend(err);
+          });
+      });
+    });
+
+    var csrftoken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    var excluirOverlay = document.querySelector('[data-excluir-overlay]');
+    var excluirUsernameEl = document.querySelector('[data-excluir-modal-username]');
+    var excluirErrorEl = document.querySelector('[data-excluir-modal-error]');
+    var excluirConfirmBtn = document.querySelector('[data-excluir-confirmar]');
+    var excluirPendingBtn = null;
+
+    function openExcluirModal(triggerBtn){
+      excluirPendingBtn = triggerBtn;
+      excluirUsernameEl.textContent = triggerBtn.dataset.username;
+      excluirErrorEl.textContent = '';
+      excluirOverlay.classList.add('open');
+    }
+    function closeExcluirModal(){
+      excluirOverlay.classList.remove('open');
+      excluirPendingBtn = null;
+    }
+
+    document.querySelectorAll('[data-excluir-btn]').forEach(function(btn){
+      btn.addEventListener('click', function(){ openExcluirModal(btn); });
+    });
+    document.querySelector('[data-excluir-cancelar]').addEventListener('click', closeExcluirModal);
+    excluirOverlay.addEventListener('click', function(e){ if(e.target === excluirOverlay) closeExcluirModal(); });
+    document.addEventListener('keydown', function(e){
+      if(e.key === 'Escape' && excluirOverlay.classList.contains('open')) closeExcluirModal();
+    });
+
+    excluirConfirmBtn.addEventListener('click', function(){
+      if(!excluirPendingBtn) return;
+      var triggerBtn = excluirPendingBtn;
+      var card = triggerBtn.closest('[data-user-card]');
+      excluirErrorEl.textContent = '';
+      excluirConfirmBtn.classList.add('is-loading');
+      excluirConfirmBtn.disabled = true;
+
+      fetch('{% url "usuarios_excluir" "__ID__" %}'.replace('__ID__', triggerBtn.dataset.id), {
+        method: 'POST',
+        headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': csrftoken},
+      })
+        .then(function(resp){ return resp.json().then(function(data){ return {ok: resp.ok, data: data}; }); })
+        .then(function(result){
+          excluirConfirmBtn.classList.remove('is-loading');
+          excluirConfirmBtn.disabled = false;
+          if(!result.ok){
+            excluirErrorEl.textContent = result.data.error || 'Falha ao excluir.';
+            return;
+          }
+          closeExcluirModal();
+          card.classList.add('is-removing');
+          setTimeout(function(){ card.remove(); }, 200);
+        })
+        .catch(function(){
+          excluirConfirmBtn.classList.remove('is-loading');
+          excluirConfirmBtn.disabled = false;
+          excluirErrorEl.textContent = 'Falha de conexão. Tente novamente.';
+        });
+    });
+  </script>
 </body>
 </html>

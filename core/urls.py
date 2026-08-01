@@ -18,7 +18,7 @@ from django.contrib import admin
 from django.contrib.auth import views as auth_views
 from django.urls import path
 
-from core.app_Gestor.views import DashboardView, LoginPreviewView, cadastro_signup, RecuperarSenhaPreviewView, alertas_dashboard, atualizar_planilha, atualizar_status_cliente, atualizar_detalhe_cliente, verificar_registro_existe, editar_google_row, criar_google_row, cliente_excluir, contatos_cliente_registro, parceiro_criar, parceiro_editar, parceiro_excluir, preco_criar, preco_editar, preco_excluir, app_state_download, criar_pagamento_pix, webhook_mercado_pago, documentos_cliente, download_documento, excluir_documento, usuarios_gestao, usuarios_atualizar
+from core.app_Gestor.views import DashboardView, LoginPreviewView, cadastro_signup, RecuperarSenhaPreviewView, alertas_dashboard, atualizar_planilha, atualizar_status_cliente, atualizar_detalhe_cliente, verificar_registro_existe, editar_google_row, criar_google_row, cliente_excluir, contatos_cliente_registro, parceiro_criar, parceiro_editar, parceiro_excluir, preco_criar, preco_editar, preco_excluir, app_state_download, criar_pagamento_pix, webhook_mercado_pago, documentos_cliente, download_documento, excluir_documento, usuarios_gestao, usuarios_atualizar, usuarios_excluir
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -49,4 +49,5 @@ urlpatterns = [
     path('app_state_download/', app_state_download, name='app_state_download'),
     path('usuarios/', usuarios_gestao, name='usuarios_gestao'),
     path('usuarios/<str:id>/atualizar/', usuarios_atualizar, name='usuarios_atualizar'),
+    path('usuarios/<str:id>/excluir/', usuarios_excluir, name='usuarios_excluir'),
 ]

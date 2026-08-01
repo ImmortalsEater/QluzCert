@@ -22,7 +22,7 @@ import uuid
 from .models import AppState
 from . import sheets_repository
 from . import drive_repository
-from .parsing import parse_date, parse_decimal, bool_from, PERM_KEYS
+from .parsing import parse_date, parse_decimal, bool_from, PERM_KEYS, PERM_LABELS, PERM_SENSITIVE
 import io
 import pandas as pd
 from django.http import HttpResponse
@@ -1267,9 +1267,21 @@ def usuarios_gestao(request):
         # (reflete o que já é verdade), mas os checkboxes ficam disabled
         # pra não gravar 'Sim' de verdade na planilha e virar permissão
         # real se essa pessoa um dia for rebaixada a vendedor.
-        perm_items = [(key, True if is_admin else bool_from(u.get(f'perm_{key}'))) for key in PERM_KEYS]
-        usuarios_view.append({**u, 'is_admin': is_admin, 'perm_items': perm_items})
-    return render(request, 'usuarios.html', {'usuarios': usuarios_view, 'perm_keys': PERM_KEYS})
+        perm_items = [
+            {
+                'key': key,
+                'label': PERM_LABELS[key],
+                'checked': True if is_admin else bool_from(u.get(f'perm_{key}')),
+                'sensitive': key in PERM_SENSITIVE,
+            }
+            for key in PERM_KEYS
+        ]
+        perm_ativas = sum(1 for p in perm_items if p['checked'])
+        # Impede o admin logado de excluir a própria conta por engano e ficar
+        # trancado pra fora da tela que só admin acessa.
+        is_self = (u.get('username') or '') == request.user.username
+        usuarios_view.append({**u, 'is_admin': is_admin, 'perm_items': perm_items, 'perm_ativas': perm_ativas, 'is_self': is_self})
+    return render(request, 'usuarios.html', {'usuarios': usuarios_view, 'perm_keys': PERM_KEYS, 'total_perms': len(PERM_KEYS)})
 
 
 @admin_required
@@ -1286,18 +1298,49 @@ def usuarios_atualizar(request, id):
         fields[f'perm_{key}'] = 'Sim' if request.POST.get(f'perm_{key}') else 'Não'
 
     expected_atualizado_em = request.POST.get('expected_atualizado_em') or None
+    is_xhr = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
     try:
-        sheets_repository.update_row('Usuarios', id, fields, expected_atualizado_em=expected_atualizado_em)
+        atualizado = sheets_repository.update_row('Usuarios', id, fields, expected_atualizado_em=expected_atualizado_em)
+        if is_xhr:
+            return JsonResponse({'success': True, 'atualizado_em': atualizado.get('atualizado_em')})
         messages.success(request, 'Usuário atualizado com sucesso.')
     except sheets_repository.ConcurrencyError:
+        if is_xhr:
+            return JsonResponse({'error': 'Este usuário foi alterado por outra pessoa nesse meio tempo. Recarregue a página e tente novamente.'}, status=409)
         messages.error(request, 'Este usuário foi alterado por outra pessoa nesse meio tempo. Recarregue a página e tente novamente.')
     except LookupError:
+        if is_xhr:
+            return JsonResponse({'error': 'Usuário não encontrado na planilha.'}, status=404)
         raise Http404('Usuário não encontrado na planilha.')
     except Exception:
         logger.exception('Falha ao atualizar usuário %s', id)
+        if is_xhr:
+            return JsonResponse({'error': 'Falha ao salvar as alterações na planilha do Google. Tente novamente.'}, status=500)
         messages.error(request, 'Falha ao salvar as alterações na planilha do Google. Tente novamente.')
 
     return redirect('usuarios_gestao')
+
+
+@admin_required
+@require_POST
+def usuarios_excluir(request, id):
+    """Remove um usuário da aba Usuarios. Só a linha da planilha some -- não
+    mexe no login Django local (auth_user), que se ajusta sozinho: sem linha
+    correspondente na planilha, o SheetsBackend simplesmente nega o próximo
+    login dessa pessoa."""
+    usuario = sheets_repository.get_row('Usuarios', id)
+    if usuario and usuario.get('username') == request.user.username:
+        return JsonResponse({'error': 'Você não pode excluir a própria conta.'}, status=400)
+    if usuario and (usuario.get('tipo') or '').strip().lower() == 'admin':
+        return JsonResponse({'error': 'Não é possível excluir uma conta admin. Rebaixe pra vendedor antes, se for o caso.'}, status=400)
+    try:
+        sheets_repository.delete_row('Usuarios', id)
+        return JsonResponse({'success': True})
+    except LookupError:
+        return JsonResponse({'error': 'Usuário não encontrado.'}, status=404)
+    except Exception:
+        logger.exception('Falha ao excluir usuário %s', id)
+        return JsonResponse({'error': 'Falha ao excluir na planilha do Google. Tente novamente.'}, status=500)
 
 
 @csrf_exempt

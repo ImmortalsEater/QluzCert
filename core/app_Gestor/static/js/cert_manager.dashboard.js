@@ -26,10 +26,10 @@ function nav(page){
 
 function renderSaveActions(){
   const html = `
-    <div style="display:flex;align-items:center;gap:10px">
-      <button class="btn" id="atualizar-planilha-btn" onclick="atualizarPlanilha()"><i class="ti ti-refresh"></i>Atualizar agora</button>
-      <div class="save-dropdown" style="position:relative;display:inline-block">
-        <button class="btn" id="save-main-btn"><i class="ti ti-device-floppy"></i> Salvar <i class="ti ti-chevron-down" style="margin-left:6px;font-size:12px"></i></button>
+    <div class="btn-segmented">
+      <button class="btn-segment btn-segment-start" id="atualizar-planilha-btn" onclick="atualizarPlanilha()"><i class="ti ti-refresh"></i>Atualizar agora</button>
+      <div class="save-dropdown btn-segment-end-wrap" style="position:relative">
+        <button class="btn-segment btn-segment-end btn-segment-primary" id="save-main-btn"><i class="ti ti-device-floppy"></i>Salvar<i class="ti ti-chevron-down" style="margin-left:2px;font-size:12px"></i></button>
         <div id="save-menu" class="column-selector-panel">
           <button type="button" class="action-menu-item" id="save-local-btn"><i class="ti ti-device-floppy"></i>Salvar localmente</button>
           <button type="button" class="action-menu-item" id="export-btn"><i class="ti ti-download"></i>Exportar (.xlsx)</button>
@@ -77,12 +77,14 @@ function renderDashboard(){
   const podeVerFaturamento = window.IS_ADMIN || window.PERMS.pagamentos;
   const faturamentoCard = podeVerFaturamento
     ? `<div class="metric-card"><div class="metric-label">Faturamento Recebido</div><div class="metric-val" style="font-size:18px">${fmtMoney(faturamento)}</div><div class="metric-sub">pagamentos confirmados</div></div>`
-    : `<div class="metric-card locked-feature"><div class="metric-label">Faturamento Recebido</div><div class="metric-val" style="font-size:18px">R$ ••••</div><div class="metric-sub">pagamentos confirmados</div><div class="lock-overlay"><i class="ti ti-lock"></i><span>Requer permissão de administrador</span></div></div>`;
+    : `<div class="metric-card locked-feature"><div class="metric-label">Faturamento Recebido</div><div class="metric-val" style="font-size:18px">R$ ••••</div><div class="metric-sub">pagamentos confirmados</div><div class="lock-note"><i class="ti ti-lock"></i>Requer permissão de administrador</div></div>`;
 
+  const pctEmitidos = total ? Math.round(emitidos/total*100) : 0;
+  const pctVencendo = total ? Math.round(vencendo/total*100) : 0;
   document.getElementById('dashboard-metrics').innerHTML=`
-    <div class="metric-card accent"><div class="metric-label">Total de Clientes</div><div class="metric-val">${total}</div><div class="metric-sub">${aguardandoEmissao} aguardando emissão</div></div>
-    <div class="metric-card success"><div class="metric-label">Emitidos</div><div class="metric-val">${emitidos}</div><div class="metric-sub">${Math.round(total?emitidos/total*100:0)}% do total</div></div>
-    <div class="metric-card warn"><div class="metric-label">Renovações ≤60 dias</div><div class="metric-val">${vencendo}</div><div class="metric-sub">requerem contato</div></div>
+    <div class="metric-card accent"><div class="metric-label">Total de Clientes</div><div class="metric-val">${total}</div><div class="metric-sub">${aguardandoEmissao} aguardando emissão</div><div class="metric-ratio"><div class="metric-ratio-fill" style="width:${pctEmitidos}%"></div></div></div>
+    <div class="metric-card success"><div class="metric-label">Emitidos</div><div class="metric-val">${emitidos}</div><div class="metric-sub">${pctEmitidos}% do total</div><div class="metric-ratio"><div class="metric-ratio-fill" style="width:${pctEmitidos}%"></div></div></div>
+    <div class="metric-card warn"><div class="metric-label">Renovações ≤60 dias</div><div class="metric-val">${vencendo}</div><div class="metric-sub">requerem contato</div><div class="metric-ratio"><div class="metric-ratio-fill" style="width:${pctVencendo}%"></div></div></div>
     ${faturamentoCard}
   `;
   const urgentes=[...alertData.renovacoes.urgentes,...alertData.pagamentos.urgentes,...alertData.renovacoes.normais,...alertData.pagamentos.normais]
