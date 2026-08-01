@@ -7,6 +7,22 @@ import pandas as pd
 # e views.py (decorator permission_required) pra não duplicar a lista.
 PERM_KEYS = ['parceiros', 'precos', 'pagamentos', 'excluir_cliente', 'excluir_documento', 'comissoes', 'financeiro']
 
+# Rótulo legível de cada chave pra tela de Gestão de Usuários -- só exibição,
+# a chave crua continua sendo o que é lido/gravado na planilha.
+PERM_LABELS = {
+    'parceiros': 'Parceiros',
+    'precos': 'Preços',
+    'pagamentos': 'Pagamentos',
+    'excluir_cliente': 'Excluir cliente',
+    'excluir_documento': 'Excluir documento',
+    'comissoes': 'Comissões',
+    'financeiro': 'Financeiro',
+}
+
+# Permissões que concedem uma ação destrutiva -- ganham cor de aviso na UI
+# em vez da cor neutra usada pras demais.
+PERM_SENSITIVE = {'excluir_cliente', 'excluir_documento'}
+
 
 def parse_date(val):
     if val is None or val == '':
