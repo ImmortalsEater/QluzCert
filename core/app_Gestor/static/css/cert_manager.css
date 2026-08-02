@@ -217,6 +217,13 @@
   .col-locked-header .ti-lock{margin-left:4px;font-size:12px}
   td.col-locked{background:repeating-linear-gradient(45deg,var(--surface-alt),var(--surface-alt) 4px,transparent 4px,transparent 8px)}
 
+  /* So na Planilha (nao em Clientes, que usa .google-drive-table tambem) --
+     divisorias verticais reforcam que essa tela espelha uma aba real do
+     Google Sheets. :last-child sem borda evita duplicar com o box-shadow
+     da coluna "Acoes" fixa acima. */
+  #planilha-table th,#planilha-table td{border-right:1px solid var(--border)}
+  #planilha-table th:last-child,#planilha-table td:last-child{border-right:none}
+
   /* BADGES */
   .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600}
   .badge-novo{background:var(--info-bg);color:var(--info)}
