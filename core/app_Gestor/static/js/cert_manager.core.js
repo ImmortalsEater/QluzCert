@@ -81,6 +81,7 @@ function initSaveMenu(){
     const wasOpen = menu.classList.contains('open');
     closeActionMenu();
     if(typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
+    if(typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
     document.getElementById('column-selector-panel')?.classList.remove('open');
     document.getElementById('user-menu-panel')?.classList.remove('open');
     menu.classList.toggle('open', !wasOpen);
@@ -569,6 +570,7 @@ function openRowActionMenu(e, id){
   // e o menu "Salvar" também usam stopPropagation() no próprio botão, então
   // nunca veem o clique que abriria este menu -- fecha os dois aqui.
   if(typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
+  if(typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
   document.getElementById('column-selector-panel')?.classList.remove('open');
   document.getElementById('save-menu')?.classList.remove('open');
   document.getElementById('user-menu-panel')?.classList.remove('open');

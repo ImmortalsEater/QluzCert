@@ -243,15 +243,8 @@
         <div class="section-actions">
           <button class="btn btn-tertiary" onclick="openModal('parceiro')"><i class="ti ti-plus"></i>Novo Parceiro</button>
         </div>
-        <div class="table-wrap">
-          <div class="table-scroll">
-            <table>
-              <thead><tr><th>Nome / Escritório</th><th>Tipo</th><th>Comissão</th><th>Contato</th><th>Clientes Indicados</th><th>Ações</th></tr></thead>
-              <tbody id="parceiros-tbody"></tbody>
-            </table>
-          </div>
-          <div id="parceiros-empty" class="empty-state" style="display:none"><i class="ti ti-building"></i><p>Nenhum parceiro cadastrado.</p></div>
-        </div>
+        <div class="parceiros-grid" id="parceiros-grid"></div>
+        <div id="parceiros-empty" class="empty-state" style="display:none"><i class="ti ti-building"></i><p>Nenhum parceiro cadastrado.</p></div>
       </div>
 
       <!-- TABELA DE PREÇOS -->
@@ -314,6 +307,10 @@
      único reaproveitado por todos os cards via JS, position:fixed pra não
      ser cortado pelo overflow do board -- ver openKanbanStatusMenu). -->
 <div id="kanban-status-menu" class="action-menu-dropdown" role="menu"></div>
+
+<!-- MENU DE AÇÕES DO CARD DE PARCEIRO -- mesmo padrão dos dois acima (ver
+     openParceiroActionMenu em cert_manager.parceiros.js). -->
+<div id="parceiro-action-menu" class="action-menu-dropdown" role="menu"></div>
 
 <!-- OVERLAY EXPORTAÇÃO -->
 <div id="export-overlay">
@@ -409,6 +406,7 @@
         // nunca enxerga o listener global de fechamento dos outros.
         if (typeof closeActionMenu === 'function') closeActionMenu();
         if (typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
+        if (typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
         document.getElementById('save-menu')?.classList.remove('open');
         document.getElementById('user-menu-panel')?.classList.remove('open');
         columnPanel.classList.toggle('open');
@@ -427,6 +425,7 @@
         e.stopPropagation();
         if (typeof closeActionMenu === 'function') closeActionMenu();
         if (typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
+        if (typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
         document.getElementById('save-menu')?.classList.remove('open');
         document.getElementById('column-selector-panel')?.classList.remove('open');
         var willOpen = !userMenuPanel.classList.contains('open');

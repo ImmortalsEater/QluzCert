@@ -98,6 +98,7 @@ function openKanbanStatusMenu(e, id){
   const wasOpenForThisLead = menu.classList.contains('open') && menu.dataset.forId === id;
   closeKanbanStatusMenu();
   if(typeof closeActionMenu === 'function') closeActionMenu();
+  if(typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
   document.getElementById('column-selector-panel')?.classList.remove('open');
   document.getElementById('save-menu')?.classList.remove('open');
   document.getElementById('user-menu-panel')?.classList.remove('open');
