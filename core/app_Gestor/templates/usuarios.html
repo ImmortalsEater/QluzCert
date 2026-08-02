@@ -17,11 +17,11 @@
       margin:0 -24px 20px;padding:16px 24px;background:color-mix(in srgb, var(--bg) 92%, transparent);
       backdrop-filter:blur(6px);border-bottom:1px solid var(--border)}
     .usuarios-sticky-head h1{margin:0;font-size:17px}
-    .voltar-link{position:relative;display:flex;align-items:center;justify-content:center;width:28px;height:28px;
-      border-radius:50%;border:1px solid var(--border);color:var(--muted-strong);text-decoration:none;flex-shrink:0}
-    .voltar-link:hover{background:var(--surface-alt);border-color:var(--border-strong);color:var(--text)}
-    .voltar-link svg{width:14px;height:14px}
-    /* botao visualmente pequeno (28px), mas com area de toque de 40px --
+    .voltar-link{position:relative;display:flex;align-items:center;justify-content:center;width:36px;height:36px;
+      border-radius:50%;border:1px solid var(--accent);background:var(--accent-light);color:var(--accent);text-decoration:none;flex-shrink:0}
+    .voltar-link:hover{background:color-mix(in srgb, var(--accent-light) 70%, var(--accent-hover) 30%);border-color:var(--accent-hover);color:var(--accent-hover)}
+    .voltar-link svg{width:16px;height:16px}
+    /* area de toque de 40px garantida mesmo com o botao maior agora (36px) --
        mesma tecnica que .table-wrap .btn::after ja usa noutras telas */
     .voltar-link::after{content:"";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
       width:100%;height:100%;min-width:40px;min-height:40px}
