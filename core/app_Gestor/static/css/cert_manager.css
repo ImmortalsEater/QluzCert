@@ -336,7 +336,7 @@
   .parceiro-bar-label{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);
     text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
   .parceiro-bar-label .val{color:var(--text);font-weight:700;text-transform:none;letter-spacing:0;font-size:11px}
-  .parceiro-compbar{display:flex;height:10px;border-radius:20px;overflow:hidden;background:var(--border);margin-bottom:12px}
+  .parceiro-compbar{display:flex;height:4px;border-radius:2px;overflow:hidden;background:var(--border);margin-bottom:12px}
   .parceiro-compbar span{height:100%}
   .parceiro-legend{display:flex;flex-wrap:wrap;gap:6px 14px}
   .parceiro-legend-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted-strong)}
@@ -368,9 +368,26 @@
   .alert-detail{font-size:12px;color:var(--muted);margin-top:2px}
 
   /* SEARCH */
-  .search-box{display:flex;align-items:center;min-height:40px;border:1px solid var(--border);border-radius:7px;background:var(--surface);overflow:hidden;flex:1;max-width:300px}
-  .search-box i{padding:0 10px;color:var(--muted);font-size:16px}
+  .search-box{display:flex;align-items:center;min-height:40px;border:1px solid var(--border);border-radius:7px;background:var(--surface);overflow:hidden;flex:1;max-width:300px;
+    transition:border-color 150ms ease,background-color 150ms ease}
+  /* Foco só por borda + leve tingimento de fundo, sem box-shadow -- a caixa não
+     flutua, então segue a mesma regra de profundidade do resto do app (borda,
+     sombra reservada pra popovers/toasts). */
+  .search-box:focus-within{border-color:var(--accent);background:color-mix(in srgb, var(--accent) 5%, var(--surface))}
+  .search-box i{padding:0 10px;color:var(--muted);font-size:16px;transition:color 150ms ease}
+  .search-box:focus-within i{color:var(--accent)}
   .search-box input{border:none;outline:none;font-size:13px;padding:7px 0;width:100%;background:transparent}
+  /* Botão de limpar: nasce com a mesma receita de crossfade dos ícones do
+     app (escala+opacidade+blur), alvo de toque de 40px mesmo pequeno
+     visualmente, scale(.96) ao clicar. */
+  .search-box .clear-btn{border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:14px;
+    width:40px;height:40px;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+    opacity:0;transform:scale(.25);filter:blur(4px);pointer-events:none;
+    transition:opacity 180ms cubic-bezier(.2,0,0,1),transform 180ms cubic-bezier(.2,0,0,1),filter 180ms cubic-bezier(.2,0,0,1),color 150ms ease}
+  .search-box.has-value .clear-btn{opacity:1;transform:scale(1);filter:blur(0);pointer-events:auto}
+  .search-box.has-value .clear-btn:active{transform:scale(.96)}
+  .search-box .clear-btn:hover{color:var(--text)}
+  @media (prefers-reduced-motion: reduce){ .search-box .clear-btn{transition:opacity 120ms ease} }
   .result-count{font-size:12px;color:var(--muted);white-space:nowrap}
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 

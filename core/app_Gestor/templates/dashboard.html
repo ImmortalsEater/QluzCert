@@ -146,6 +146,7 @@
             <i class="ti ti-search" aria-hidden="true"></i>
             <label for="search-cliente" class="sr-only">Buscar cliente por nome, CPF, CNPJ, email ou telefone</label>
             <input type="text" id="search-cliente" placeholder="Buscar por nome, CPF ou CNPJ...">
+            <button type="button" class="clear-btn" aria-label="Limpar busca"><i class="ti ti-x" aria-hidden="true"></i></button>
           </div>
           <div class="filtrar-dropdown" style="position:relative">
             <button type="button" class="btn" id="filtrar-clientes-toggle" aria-haspopup="true" aria-expanded="false">
@@ -183,6 +184,7 @@
             <i class="ti ti-search" aria-hidden="true"></i>
             <label for="search-planilha" class="sr-only">Buscar por nome, CPF, CNPJ, email ou telefone</label>
             <input type="text" id="search-planilha" placeholder="Buscar por nome, CPF ou CNPJ...">
+            <button type="button" class="clear-btn" aria-label="Limpar busca"><i class="ti ti-x" aria-hidden="true"></i></button>
           </div>
           <div class="filtrar-dropdown" style="position:relative">
             <button type="button" class="btn" id="filtrar-planilha-toggle" aria-haspopup="true" aria-expanded="false">
@@ -565,6 +567,28 @@
     var searchPlanilha = document.getElementById('search-planilha');
     var debouncedFilterPlanilha = debounce(function(){ planilhaPage = 1; filterPlanilhaImportada(); }, 200);
     if (searchPlanilha) searchPlanilha.addEventListener('input', debouncedFilterPlanilha);
+
+    // Mostra/some o botão de limpar (".clear-btn") conforme o campo tem
+    // texto ou não, e faz o clique nele zerar a busca e focar de volta --
+    // compartilhado pelos dois campos de busca (Clientes e Planilha).
+    function wireSearchClear(input, onClear) {
+      if (!input) return;
+      var box = input.closest('.search-box');
+      var clearBtn = box ? box.querySelector('.clear-btn') : null;
+      function syncHasValue() { if (box) box.classList.toggle('has-value', input.value.length > 0); }
+      input.addEventListener('input', syncHasValue);
+      syncHasValue();
+      if (clearBtn) {
+        clearBtn.addEventListener('click', function() {
+          input.value = '';
+          syncHasValue();
+          input.focus();
+          onClear();
+        });
+      }
+    }
+    wireSearchClear(searchInput, function(){ clientesPage = 1; renderClientesSimples(); });
+    wireSearchClear(searchPlanilha, function(){ planilhaPage = 1; filterPlanilhaImportada(); });
 
     var initialTab = (location.hash || '').replace('#', '');
     if (initialTab && document.getElementById('view-' + initialTab)) {
