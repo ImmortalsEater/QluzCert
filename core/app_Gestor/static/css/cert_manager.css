@@ -227,6 +227,12 @@
   .badge-vencendo{background:var(--danger-bg);color:var(--danger-soft)}
   .badge-vencido{background:var(--danger-bg);color:var(--danger)}
 
+  /* Pago_Venda/Pago_Comissao na Planilha -- ponto + cor em vez de texto cinza puro */
+  .bool-sim{display:inline-flex;align-items:center;gap:5px;color:var(--success);font-weight:600}
+  .bool-sim .dot{width:6px;height:6px;border-radius:50%;background:var(--success)}
+  .bool-nao{display:inline-flex;align-items:center;gap:5px;color:var(--muted)}
+  .bool-nao .dot{width:6px;height:6px;border-radius:50%;background:var(--border-strong)}
+
   /* BUTTONS — see static/css/components/buttons.css, imported at the top of this file */
 
   /* FORMS */

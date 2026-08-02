@@ -21,6 +21,20 @@ function decoratePlanilhaStatusBadges(){
   });
 }
 
+// Pago_Venda/Pago_Comissao já chegam formatados como "Sim"/"Não" do backend
+// (_format_sheet_cell_value, _BOOL_FIELDS) -- aqui só acrescenta cor, sem
+// mudar o texto: verde pra "Sim" (mesmo token do badge "Emitido"), neutro
+// pra "Não".
+function decoratePlanilhaBoolBadges(){
+  document.querySelectorAll('#planilha-tbody td.col-pago-venda, #planilha-tbody td.col-pago-comissao').forEach(td=>{
+    const raw=td.textContent.trim();
+    if(td.dataset.decorated===raw) return;
+    td.dataset.decorated=raw;
+    if(raw==='Sim') td.innerHTML=`<span class="bool-sim"><span class="dot"></span>Sim</span>`;
+    else if(raw==='Não') td.innerHTML=`<span class="bool-nao"><span class="dot"></span>Não</span>`;
+  });
+}
+
 function filterPlanilhaImportada(){
   const statusFilterVal=document.getElementById('filter-status')?.value||'';
   const tbody=document.getElementById('planilha-tbody');
@@ -29,6 +43,7 @@ function filterPlanilhaImportada(){
   const msg=document.getElementById('planilha-empty-msg');
   if(!tbody||!table) return;
   decoratePlanilhaStatusBadges();
+  decoratePlanilhaBoolBadges();
   const dataRows=Array.from(tbody.querySelectorAll('tr'));
 
   if(!dataRows.length){
