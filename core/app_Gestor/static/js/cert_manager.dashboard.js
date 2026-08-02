@@ -9,6 +9,27 @@ const PAGE_CONFIG = {
   tabela:{title:'Tabela de Preços', render:renderTabela},
 }
 
+// ==================== PLANILHA: PRESETS DE COLUNAS ====================
+const PLANILHA_COLUMN_PRESETS = {
+  essencial: ['col-cliente','col-telefone1','col-status','col-data-vencimento'],
+  financeiro: ['col-cliente','col-telefone1','col-status','col-data-vencimento',
+    'col-valor-venda','col-percentual','col-valor-comissao','col-pago-venda','col-pago-comissao'],
+};
+function aplicarPresetColunas(nome){
+  const alvo = PLANILHA_COLUMN_PRESETS[nome] || null; // null = 'tudo', mostra todas
+  document.querySelectorAll('.column-toggle').forEach(toggle=>{
+    const show = alvo ? alvo.includes(toggle.dataset.col) : true;
+    if(toggle.checked !== show){
+      toggle.checked = show;
+      toggle.dispatchEvent(new Event('change'));
+    }
+  });
+  document.querySelectorAll('.column-preset-chip').forEach(chip=>{
+    chip.classList.toggle('active', chip.dataset.preset === nome);
+  });
+  DB.set('planilha_preset', nome);
+}
+
 // ==================== NAVIGATION ====================
 function nav(page){
   document.querySelectorAll('.nav-item').forEach(el=>{

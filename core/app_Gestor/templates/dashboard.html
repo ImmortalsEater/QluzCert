@@ -189,6 +189,12 @@
             <div class="column-selector-dropdown" style="position:relative">
               <button type="button" class="btn btn-sm" id="column-selector-toggle"><i class="ti ti-columns" aria-hidden="true"></i>Colunas <i class="ti ti-chevron-down chevron" style="margin-left:4px;font-size:11px" aria-hidden="true"></i></button>
               <div class="column-selector-panel" id="column-selector-panel">
+                <div class="column-preset-row">
+                  <button type="button" class="column-preset-chip" data-preset="essencial" onclick="aplicarPresetColunas('essencial')">Essencial</button>
+                  <button type="button" class="column-preset-chip" data-preset="financeiro" onclick="aplicarPresetColunas('financeiro')">Financeiro</button>
+                  <button type="button" class="column-preset-chip" data-preset="tudo" onclick="aplicarPresetColunas('tudo')">Tudo</button>
+                </div>
+                <div class="column-selector-divider"></div>
                 <label class="column-toggle-label"><input type="checkbox" id="column-toggle-all"> <strong>Selecionar todas</strong></label>
                 <div class="column-selector-divider"></div>
                 {% for col in google_columns %}
@@ -395,6 +401,15 @@
             cell.style.display = show ? '' : 'none';
           });
         }
+      });
+    }
+
+    // Só realca visualmente o chip do preset salvo -- os checkboxes acima
+    // ja refletem colunas_visiveis, essa marcacao nao dispara mudanca nenhuma.
+    var savedPreset = DB.get('planilha_preset');
+    if (savedPreset) {
+      document.querySelectorAll('.column-preset-chip').forEach(function(chip) {
+        chip.classList.toggle('active', chip.dataset.preset === savedPreset);
       });
     }
 
