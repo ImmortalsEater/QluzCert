@@ -182,7 +182,12 @@
           <div class="table-header" style="position:relative">
             <h3><i class="ti ti-table"></i>Planilha Importada do Google Drive</h3>
             <span id="planilha-count" class="result-count" aria-live="polite"></span>
-            <select id="filter-status" style="margin-left:auto;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface)">
+            <div class="search-box" style="margin-left:auto">
+              <i class="ti ti-search" aria-hidden="true"></i>
+              <label for="search-planilha" class="sr-only">Buscar por nome, CPF, CNPJ, email ou telefone</label>
+              <input type="text" id="search-planilha" placeholder="Buscar por nome, CPF ou CNPJ...">
+            </div>
+            <select id="filter-status" style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface)">
               <option value="">Todos os status</option>
               <option>Novo Lead</option><option>Documentação Pendente</option><option>Aguardando Pagamento</option><option>Agendado para Vídeo</option><option>Emitido</option>
             </select>
@@ -525,6 +530,10 @@
 
     var statusFilter = document.getElementById('filter-status');
     if (statusFilter) statusFilter.addEventListener('change', function(){ planilhaPage = 1; filterPlanilhaImportada(); });
+
+    var searchPlanilha = document.getElementById('search-planilha');
+    var debouncedFilterPlanilha = debounce(function(){ planilhaPage = 1; filterPlanilhaImportada(); }, 200);
+    if (searchPlanilha) searchPlanilha.addEventListener('input', debouncedFilterPlanilha);
 
     var initialTab = (location.hash || '').replace('#', '');
     if (initialTab && document.getElementById('view-' + initialTab)) {

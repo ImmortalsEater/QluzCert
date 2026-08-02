@@ -35,7 +35,17 @@ function decoratePlanilhaBoolBadges(){
   });
 }
 
+// Planilha é renderizada pelo Django (linhas ja no DOM), diferente de
+// renderClientesSimples() que busca sobre o array `leads` -- por isso o
+// haystack aqui le o textContent das proprias celulas em vez de campos
+// de um objeto.
+function planilhaSearchHaystack(row){
+  const cell=cls=>row.querySelector('td.'+cls)?.textContent||'';
+  return `${cell('col-cliente')} ${cell('col-telefone1')} ${cell('col-telefone2')} ${cell('col-cpf-cnpj')} ${cell('col-email')}`.toLowerCase();
+}
+
 function filterPlanilhaImportada(){
+  const q=normalizeQuery(document.getElementById('search-planilha')?.value);
   const statusFilterVal=document.getElementById('filter-status')?.value||'';
   const tbody=document.getElementById('planilha-tbody');
   const table=document.getElementById('planilha-table');
@@ -57,7 +67,9 @@ function filterPlanilhaImportada(){
 
   const matches=dataRows.filter(row=>{
     const statusCell=row.querySelector('td.col-status');
-    return !statusFilterVal||(statusCell?.dataset.decorated===statusFilterVal);
+    const statusOk=!statusFilterVal||(statusCell?.dataset.decorated===statusFilterVal);
+    const searchOk=!q||planilhaSearchHaystack(row).includes(q);
+    return statusOk&&searchOk;
   });
 
   const totalPages=Math.max(1,Math.ceil(matches.length/ROWS_PER_PAGE));
@@ -71,7 +83,7 @@ function filterPlanilhaImportada(){
   updateResultCount('planilha-count', matches.length, dataRows.length);
   table.style.display='';
   if(noMatch){
-    if(statusFilterVal&&!matches.length){
+    if((q||statusFilterVal)&&!matches.length){
       noMatch.style.display='';
       if(msg) msg.textContent='Nenhum cliente encontrado para esse filtro.';
     } else {
