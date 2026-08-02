@@ -107,10 +107,11 @@
 
   /* CARDS / METRICS */
   .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
-  .metric-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 14px}
+  .metric-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 14px;display:flex;flex-direction:column}
   .metric-label{font-size:9.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted-strong);margin-bottom:6px}
   .metric-val{font-family:'Bricolage Grotesque',Inter,sans-serif;font-size:clamp(19px,2.3vw,22px);font-weight:700;letter-spacing:-0.02em;color:var(--text);line-height:1;font-variant-numeric:tabular-nums}
-  .metric-sub{font-size:10px;color:var(--muted);margin-top:4px}
+  .metric-sub{font-size:10px;color:var(--muted);margin-top:4px;flex:1}
+  .metric-spacer{flex:1}
   .metric-card.accent .metric-val{color:var(--accent)}
   .metric-card.success .metric-val{color:var(--success)}
   .metric-card.warn .metric-val{color:var(--warn)}
@@ -123,12 +124,12 @@
   .metric-card.success .metric-ratio-fill{background:var(--success)}
   .metric-card.warn .metric-ratio-fill{background:var(--warn)}
 
-  /* Barra recebido/pendente do card de Faturamento -- engrossa no hover e a
-     legenda mostra o valor exato de cada lado numa tooltip */
-  .fat-bar{display:flex;height:4px;border-radius:2px;overflow:hidden;margin-top:8px;background:var(--border)}
+  /* Barra recebido/pendente do card de Faturamento -- legenda fica colada
+     em cima da barra, com o valor exato de cada lado numa tooltip */
+  .fat-bar{display:flex;height:4px;border-radius:2px;overflow:hidden;margin-top:6px;background:var(--border)}
   .fat-bar-rec{background:var(--success)}
   .fat-bar-pend{background:var(--warn)}
-  .fat-legend{display:flex;justify-content:space-between;margin-top:8px}
+  .fat-legend{display:flex;justify-content:space-between}
   .fat-leg-item{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted);position:relative}
   .fat-leg-item .dot{width:7px;height:7px;border-radius:50%}
   .fat-leg-item.fat-leg-rec .dot{background:var(--success)}

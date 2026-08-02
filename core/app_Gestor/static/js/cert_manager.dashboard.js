@@ -68,15 +68,18 @@ function renderSaveActions(){
 function updateBadges(){
   const alertData = getAlertData();
   const counts = alertData.counts || {};
-  const totalAlerts = Number(counts.alertas_totais || 0);
-  const renovacoesTotal = Number(counts.renovacoes_urgentes || 0) + Number(counts.renovacoes_normais || 0);
-  const pagamentosTotal = Number(counts.pagamentos_urgentes || 0) + Number(counts.pagamentos_normais || 0);
-  const b=document.getElementById('alert-badge');
-  if(b){b.style.display=totalAlerts?'':'none';b.textContent=totalAlerts}
+  // Badge de Renovações só conta o que já venceu ou vence em até 7 dias --
+  // o "urgentes" do backend (<=30 dias) avisava cedo demais e deixava o
+  // badge sempre vermelho, o que fazia a cor deixar de significar algo.
+  const renovacoesProximas = [...alertData.renovacoes.urgentes, ...alertData.renovacoes.normais]
+    .filter(item => Number(item.dias) <= 7).length;
+  // Pagamentos já tem um limiar rigoroso pronto no backend (dias_restantes<=0,
+  // ou seja, vencido de verdade) -- usa ele em vez de somar com "normais".
+  const pagamentosVencidos = Number(counts.pagamentos_urgentes || 0);
   const rb=document.getElementById('ren-badge');
-  if(rb){rb.style.display=renovacoesTotal?'':'none';rb.textContent=renovacoesTotal}
+  if(rb){rb.style.display=renovacoesProximas?'':'none';rb.textContent=renovacoesProximas}
   const pb=document.getElementById('pag-badge');
-  if(pb){pb.style.display=pagamentosTotal?'':'none';pb.textContent=pagamentosTotal}
+  if(pb){pb.style.display=pagamentosVencidos?'':'none';pb.textContent=pagamentosVencidos}
   const totalCount=document.getElementById('total-count');
   if(totalCount) totalCount.textContent=Number(counts.total_registros || clientes.length);
 }
@@ -101,11 +104,12 @@ function renderFaturamentoCard(faturamento, alertData){
     <div class="metric-card">
       <div class="metric-label">Faturamento Recebido</div>
       <div class="metric-val">${fmtMoney(faturamento)}</div>
-      <div class="fat-bar"><div class="fat-bar-rec" style="width:${pctRecebido}%"></div><div class="fat-bar-pend" style="width:${pctPendente}%"></div></div>
+      <div class="metric-spacer"></div>
       <div class="fat-legend">
         <div class="fat-leg-item fat-leg-rec"><span class="dot"></span>Recebido<div class="fat-tip">${fmtMoney(faturamento)} · ${pctRecebido}%</div></div>
         <div class="fat-leg-item fat-leg-pend"><span class="dot"></span>Pendente<div class="fat-tip">${fmtMoney(pendente.total)}${pendente.count ? ` · ${pendente.count} cliente${pendente.count>1?'s':''}` : ''}</div></div>
       </div>
+      <div class="fat-bar"><div class="fat-bar-rec" style="width:${pctRecebido}%"></div><div class="fat-bar-pend" style="width:${pctPendente}%"></div></div>
     </div>
   `;
 }
