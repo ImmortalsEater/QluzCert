@@ -107,10 +107,10 @@
 
   /* CARDS / METRICS */
   .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
-  .metric-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
-  .metric-label{font-size:11px;color:var(--muted);margin-bottom:6px;font-weight:500;letter-spacing:.3px}
-  .metric-val{font-family:'Bricolage Grotesque',Inter,sans-serif;font-size:24px;font-weight:700;letter-spacing:-0.01em;color:var(--text);line-height:1}
-  .metric-sub{font-size:11px;color:var(--muted);margin-top:4px}
+  .metric-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 14px}
+  .metric-label{font-size:9.5px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted-strong);margin-bottom:6px}
+  .metric-val{font-family:'Bricolage Grotesque',Inter,sans-serif;font-size:clamp(19px,2.3vw,22px);font-weight:700;letter-spacing:-0.02em;color:var(--text);line-height:1;font-variant-numeric:tabular-nums}
+  .metric-sub{font-size:10px;color:var(--muted);margin-top:4px}
   .metric-card.accent .metric-val{color:var(--accent)}
   .metric-card.success .metric-val{color:var(--success)}
   .metric-card.warn .metric-val{color:var(--warn)}
@@ -122,6 +122,24 @@
   .metric-card.accent .metric-ratio-fill{background:var(--accent)}
   .metric-card.success .metric-ratio-fill{background:var(--success)}
   .metric-card.warn .metric-ratio-fill{background:var(--warn)}
+
+  /* Barra recebido/pendente do card de Faturamento -- engrossa no hover e a
+     legenda mostra o valor exato de cada lado numa tooltip */
+  .fat-bar{display:flex;height:4px;border-radius:2px;overflow:hidden;margin-top:8px;background:var(--border)}
+  .fat-bar-rec{background:var(--success)}
+  .fat-bar-pend{background:var(--warn)}
+  .fat-legend{display:flex;justify-content:space-between;margin-top:8px}
+  .fat-leg-item{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted);position:relative}
+  .fat-leg-item .dot{width:7px;height:7px;border-radius:50%}
+  .fat-leg-item.fat-leg-rec .dot{background:var(--success)}
+  .fat-leg-item.fat-leg-pend .dot{background:var(--warn)}
+  .fat-tip{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%) translateY(4px) scale(.92);
+    background:var(--muted-strong);color:#fff;font-size:10px;font-weight:600;padding:6px 9px;border-radius:7px;
+    white-space:nowrap;opacity:0;filter:blur(3px);pointer-events:none;z-index:2;
+    box-shadow:0 4px 10px rgba(0,0,0,.14),0 10px 22px rgba(0,0,0,.10);
+    transition:opacity .16s cubic-bezier(.2,0,0,1),transform .16s cubic-bezier(.2,0,0,1),filter .16s cubic-bezier(.2,0,0,1)}
+  .fat-leg-item:hover .fat-tip{opacity:1;transform:translateX(-50%) translateY(0) scale(1);filter:blur(0)}
+  @media (prefers-reduced-motion: reduce){ .fat-tip{transition:opacity .12s ease} }
 
   /* LOCKED FEATURES (sem permissão) -- valor borrado + nota discreta no lugar do dado real */
   .locked-feature .metric-val,.locked-feature .metric-sub{filter:blur(3px);user-select:none}

@@ -82,6 +82,34 @@ function updateBadges(){
 }
 
 // ==================== DASHBOARD ====================
+// Soma o valorCobrado dos pagamentos de venda ainda não pagos (mesma lista
+// que já alimenta os badges de Pagamentos no sidebar) -- não é um dado novo,
+// só a metade que faltava mostrar ao lado do que já foi recebido.
+function faturamentoPendenteInfo(alertData){
+  const itens = [...alertData.pagamentos.urgentes, ...alertData.pagamentos.normais]
+    .filter(p => p.tipoPagamento === 'Venda');
+  const total = itens.reduce((s,p) => s + (Number(p.valorCobrado) || 0), 0);
+  return { total, count: itens.length };
+}
+
+function renderFaturamentoCard(faturamento, alertData){
+  const pendente = faturamentoPendenteInfo(alertData);
+  const totalEsperado = faturamento + pendente.total;
+  const pctRecebido = totalEsperado ? Math.round(faturamento / totalEsperado * 100) : 0;
+  const pctPendente = totalEsperado ? 100 - pctRecebido : 0;
+  return `
+    <div class="metric-card">
+      <div class="metric-label">Faturamento Recebido</div>
+      <div class="metric-val">${fmtMoney(faturamento)}</div>
+      <div class="fat-bar"><div class="fat-bar-rec" style="width:${pctRecebido}%"></div><div class="fat-bar-pend" style="width:${pctPendente}%"></div></div>
+      <div class="fat-legend">
+        <div class="fat-leg-item fat-leg-rec"><span class="dot"></span>Recebido<div class="fat-tip">${fmtMoney(faturamento)} · ${pctRecebido}%</div></div>
+        <div class="fat-leg-item fat-leg-pend"><span class="dot"></span>Pendente<div class="fat-tip">${fmtMoney(pendente.total)}${pendente.count ? ` · ${pendente.count} cliente${pendente.count>1?'s':''}` : ''}</div></div>
+      </div>
+    </div>
+  `;
+}
+
 function renderDashboard(){
   // Total/Emitidos/Renovações vêm da planilha real (Clientes), não do funil de leads local
   const alertData = getAlertData();
@@ -99,8 +127,8 @@ function renderDashboard(){
   // é só a forma de comunicar isso na tela, não a proteção em si.
   const podeVerFaturamento = window.IS_ADMIN || window.PERMS.pagamentos;
   const faturamentoCard = podeVerFaturamento
-    ? `<div class="metric-card"><div class="metric-label">Faturamento Recebido</div><div class="metric-val" style="font-size:18px">${fmtMoney(faturamento)}</div><div class="metric-sub">pagamentos confirmados</div></div>`
-    : `<div class="metric-card locked-feature"><div class="metric-label">Faturamento Recebido</div><div class="metric-val" style="font-size:18px">R$ ••••</div><div class="metric-sub">pagamentos confirmados</div><div class="lock-note"><i class="ti ti-lock"></i>Requer permissão de administrador</div></div>`;
+    ? renderFaturamentoCard(faturamento, alertData)
+    : `<div class="metric-card locked-feature"><div class="metric-label">Faturamento Recebido</div><div class="metric-val">R$ ••••</div><div class="metric-sub">pagamentos confirmados</div><div class="lock-note"><i class="ti ti-lock"></i>Requer permissão de administrador</div></div>`;
 
   const pctEmitidos = total ? Math.round(emitidos/total*100) : 0;
   const pctVencendo = total ? Math.round(vencendo/total*100) : 0;
