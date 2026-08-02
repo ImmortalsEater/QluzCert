@@ -59,25 +59,31 @@
       <img src="{% static 'img/qluz_logo.svg' %}" alt="" class="logo-mark">
       <div class="logo-sub">Gestão de Certificados Digitais</div>
     </a>
-    <div class="nav-section">Principal</div>
-    <div class="nav-item active" onclick="nav('dashboard')"><i class="ti ti-layout-dashboard"></i>Dashboard</div>
-    <div class="nav-item" onclick="nav('funil')"><i class="ti ti-layout-kanban"></i>Funil de Atendimento</div>
-    <div class="nav-item" onclick="nav('clientes')"><i class="ti ti-users"></i>Clientes <span class="nav-badge" id="alert-badge" style="display:none">!</span></div>
-    <div class="nav-item" onclick="nav('planilha')"><i class="ti ti-table"></i>Planilha</div>
-    <div class="nav-section">Operacional</div>
-    <div class="nav-item" onclick="nav('renovacoes')"><i class="ti ti-bell"></i>Renovações <span class="nav-badge" id="ren-badge">0</span></div>
-    {% if user.is_superuser or perms.pagamentos %}
-    <div class="nav-item" onclick="nav('pagamentos')"><i class="ti ti-cash"></i>Pagamentos <span class="nav-badge" id="pag-badge">0</span></div>
-    {% endif %}
-    {% if user.is_superuser or perms.parceiros %}
-    <div class="nav-item" onclick="nav('parceiros')"><i class="ti ti-building"></i>Parceiros</div>
-    {% endif %}
+    <div class="nav-section" data-group="principal" role="button" tabindex="0" aria-expanded="true" onclick="toggleNavSection(this)">Principal<i class="ti ti-chevron-down nav-chevron"></i></div>
+    <div class="nav-group" id="nav-group-principal"><div class="nav-group-inner">
+      <div class="nav-item active" role="button" tabindex="0" onclick="nav('dashboard')"><i class="ti ti-layout-dashboard"></i>Dashboard</div>
+      <div class="nav-item" role="button" tabindex="0" onclick="nav('funil')"><i class="ti ti-layout-kanban"></i>Funil de Atendimento</div>
+      <div class="nav-item" role="button" tabindex="0" onclick="nav('clientes')"><i class="ti ti-users"></i>Clientes <span class="nav-badge" id="alert-badge" style="display:none">!</span></div>
+      <div class="nav-item" role="button" tabindex="0" onclick="nav('planilha')"><i class="ti ti-table"></i>Planilha</div>
+    </div></div>
+    <div class="nav-section" data-group="operacional" role="button" tabindex="0" aria-expanded="true" onclick="toggleNavSection(this)">Operacional<i class="ti ti-chevron-down nav-chevron"></i></div>
+    <div class="nav-group" id="nav-group-operacional"><div class="nav-group-inner">
+      <div class="nav-item" role="button" tabindex="0" onclick="nav('renovacoes')"><i class="ti ti-bell"></i>Renovações <span class="nav-badge" id="ren-badge">0</span></div>
+      {% if user.is_superuser or perms.pagamentos %}
+      <div class="nav-item" role="button" tabindex="0" onclick="nav('pagamentos')"><i class="ti ti-cash"></i>Pagamentos <span class="nav-badge" id="pag-badge">0</span></div>
+      {% endif %}
+      {% if user.is_superuser or perms.parceiros %}
+      <div class="nav-item" role="button" tabindex="0" onclick="nav('parceiros')"><i class="ti ti-building"></i>Parceiros</div>
+      {% endif %}
+    </div></div>
     {% if user.is_superuser or perms.precos %}
-    <div class="nav-section">Configurações</div>
-    <div class="nav-item" onclick="nav('tabela')"><i class="ti ti-currency-dollar"></i>Tabela de Preços</div>
-    {% endif %}
-    {% if user.is_superuser %}
-    <div class="nav-item" onclick="location.href='{% url 'usuarios_gestao' %}'"><i class="ti ti-users-group"></i>Usuários</div>
+    <div class="nav-section" data-group="config" role="button" tabindex="0" aria-expanded="true" onclick="toggleNavSection(this)">Configurações<i class="ti ti-chevron-down nav-chevron"></i></div>
+    <div class="nav-group" id="nav-group-config"><div class="nav-group-inner">
+      <div class="nav-item" role="button" tabindex="0" onclick="nav('tabela')"><i class="ti ti-currency-dollar"></i>Tabela de Preços</div>
+      {% if user.is_superuser %}
+      <div class="nav-item" role="button" tabindex="0" onclick="location.href='{% url 'usuarios_gestao' %}'"><i class="ti ti-users-group"></i>Usuários</div>
+      {% endif %}
+    </div></div>
     {% endif %}
     <div class="sidebar-footer">
       v1.0 · Dados locais · <span id="total-count">0</span> clientes
@@ -361,6 +367,18 @@
 <script src="{% static 'js/cert_manager.init.js' %}"></script>
 <script>
   document.addEventListener('DOMContentLoaded', function() {
+    restoreNavSectionState();
+    var sidebarEl = document.getElementById('sidebar');
+    if (sidebarEl) {
+      sidebarEl.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        var el = e.target.closest('.nav-item, .nav-section[data-group]');
+        if (!el) return;
+        e.preventDefault();
+        el.click();
+      });
+    }
+
     var columnToggles = document.querySelectorAll('.column-toggle');
     var toggleAll = document.getElementById('column-toggle-all');
 

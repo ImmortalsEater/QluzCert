@@ -24,6 +24,29 @@ function nav(page){
   try{ renderSaveActions(); initSaveMenu(); }catch(e){}
 }
 
+function toggleNavSection(header){
+  const key = header.dataset.group;
+  const group = document.getElementById('nav-group-'+key);
+  if(!group) return;
+  const collapsed = group.classList.toggle('collapsed');
+  header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  const state = DB.get('nav_collapsed') || {};
+  if(collapsed) state[key]=true; else delete state[key];
+  DB.set('nav_collapsed', state);
+}
+
+function restoreNavSectionState(){
+  const state = DB.get('nav_collapsed') || {};
+  Object.keys(state).forEach(key=>{
+    const group = document.getElementById('nav-group-'+key);
+    const header = document.querySelector(`.nav-section[data-group="${key}"]`);
+    if(group && header){
+      group.classList.add('collapsed');
+      header.setAttribute('aria-expanded','false');
+    }
+  });
+}
+
 function renderSaveActions(){
   const html = `
     <div class="btn-segmented">
