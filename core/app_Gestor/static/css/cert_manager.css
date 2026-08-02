@@ -227,6 +227,9 @@
   .badge-vencendo{background:var(--danger-bg);color:var(--danger-soft)}
   .badge-vencido{background:var(--danger-bg);color:var(--danger)}
 
+  /* Termo buscado na Planilha, destacado dentro da celula */
+  mark{background:color-mix(in srgb, var(--accent) 22%, transparent);color:inherit;border-radius:3px;padding:0 1px}
+
   /* Pago_Venda/Pago_Comissao na Planilha -- ponto + cor em vez de texto cinza puro */
   .bool-sim{display:inline-flex;align-items:center;gap:5px;color:var(--success);font-weight:600}
   .bool-sim .dot{width:6px;height:6px;border-radius:50%;background:var(--success)}

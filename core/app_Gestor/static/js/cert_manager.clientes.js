@@ -74,6 +74,30 @@ function renderFiltroStatusPlanilha(){
   ].join('');
 }
 
+// Marca com <mark> o trecho que bateu com a busca, só nas colunas usadas
+// por planilhaSearchHaystack() e só nas linhas visíveis. Guarda o texto cru
+// em dataset.raw na primeira passada pra sempre reconstruir a partir dele
+// (evita aninhar <mark> em buscas repetidas).
+function highlightPlanilhaMatches(q){
+  const cols=['col-cliente','col-telefone1','col-telefone2','col-cpf-cnpj','col-email'];
+  document.querySelectorAll('#planilha-tbody tr').forEach(row=>{
+    if(row.style.display==='none') return;
+    cols.forEach(cls=>{
+      const td=row.querySelector('td.'+cls);
+      if(!td) return;
+      if(td.dataset.raw===undefined) td.dataset.raw=td.textContent;
+      const raw=td.dataset.raw;
+      if(!q){ td.textContent=raw; return; }
+      const idx=raw.toLowerCase().indexOf(q);
+      if(idx===-1){ td.textContent=raw; return; }
+      const before=escapeHtml(raw.slice(0,idx));
+      const match=escapeHtml(raw.slice(idx,idx+q.length));
+      const after=escapeHtml(raw.slice(idx+q.length));
+      td.innerHTML=`${before}<mark>${match}</mark>${after}`;
+    });
+  });
+}
+
 function filterPlanilhaImportada(){
   renderFiltroStatusPlanilha();
   const q=normalizeQuery(document.getElementById('search-planilha')?.value);
@@ -110,6 +134,7 @@ function filterPlanilhaImportada(){
   const visiblePage=new Set(matches.slice(pageStart,pageStart+ROWS_PER_PAGE));
 
   dataRows.forEach(row=>{ row.style.display=visiblePage.has(row)?'':'none'; });
+  highlightPlanilhaMatches(q);
 
   updateResultCount('planilha-count', matches.length, dataRows.length);
   table.style.display='';
