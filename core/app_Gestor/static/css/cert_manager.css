@@ -64,7 +64,7 @@
   .sidebar-logo:hover .logo-sub{color:var(--text)}
   .nav-section{padding:12px 8px 4px;font-size:10px;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase;
     display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;user-select:none;border-radius:6px}
-  .nav-section~.nav-section{margin:8px 12px 0;padding:12px 0 4px;border-top:1px solid var(--border)}
+  .nav-section~.nav-section{margin:8px 0 0;padding:12px 8px 4px;border-top:1px solid var(--border);border-radius:0}
   .nav-section:focus-visible{outline:2px solid var(--accent);outline-offset:-1px}
   .nav-chevron{font-size:11px;color:var(--muted);transition:transform .15s ease;flex-shrink:0}
   .nav-section[aria-expanded="false"] .nav-chevron{transform:rotate(-90deg)}
