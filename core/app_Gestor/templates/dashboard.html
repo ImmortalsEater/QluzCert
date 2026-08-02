@@ -141,11 +141,16 @@
             <label for="search-cliente" class="sr-only">Buscar cliente por nome, CPF, CNPJ, email ou telefone</label>
             <input type="text" id="search-cliente" placeholder="Buscar por nome, CPF ou CNPJ...">
           </div>
-          <select id="filter-status-clientes" style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface)">
-            <option value="">Todos os status</option>
-            <option>Novo Lead</option><option>Documentação Pendente</option><option>Aguardando Pagamento</option><option>Agendado para Vídeo</option><option>Emitido</option>
-          </select>
-          <button class="btn btn-primary" onclick="openModal('novoCliente', null, this)"><i class="ti ti-plus" aria-hidden="true"></i>Novo Cliente</button>
+          <div class="filtrar-dropdown" style="position:relative">
+            <button type="button" class="btn" id="filtrar-clientes-toggle" aria-haspopup="true" aria-expanded="false">
+              <i class="ti ti-filter" aria-hidden="true"></i>Filtrar
+              <span class="filtrar-badge" id="filtrar-clientes-badge" hidden>1</span>
+            </button>
+            <div class="column-selector-panel" id="filtrar-clientes-panel">
+              <div class="status-filter-chips" id="filter-status-clientes-chips"></div>
+            </div>
+          </div>
+          <button class="btn btn-secondary-soft" style="margin-left:auto" onclick="openModal('novoCliente', null, this)"><i class="ti ti-plus" aria-hidden="true"></i>Novo Cliente</button>
         </div>
         <div class="table-wrap">
           <div class="table-header" style="position:relative">
@@ -218,10 +223,10 @@
       <!-- FUNIL KANBAN -->
       <div id="view-funil" class="view">
         <div class="section-actions">
-          <button class="btn btn-secondary" onclick="openModal('novoCliente', null, this)"><i class="ti ti-plus"></i>Novo Lead</button>
-          <span style="font-size:12px;color:var(--muted);margin-left:4px">Arraste os cards entre as colunas ou use o seletor para mudar o status</span>
+          <div class="funil-filtros" id="funil-filtros"></div>
+          <span class="hint-icon" tabindex="0" title="Arraste os cards entre as colunas ou use o seletor para mudar o status" aria-label="Arraste os cards entre as colunas ou use o seletor para mudar o status">?</span>
+          <button class="btn btn-secondary-soft" style="margin-left:auto" onclick="openModal('novoCliente', null, this)"><i class="ti ti-plus"></i>Novo Lead</button>
         </div>
-        <div class="funil-filtros" id="funil-filtros"></div>
         <div class="kanban" id="kanban-board"></div>
       </div>
 
@@ -433,6 +438,29 @@
       });
     }
 
+    var filtrarClientesPanel = document.getElementById('filtrar-clientes-panel');
+    var filtrarClientesToggle = document.getElementById('filtrar-clientes-toggle');
+    if (filtrarClientesToggle && filtrarClientesPanel) {
+      filtrarClientesToggle.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (typeof closeActionMenu === 'function') closeActionMenu();
+        if (typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
+        if (typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
+        document.getElementById('save-menu')?.classList.remove('open');
+        document.getElementById('column-selector-panel')?.classList.remove('open');
+        document.getElementById('user-menu-panel')?.classList.remove('open');
+        var willOpen = !filtrarClientesPanel.classList.contains('open');
+        filtrarClientesPanel.classList.toggle('open', willOpen);
+        filtrarClientesToggle.setAttribute('aria-expanded', String(willOpen));
+      });
+      document.addEventListener('click', function(e) {
+        if (!filtrarClientesPanel.contains(e.target) && e.target !== filtrarClientesToggle && !filtrarClientesToggle.contains(e.target)) {
+          filtrarClientesPanel.classList.remove('open');
+          filtrarClientesToggle.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+
     var userMenuPanel = document.getElementById('user-menu-panel');
     var userMenuToggle = document.getElementById('user-menu-toggle');
     if (userMenuToggle && userMenuPanel) {
@@ -443,6 +471,7 @@
         if (typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
         document.getElementById('save-menu')?.classList.remove('open');
         document.getElementById('column-selector-panel')?.classList.remove('open');
+        document.getElementById('filtrar-clientes-panel')?.classList.remove('open');
         var willOpen = !userMenuPanel.classList.contains('open');
         userMenuPanel.classList.toggle('open', willOpen);
         userMenuToggle.setAttribute('aria-expanded', String(willOpen));
@@ -460,8 +489,6 @@
     var searchInput = document.getElementById('search-cliente');
     var debouncedFilterClientes = debounce(function(){ clientesPage = 1; renderClientesSimples(); }, 200);
     if (searchInput) searchInput.addEventListener('input', debouncedFilterClientes);
-    var statusFilterClientes = document.getElementById('filter-status-clientes');
-    if (statusFilterClientes) statusFilterClientes.addEventListener('change', function(){ clientesPage = 1; renderClientesSimples(); });
 
     var statusFilter = document.getElementById('filter-status');
     if (statusFilter) statusFilter.addEventListener('change', function(){ planilhaPage = 1; filterPlanilhaImportada(); });

@@ -71,9 +71,42 @@ function goToPlanilhaPage(n){planilhaPage=n;filterPlanilhaImportada()}
 // Diferente da Planilha (server-rendered com todas as colunas), esta tabela
 // é montada no cliente a partir de `leads` (mesmos dados do Kanban), só com
 // os campos mais usados no dia a dia.
+
+// Filtro de status como chips (mesma cor por etapa que o Kanban usa) --
+// o chip ativo assume a própria cor em vez de um azul genérico.
+let clientesFiltroStatus='';
+function setClientesStatusFiltro(status){
+  clientesFiltroStatus=(clientesFiltroStatus===status)?'':status;
+  clientesPage=1;
+  renderClientesSimples();
+  // Escolher (ou limpar) um filtro fecha o painel "Filtrar" -- não faz
+  // sentido deixá-lo aberto depois que a pessoa já decidiu o que queria.
+  const panel=document.getElementById('filtrar-clientes-panel');
+  if(panel) panel.classList.remove('open');
+  document.getElementById('filtrar-clientes-toggle')?.setAttribute('aria-expanded','false');
+}
+function renderFiltroStatusClientes(){
+  const badge=document.getElementById('filtrar-clientes-badge');
+  if(badge) badge.hidden=!clientesFiltroStatus;
+  const el=document.getElementById('filter-status-clientes-chips');
+  if(!el) return;
+  const bgTokens=['var(--info-bg)','var(--warn-bg)','var(--purple-bg)','var(--teal-bg)','var(--success-bg)'];
+  const chip=(status,label,color,bg)=>{
+    const active=clientesFiltroStatus===status;
+    const style=active?` style="background:${bg};border-color:${bg};color:${color};font-weight:600"`:'';
+    const dot=color?`<span class="status-filter-dot" style="background:${color}"></span>`:'';
+    return `<button type="button" class="status-filter-chip"${style} onclick="setClientesStatusFiltro('${status.replace(/'/g,"\\'")}')">${dot}${escapeHtml(label)}</button>`;
+  };
+  el.innerHTML=[
+    chip('','Todos',null,null),
+    ...STATUS_LIST.map((s,i)=>chip(s,s,KANBAN_COLORS[i],bgTokens[i])),
+  ].join('');
+}
+
 function renderClientesSimples(){
+  renderFiltroStatusClientes();
   const q=normalizeQuery(document.getElementById('search-cliente')?.value);
-  const statusFilterVal=document.getElementById('filter-status-clientes')?.value||'';
+  const statusFilterVal=clientesFiltroStatus;
   const tbody=document.getElementById('clientes-simples-tbody');
   const table=document.getElementById('clientes-simples-table');
   const noMatch=document.getElementById('clientes-simples-no-match');

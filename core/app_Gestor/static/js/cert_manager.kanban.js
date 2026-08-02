@@ -102,6 +102,7 @@ function openKanbanStatusMenu(e, id){
   document.getElementById('column-selector-panel')?.classList.remove('open');
   document.getElementById('save-menu')?.classList.remove('open');
   document.getElementById('user-menu-panel')?.classList.remove('open');
+  document.getElementById('filtrar-clientes-panel')?.classList.remove('open');
   if(wasOpenForThisLead) return;
 
   const lead = leads.find(l=>l.id===id);

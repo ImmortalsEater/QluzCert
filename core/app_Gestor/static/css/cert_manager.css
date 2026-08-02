@@ -51,7 +51,7 @@
   }
   body{font-family:'Inter','Segoe UI',system-ui,sans-serif;font-size:14px;color:var(--text);background:var(--bg);min-height:600px;display:flex;flex-direction:column}
   #app{display:flex;flex:1;min-height:600px}
-  
+
   /* SIDEBAR */
   #sidebar{width:var(--sidebar-w);height:100vh;position:sticky;top:0;overflow-y:auto;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
   .sidebar-logo{padding:8px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;align-items:center;gap:6px;position:relative;overflow:hidden}
@@ -70,7 +70,7 @@
   .nav-item i{font-size:16px;width:18px}
   .nav-badge{margin-left:auto;font-size:10px;background:var(--danger-bg);color:var(--danger);padding:2px 6px;border-radius:10px;font-weight:700}
   .sidebar-footer{margin-top:auto;padding:12px;border-top:1px solid var(--border);font-size:11px;color:var(--muted)}
-  
+
   /* MAIN */
   #main{flex:1;display:flex;flex-direction:column;overflow:hidden}
   .topbar{height:var(--hdr);background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0}
@@ -91,11 +91,11 @@
   .user-menu-role.role-vendedor{background:var(--tertiary-bg);color:var(--tertiary);border-color:var(--tertiary-bg)}
 
   #content{flex:1;overflow-y:auto;padding:20px}
-  
+
   /* VIEWS */
   .view{display:none}
   .view.active{display:block}
-  
+
   /* CARDS / METRICS */
   .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
   .metric-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
@@ -193,7 +193,7 @@
   .badge-emitido{background:var(--success-bg);color:var(--success)}
   .badge-vencendo{background:var(--danger-bg);color:var(--danger-soft)}
   .badge-vencido{background:var(--danger-bg);color:var(--danger)}
-  
+
   /* BUTTONS — see static/css/components/buttons.css, imported at the top of this file */
 
   /* FORMS */
@@ -211,7 +211,7 @@
   .modal-fieldset{border:0;padding:0;margin:0;min-width:0}
   .modal-fieldset+.modal-fieldset{margin-top:22px;padding-top:20px;border-top:1px solid var(--border)}
   .modal-fieldset legend{padding:0;margin-bottom:12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-  
+
   /* MODAL */
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;visibility:hidden;pointer-events:none;transition:opacity 150ms ease-out,background-color 150ms ease-out,visibility 150ms}
   .modal-overlay.open{opacity:1;visibility:visible;pointer-events:auto;background:rgba(0,0,0,.4);transition:opacity 200ms ease-out,background-color 200ms ease-out,visibility 200ms}
@@ -253,9 +253,14 @@
   .valor-chip.valor-chip-alto{background:var(--warn-bg);color:var(--warn)}
   .drop-placeholder{border:2px dashed var(--border-strong);border-radius:8px;height:48px;margin-bottom:8px;background:var(--accent-light);opacity:.5}
 
-  .funil-filtros{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+  .funil-filtros{display:flex;flex-wrap:wrap;gap:6px}
   .funil-filtro-chip{font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface);color:var(--muted-strong);cursor:pointer;font-family:inherit}
   .funil-filtro-chip:hover{background:var(--surface-alt);border-color:var(--border-strong)}
+  /* Icone de ajuda com o hint de arrastar -- substitui o texto fixo que
+     ficava sempre visivel na barra, agora so aparece via tooltip/foco. */
+  .hint-icon{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+    border-radius:50%;border:1px solid var(--border);color:var(--muted);font-size:11px;font-weight:700;
+    flex-shrink:0;cursor:help}
   .funil-filtro-chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
   .funil-filtro-chip-more{font-size:11.5px;font-weight:700;padding:5px 12px;border-radius:20px;border:1px dashed var(--border-strong);background:none;color:var(--muted-strong);cursor:pointer;font-family:inherit}
   .funil-filtro-chip-more:hover{background:var(--surface-alt)}
@@ -318,6 +323,20 @@
   .result-count{font-size:12px;color:var(--muted);white-space:nowrap}
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
+  /* FILTRO DE STATUS (Clientes) -- escondido atras de "Filtrar" (poucos cliques
+     usam mais de um filtro por vez), reaproveita o .column-selector-panel que
+     o seletor de colunas da Planilha ja usa. */
+  .filtrar-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;
+    border-radius:8px;background:var(--accent);color:#fff;font-size:10px;font-weight:700;padding:0 4px}
+  .filtrar-badge[hidden]{display:none}
+  #filtrar-clientes-panel{width:280px;padding:10px}
+  .status-filter-chips{display:flex;gap:8px;flex-wrap:wrap}
+  .status-filter-chip{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:20px;
+    border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:inherit;
+    font-size:13px;font-weight:500;cursor:pointer}
+  .status-filter-chip:hover{background:var(--surface-alt);border-color:var(--border-strong)}
+  .status-filter-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+
   /* DETAIL PANEL */
   .detail-section{margin-bottom:18px}
   .detail-section h4{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
@@ -325,21 +344,21 @@
   .detail-row:last-child{border-bottom:none}
   .detail-row .lbl{color:var(--muted)}
   .detail-row .val{font-weight:500}
-  
+
   .progress-steps{display:flex;align-items:center;gap:0;margin:12px 0}
   .step{flex:1;text-align:center;font-size:10px;padding:6px 4px;background:var(--bg);border:1px solid var(--border);color:var(--muted);font-weight:600;position:relative}
   .step:first-child{border-radius:6px 0 0 6px}
   .step:last-child{border-radius:0 6px 6px 0}
   .step.done{background:var(--success-bg);color:var(--success);border-color:var(--success)}
   .step.current{background:var(--accent-light);color:var(--accent);border-color:var(--accent)}
-  
+
   .contact-log{background:var(--bg);border-radius:8px;padding:10px;margin-top:8px}
   .contact-entry{font-size:12px;padding:5px 0;border-bottom:1px solid var(--border);display:flex;gap:8px}
   .contact-entry:last-child{border-bottom:none}
   .contact-entry .dt{color:var(--muted);flex-shrink:0;min-width:80px}
-  
+
   .section-actions{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
-  
+
   .empty-state{text-align:center;padding:48px 20px;color:var(--muted)}
   .empty-state i{font-size:40px;display:block;margin-bottom:10px;opacity:.4}
   .empty-state p{font-size:13px}
@@ -352,15 +371,20 @@
   .tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:16px}
   .tab{padding:8px 16px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
   .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
-  
+
   .parceiro-tag{background:var(--purple-bg);color:var(--purple);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
-  
+
   .tipo-cert{font-size:12px;background:var(--bg);padding:2px 8px;border-radius:4px;border:1px solid var(--border)}
-  
+
   @media(max-width:700px){
     #sidebar{display:none}
     .metrics{grid-template-columns:1fr 1fr}
     .kanban{grid-template-columns:1fr 1fr}
     .form-grid{grid-template-columns:1fr}
     .form-grid.cols3{grid-template-columns:1fr}
+    /* Empilha busca / chips de status / ação em vez de quebrar linha sem
+       critério -- ordem de leitura vira "filtrar, depois agir". */
+    .section-actions{flex-direction:column;align-items:stretch}
+    .section-actions .search-box{max-width:none}
+    .section-actions > .btn{width:100%}
   }
