@@ -81,6 +81,7 @@ function openParceiroActionMenu(e, id){
   document.getElementById('save-menu')?.classList.remove('open');
   document.getElementById('user-menu-panel')?.classList.remove('open');
   document.getElementById('filtrar-clientes-panel')?.classList.remove('open');
+  document.getElementById('filtrar-planilha-panel')?.classList.remove('open');
   if(wasOpenForThisCard) return;
 
   menu.dataset.forId = id;

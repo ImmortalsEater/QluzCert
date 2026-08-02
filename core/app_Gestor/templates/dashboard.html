@@ -178,20 +178,27 @@
 
       <!-- PLANILHA (todas as colunas da planilha do Google Drive) -->
       <div id="view-planilha" class="view">
+        <div class="section-actions">
+          <div class="search-box">
+            <i class="ti ti-search" aria-hidden="true"></i>
+            <label for="search-planilha" class="sr-only">Buscar por nome, CPF, CNPJ, email ou telefone</label>
+            <input type="text" id="search-planilha" placeholder="Buscar por nome, CPF ou CNPJ...">
+          </div>
+          <div class="filtrar-dropdown" style="position:relative">
+            <button type="button" class="btn" id="filtrar-planilha-toggle" aria-haspopup="true" aria-expanded="false">
+              <i class="ti ti-filter" aria-hidden="true"></i>Filtrar
+              <span class="filtrar-badge" id="filtrar-planilha-badge" hidden>1</span>
+            </button>
+            <div class="column-selector-panel" id="filtrar-planilha-panel">
+              <div class="status-filter-chips" id="filter-status-planilha-chips"></div>
+            </div>
+          </div>
+        </div>
         <div class="table-wrap">
           <div class="table-header" style="position:relative">
             <h3><i class="ti ti-table"></i>Planilha Importada do Google Drive</h3>
             <span id="planilha-count" class="result-count" aria-live="polite"></span>
-            <div class="search-box" style="margin-left:auto">
-              <i class="ti ti-search" aria-hidden="true"></i>
-              <label for="search-planilha" class="sr-only">Buscar por nome, CPF, CNPJ, email ou telefone</label>
-              <input type="text" id="search-planilha" placeholder="Buscar por nome, CPF ou CNPJ...">
-            </div>
-            <select id="filter-status" style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface)">
-              <option value="">Todos os status</option>
-              <option>Novo Lead</option><option>Documentação Pendente</option><option>Aguardando Pagamento</option><option>Agendado para Vídeo</option><option>Emitido</option>
-            </select>
-            <div class="column-selector-dropdown" style="position:relative">
+            <div class="column-selector-dropdown" style="position:relative;margin-left:auto">
               <button type="button" class="btn btn-sm" id="column-selector-toggle"><i class="ti ti-columns" aria-hidden="true"></i>Colunas <i class="ti ti-chevron-down chevron" style="margin-left:4px;font-size:11px" aria-hidden="true"></i></button>
               <div class="column-selector-panel" id="column-selector-panel">
                 <div class="column-preset-row">
@@ -467,6 +474,7 @@
         if (typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
         document.getElementById('save-menu')?.classList.remove('open');
         document.getElementById('user-menu-panel')?.classList.remove('open');
+        document.getElementById('filtrar-planilha-panel')?.classList.remove('open');
         columnPanel.classList.toggle('open');
       });
       document.addEventListener('click', function(e) {
@@ -487,6 +495,7 @@
         document.getElementById('save-menu')?.classList.remove('open');
         document.getElementById('column-selector-panel')?.classList.remove('open');
         document.getElementById('user-menu-panel')?.classList.remove('open');
+        document.getElementById('filtrar-planilha-panel')?.classList.remove('open');
         var willOpen = !filtrarClientesPanel.classList.contains('open');
         filtrarClientesPanel.classList.toggle('open', willOpen);
         filtrarClientesToggle.setAttribute('aria-expanded', String(willOpen));
@@ -495,6 +504,30 @@
         if (!filtrarClientesPanel.contains(e.target) && e.target !== filtrarClientesToggle && !filtrarClientesToggle.contains(e.target)) {
           filtrarClientesPanel.classList.remove('open');
           filtrarClientesToggle.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+
+    var filtrarPlanilhaPanel = document.getElementById('filtrar-planilha-panel');
+    var filtrarPlanilhaToggle = document.getElementById('filtrar-planilha-toggle');
+    if (filtrarPlanilhaToggle && filtrarPlanilhaPanel) {
+      filtrarPlanilhaToggle.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (typeof closeActionMenu === 'function') closeActionMenu();
+        if (typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
+        if (typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
+        document.getElementById('save-menu')?.classList.remove('open');
+        document.getElementById('column-selector-panel')?.classList.remove('open');
+        document.getElementById('user-menu-panel')?.classList.remove('open');
+        document.getElementById('filtrar-clientes-panel')?.classList.remove('open');
+        var willOpen = !filtrarPlanilhaPanel.classList.contains('open');
+        filtrarPlanilhaPanel.classList.toggle('open', willOpen);
+        filtrarPlanilhaToggle.setAttribute('aria-expanded', String(willOpen));
+      });
+      document.addEventListener('click', function(e) {
+        if (!filtrarPlanilhaPanel.contains(e.target) && e.target !== filtrarPlanilhaToggle && !filtrarPlanilhaToggle.contains(e.target)) {
+          filtrarPlanilhaPanel.classList.remove('open');
+          filtrarPlanilhaToggle.setAttribute('aria-expanded', 'false');
         }
       });
     }
@@ -510,6 +543,7 @@
         document.getElementById('save-menu')?.classList.remove('open');
         document.getElementById('column-selector-panel')?.classList.remove('open');
         document.getElementById('filtrar-clientes-panel')?.classList.remove('open');
+        document.getElementById('filtrar-planilha-panel')?.classList.remove('open');
         var willOpen = !userMenuPanel.classList.contains('open');
         userMenuPanel.classList.toggle('open', willOpen);
         userMenuToggle.setAttribute('aria-expanded', String(willOpen));
@@ -527,9 +561,6 @@
     var searchInput = document.getElementById('search-cliente');
     var debouncedFilterClientes = debounce(function(){ clientesPage = 1; renderClientesSimples(); }, 200);
     if (searchInput) searchInput.addEventListener('input', debouncedFilterClientes);
-
-    var statusFilter = document.getElementById('filter-status');
-    if (statusFilter) statusFilter.addEventListener('change', function(){ planilhaPage = 1; filterPlanilhaImportada(); });
 
     var searchPlanilha = document.getElementById('search-planilha');
     var debouncedFilterPlanilha = debounce(function(){ planilhaPage = 1; filterPlanilhaImportada(); }, 200);

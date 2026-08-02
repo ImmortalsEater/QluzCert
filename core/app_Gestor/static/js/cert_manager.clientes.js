@@ -44,9 +44,40 @@ function planilhaSearchHaystack(row){
   return `${cell('col-cliente')} ${cell('col-telefone1')} ${cell('col-telefone2')} ${cell('col-cpf-cnpj')} ${cell('col-email')}`.toLowerCase();
 }
 
+// Filtro de status da Planilha como chips, mesmo padrão de
+// renderFiltroStatusClientes() -- estado próprio (planilhaFiltroStatus) em
+// vez do <select> nativo que existia antes.
+let planilhaFiltroStatus='';
+function setPlanilhaStatusFiltro(status){
+  planilhaFiltroStatus=(planilhaFiltroStatus===status)?'':status;
+  planilhaPage=1;
+  filterPlanilhaImportada();
+  const panel=document.getElementById('filtrar-planilha-panel');
+  if(panel) panel.classList.remove('open');
+  document.getElementById('filtrar-planilha-toggle')?.setAttribute('aria-expanded','false');
+}
+function renderFiltroStatusPlanilha(){
+  const badge=document.getElementById('filtrar-planilha-badge');
+  if(badge) badge.hidden=!planilhaFiltroStatus;
+  const el=document.getElementById('filter-status-planilha-chips');
+  if(!el) return;
+  const bgTokens=['var(--info-bg)','var(--warn-bg)','var(--purple-bg)','var(--teal-bg)','var(--success-bg)'];
+  const chip=(status,label,color,bg)=>{
+    const active=planilhaFiltroStatus===status;
+    const style=active?` style="background:${bg};border-color:${bg};color:${color};font-weight:600"`:'';
+    const dot=color?`<span class="status-filter-dot" style="background:${color}"></span>`:'';
+    return `<button type="button" class="status-filter-chip"${style} onclick="setPlanilhaStatusFiltro('${status.replace(/'/g,"\\'")}')">${dot}${escapeHtml(label)}</button>`;
+  };
+  el.innerHTML=[
+    chip('','Todos',null,null),
+    ...STATUS_LIST.map((s,i)=>chip(s,s,KANBAN_COLORS[i],bgTokens[i])),
+  ].join('');
+}
+
 function filterPlanilhaImportada(){
+  renderFiltroStatusPlanilha();
   const q=normalizeQuery(document.getElementById('search-planilha')?.value);
-  const statusFilterVal=document.getElementById('filter-status')?.value||'';
+  const statusFilterVal=planilhaFiltroStatus;
   const tbody=document.getElementById('planilha-tbody');
   const table=document.getElementById('planilha-table');
   const noMatch=document.getElementById('planilha-no-match');
