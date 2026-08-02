@@ -190,7 +190,8 @@
   .action-menu-divider{height:1px;background:var(--border-strong);margin:4px 6px}
 
   table{width:100%;border-collapse:collapse}
-  thead th{background:var(--surface-alt);padding:10px 16px;text-align:left;font-size:11px;font-weight:700;color:var(--muted-strong);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+  thead th{background:var(--surface-alt);padding:11px 16px;text-align:left;font-size:11.5px;font-weight:700;color:var(--muted-strong);text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border);transition:background-color 120ms ease,color 120ms ease}
+  thead th:hover{background:var(--border);color:var(--text)}
   tbody tr{border-bottom:1px solid var(--border);transition:background-color 120ms ease}
   tbody tr:last-child{border-bottom:none}
   tbody td{padding:10px 16px;font-size:13px;vertical-align:middle}
