@@ -14,20 +14,35 @@
     <!-- Seu CSS customizado -->
     <link rel="stylesheet" href="{% static 'css/cert_manager.css' %}">
     <style>
-      /* Toast simples */
+      /* Toast -- bloco de icone (fundo soft do tipo) + titulo/detalhe +
+         botao de fechar + barra de progresso na borda inferior mostrando
+         quanto falta pro auto-dismiss (ver showToast em cert_manager.core.js). */
       .toast-container{position:fixed;right:16px;bottom:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:min(380px,calc(100vw - 32px))}
-      .toast{display:flex;align-items:flex-start;gap:8px;min-width:200px;padding:12px 14px;border-radius:10px;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,0.16);font-size:13px;line-height:1.4;opacity:0;transform:translateY(8px) scale(0.98);transition:opacity 200ms var(--ease-out-strong),transform 200ms var(--ease-out-strong)}
+      .toast{position:relative;display:flex;align-items:flex-start;gap:10px;min-width:240px;padding:12px 14px 14px;
+        border-radius:10px;background:var(--surface);border:1px solid var(--border);color:var(--text);
+        box-shadow:0 1px 1px rgba(0,0,0,.04),0 4px 8px rgba(0,0,0,.06),0 16px 32px rgba(0,0,0,.10);
+        font-size:13px;line-height:1.4;opacity:0;transform:translateY(8px) scale(0.98);overflow:hidden;
+        transition:opacity 200ms var(--ease-out-strong),transform 200ms var(--ease-out-strong)}
       .toast.toast-visible{opacity:1;transform:translateY(0) scale(1)}
       @media (prefers-reduced-motion: reduce) {
         .toast{transform:none;transition:opacity 200ms ease-out}
         .toast.toast-visible{transform:none}
       }
-      .toast .toast-icon{flex-shrink:0;font-size:16px;line-height:1.4;margin-top:1px}
-      .toast .toast-text{flex:1;word-break:break-word}
-      .toast.success{background:var(--success)}
-      .toast.error{background:var(--danger)}
-      .toast.info{background:var(--info)}
-      .toast.warning{background:var(--warn)}
+      .toast-icon{flex-shrink:0;width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px}
+      .toast-body{flex:1;min-width:0}
+      .toast-title{font-size:13px;font-weight:700;color:var(--text)}
+      .toast-text{font-size:12px;color:var(--muted);line-height:1.4;margin-top:1px;word-break:break-word}
+      .toast-close{flex-shrink:0;background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0;margin-top:2px}
+      .toast-close:hover{color:var(--text)}
+      .toast-progress{position:absolute;left:0;bottom:0;height:2.5px;width:100%;transition:width linear}
+      .toast.success .toast-icon{background:var(--success-bg);color:var(--success)}
+      .toast.success .toast-progress{background:var(--success)}
+      .toast.error .toast-icon{background:var(--danger-bg);color:var(--danger)}
+      .toast.error .toast-progress{background:var(--danger)}
+      .toast.info .toast-icon{background:var(--info-bg);color:var(--info)}
+      .toast.info .toast-progress{background:var(--info)}
+      .toast.warning .toast-icon{background:var(--warn-bg);color:var(--warn)}
+      .toast.warning .toast-progress{background:var(--warn)}
       /* Overlay / spinner */
       @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
       #export-overlay{display:none;position:fixed;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.45);z-index:9998;align-items:center;justify-content:center}
