@@ -74,6 +74,21 @@ function renderFiltroStatusPlanilha(){
   ].join('');
 }
 
+// Envolve em <mark> o trecho de `raw` que bate com `q` (case insensitive),
+// escapando tudo antes de montar o HTML. Usado tanto pela Planilha
+// (highlightPlanilhaMatches, que decora <td> já no DOM) quanto por Clientes
+// (renderClientesSimples, que monta a linha inteira via template literal).
+function highlightText(raw, q){
+  const safe=escapeHtml(raw||'');
+  if(!q) return safe;
+  const idx=(raw||'').toLowerCase().indexOf(q);
+  if(idx===-1) return safe;
+  const before=escapeHtml(raw.slice(0,idx));
+  const match=escapeHtml(raw.slice(idx,idx+q.length));
+  const after=escapeHtml(raw.slice(idx+q.length));
+  return `${before}<mark>${match}</mark>${after}`;
+}
+
 // Marca com <mark> o trecho que bateu com a busca, só nas colunas usadas
 // por planilhaSearchHaystack() e só nas linhas visíveis. Guarda o texto cru
 // em dataset.raw na primeira passada pra sempre reconstruir a partir dele
@@ -86,14 +101,7 @@ function highlightPlanilhaMatches(q){
       const td=row.querySelector('td.'+cls);
       if(!td) return;
       if(td.dataset.raw===undefined) td.dataset.raw=td.textContent;
-      const raw=td.dataset.raw;
-      if(!q){ td.textContent=raw; return; }
-      const idx=raw.toLowerCase().indexOf(q);
-      if(idx===-1){ td.textContent=raw; return; }
-      const before=escapeHtml(raw.slice(0,idx));
-      const match=escapeHtml(raw.slice(idx,idx+q.length));
-      const after=escapeHtml(raw.slice(idx+q.length));
-      td.innerHTML=`${before}<mark>${match}</mark>${after}`;
+      td.innerHTML=highlightText(td.dataset.raw, q);
     });
   });
 }
@@ -219,8 +227,8 @@ function renderClientesSimples(){
   const pageItems=matches.slice(pageStart,pageStart+ROWS_PER_PAGE);
 
   tbody.innerHTML=pageItems.map(l=>`<tr>
-    <td>${escapeHtml(l.nome)}</td>
-    <td>${escapeHtml(l.telefone)||'—'}</td>
+    <td>${highlightText(l.nome, q)}</td>
+    <td>${highlightText(l.telefone, q)||'—'}</td>
     <td>${statusBadge(l.status)}</td>
     <td>${escapeHtml(l.tipoCert)||'—'}</td>
     <td>${l.dataVencimento?fmtDate(l.dataVencimento):'—'}</td>
