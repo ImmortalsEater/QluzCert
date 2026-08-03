@@ -14,20 +14,35 @@
     <!-- Seu CSS customizado -->
     <link rel="stylesheet" href="{% static 'css/cert_manager.css' %}">
     <style>
-      /* Toast simples */
+      /* Toast -- bloco de icone (fundo soft do tipo) + titulo/detalhe +
+         botao de fechar + barra de progresso na borda inferior mostrando
+         quanto falta pro auto-dismiss (ver showToast em cert_manager.core.js). */
       .toast-container{position:fixed;right:16px;bottom:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:min(380px,calc(100vw - 32px))}
-      .toast{display:flex;align-items:flex-start;gap:8px;min-width:200px;padding:12px 14px;border-radius:10px;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,0.16);font-size:13px;line-height:1.4;opacity:0;transform:translateY(8px) scale(0.98);transition:opacity 200ms var(--ease-out-strong),transform 200ms var(--ease-out-strong)}
+      .toast{position:relative;display:flex;align-items:flex-start;gap:10px;min-width:240px;padding:12px 14px 14px;
+        border-radius:10px;background:var(--surface);border:1px solid var(--border);color:var(--text);
+        box-shadow:0 1px 1px rgba(0,0,0,.04),0 4px 8px rgba(0,0,0,.06),0 16px 32px rgba(0,0,0,.10);
+        font-size:13px;line-height:1.4;opacity:0;transform:translateY(8px) scale(0.98);overflow:hidden;
+        transition:opacity 200ms var(--ease-out-strong),transform 200ms var(--ease-out-strong)}
       .toast.toast-visible{opacity:1;transform:translateY(0) scale(1)}
       @media (prefers-reduced-motion: reduce) {
         .toast{transform:none;transition:opacity 200ms ease-out}
         .toast.toast-visible{transform:none}
       }
-      .toast .toast-icon{flex-shrink:0;font-size:16px;line-height:1.4;margin-top:1px}
-      .toast .toast-text{flex:1;word-break:break-word}
-      .toast.success{background:var(--success)}
-      .toast.error{background:var(--danger)}
-      .toast.info{background:var(--info)}
-      .toast.warning{background:var(--warn)}
+      .toast-icon{flex-shrink:0;width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px}
+      .toast-body{flex:1;min-width:0}
+      .toast-title{font-size:13px;font-weight:700;color:var(--text)}
+      .toast-text{font-size:12px;color:var(--muted);line-height:1.4;margin-top:1px;word-break:break-word}
+      .toast-close{flex-shrink:0;background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0;margin-top:2px}
+      .toast-close:hover{color:var(--text)}
+      .toast-progress{position:absolute;left:0;bottom:0;height:2.5px;width:100%;transition:width linear}
+      .toast.success .toast-icon{background:var(--success-bg);color:var(--success)}
+      .toast.success .toast-progress{background:var(--success)}
+      .toast.error .toast-icon{background:var(--danger-bg);color:var(--danger)}
+      .toast.error .toast-progress{background:var(--danger)}
+      .toast.info .toast-icon{background:var(--info-bg);color:var(--info)}
+      .toast.info .toast-progress{background:var(--info)}
+      .toast.warning .toast-icon{background:var(--warn-bg);color:var(--warn)}
+      .toast.warning .toast-progress{background:var(--warn)}
       /* Overlay / spinner */
       @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
       #export-overlay{display:none;position:fixed;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,0.45);z-index:9998;align-items:center;justify-content:center}
@@ -44,25 +59,31 @@
       <img src="{% static 'img/qluz_logo.svg' %}" alt="" class="logo-mark">
       <div class="logo-sub">Gestão de Certificados Digitais</div>
     </a>
-    <div class="nav-section">Principal</div>
-    <div class="nav-item active" onclick="nav('dashboard')"><i class="ti ti-layout-dashboard"></i>Dashboard</div>
-    <div class="nav-item" onclick="nav('funil')"><i class="ti ti-layout-kanban"></i>Funil de Atendimento</div>
-    <div class="nav-item" onclick="nav('clientes')"><i class="ti ti-users"></i>Clientes <span class="nav-badge" id="alert-badge" style="display:none">!</span></div>
-    <div class="nav-item" onclick="nav('planilha')"><i class="ti ti-table"></i>Planilha</div>
-    <div class="nav-section">Operacional</div>
-    <div class="nav-item" onclick="nav('renovacoes')"><i class="ti ti-bell"></i>Renovações <span class="nav-badge" id="ren-badge">0</span></div>
-    {% if user.is_superuser or perms.pagamentos %}
-    <div class="nav-item" onclick="nav('pagamentos')"><i class="ti ti-cash"></i>Pagamentos <span class="nav-badge" id="pag-badge">0</span></div>
-    {% endif %}
-    {% if user.is_superuser or perms.parceiros %}
-    <div class="nav-item" onclick="nav('parceiros')"><i class="ti ti-building"></i>Parceiros</div>
-    {% endif %}
+    <div class="nav-section" data-group="principal" role="button" tabindex="0" aria-expanded="true" onclick="toggleNavSection(this)">Principal<i class="ti ti-chevron-down nav-chevron"></i></div>
+    <div class="nav-group" id="nav-group-principal"><div class="nav-group-inner">
+      <div class="nav-item active" role="button" tabindex="0" onclick="nav('dashboard')"><i class="ti ti-layout-dashboard"></i>Dashboard</div>
+      <div class="nav-item" role="button" tabindex="0" onclick="nav('funil')"><i class="ti ti-layout-kanban"></i>Funil de Atendimento</div>
+      <div class="nav-item" role="button" tabindex="0" onclick="nav('clientes')"><i class="ti ti-users"></i>Clientes</div>
+      <div class="nav-item" role="button" tabindex="0" onclick="nav('planilha')"><i class="ti ti-table"></i>Planilha</div>
+    </div></div>
+    <div class="nav-section" data-group="operacional" role="button" tabindex="0" aria-expanded="true" onclick="toggleNavSection(this)">Operacional<i class="ti ti-chevron-down nav-chevron"></i></div>
+    <div class="nav-group" id="nav-group-operacional"><div class="nav-group-inner">
+      <div class="nav-item" role="button" tabindex="0" onclick="nav('renovacoes')"><i class="ti ti-bell"></i>Renovações <span class="nav-badge" id="ren-badge">0</span></div>
+      {% if user.is_superuser or perms.pagamentos %}
+      <div class="nav-item" role="button" tabindex="0" onclick="nav('pagamentos')"><i class="ti ti-cash"></i>Pagamentos <span class="nav-badge" id="pag-badge">0</span></div>
+      {% endif %}
+      {% if user.is_superuser or perms.parceiros %}
+      <div class="nav-item" role="button" tabindex="0" onclick="nav('parceiros')"><i class="ti ti-building"></i>Parceiros</div>
+      {% endif %}
+    </div></div>
     {% if user.is_superuser or perms.precos %}
-    <div class="nav-section">Configurações</div>
-    <div class="nav-item" onclick="nav('tabela')"><i class="ti ti-currency-dollar"></i>Tabela de Preços</div>
-    {% endif %}
-    {% if user.is_superuser %}
-    <div class="nav-item" onclick="location.href='{% url 'usuarios_gestao' %}'"><i class="ti ti-users-group"></i>Usuários</div>
+    <div class="nav-section" data-group="config" role="button" tabindex="0" aria-expanded="true" onclick="toggleNavSection(this)">Configurações<i class="ti ti-chevron-down nav-chevron"></i></div>
+    <div class="nav-group" id="nav-group-config"><div class="nav-group-inner">
+      <div class="nav-item" role="button" tabindex="0" onclick="nav('tabela')"><i class="ti ti-currency-dollar"></i>Tabela de Preços</div>
+      {% if user.is_superuser %}
+      <div class="nav-item" role="button" tabindex="0" onclick="location.href='{% url 'usuarios_gestao' %}'"><i class="ti ti-users-group"></i>Usuários</div>
+      {% endif %}
+    </div></div>
     {% endif %}
     <div class="sidebar-footer">
       v1.0 · Dados locais · <span id="total-count">0</span> clientes
@@ -125,12 +146,18 @@
             <i class="ti ti-search" aria-hidden="true"></i>
             <label for="search-cliente" class="sr-only">Buscar cliente por nome, CPF, CNPJ, email ou telefone</label>
             <input type="text" id="search-cliente" placeholder="Buscar por nome, CPF ou CNPJ...">
+            <button type="button" class="clear-btn" aria-label="Limpar busca"><i class="ti ti-x" aria-hidden="true"></i></button>
           </div>
-          <select id="filter-status-clientes" style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface)">
-            <option value="">Todos os status</option>
-            <option>Novo Lead</option><option>Documentação Pendente</option><option>Aguardando Pagamento</option><option>Agendado para Vídeo</option><option>Emitido</option>
-          </select>
-          <button class="btn btn-primary" onclick="openModal('novoCliente', null, this)"><i class="ti ti-plus" aria-hidden="true"></i>Novo Cliente</button>
+          <div class="filtrar-dropdown" style="position:relative">
+            <button type="button" class="btn" id="filtrar-clientes-toggle" aria-haspopup="true" aria-expanded="false">
+              <i class="ti ti-filter" aria-hidden="true"></i>Filtrar
+              <span class="filtrar-badge" id="filtrar-clientes-badge" hidden>1</span>
+            </button>
+            <div class="column-selector-panel" id="filtrar-clientes-panel">
+              <div class="status-filter-chips" id="filter-status-clientes-chips"></div>
+            </div>
+          </div>
+          <button class="btn btn-secondary-soft" style="margin-left:auto" onclick="openModal('novoCliente', null, this)"><i class="ti ti-plus" aria-hidden="true"></i>Novo Cliente</button>
         </div>
         <div class="table-wrap">
           <div class="table-header" style="position:relative">
@@ -152,17 +179,36 @@
 
       <!-- PLANILHA (todas as colunas da planilha do Google Drive) -->
       <div id="view-planilha" class="view">
+        <div class="section-actions">
+          <div class="search-box">
+            <i class="ti ti-search" aria-hidden="true"></i>
+            <label for="search-planilha" class="sr-only">Buscar por nome, CPF, CNPJ, email ou telefone</label>
+            <input type="text" id="search-planilha" placeholder="Buscar por nome, CPF ou CNPJ...">
+            <button type="button" class="clear-btn" aria-label="Limpar busca"><i class="ti ti-x" aria-hidden="true"></i></button>
+          </div>
+          <div class="filtrar-dropdown" style="position:relative">
+            <button type="button" class="btn" id="filtrar-planilha-toggle" aria-haspopup="true" aria-expanded="false">
+              <i class="ti ti-filter" aria-hidden="true"></i>Filtrar
+              <span class="filtrar-badge" id="filtrar-planilha-badge" hidden>1</span>
+            </button>
+            <div class="column-selector-panel" id="filtrar-planilha-panel">
+              <div class="status-filter-chips" id="filter-status-planilha-chips"></div>
+            </div>
+          </div>
+        </div>
         <div class="table-wrap">
           <div class="table-header" style="position:relative">
             <h3><i class="ti ti-table"></i>Planilha Importada do Google Drive</h3>
             <span id="planilha-count" class="result-count" aria-live="polite"></span>
-            <select id="filter-status" style="margin-left:auto;padding:7px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--surface)">
-              <option value="">Todos os status</option>
-              <option>Novo Lead</option><option>Documentação Pendente</option><option>Aguardando Pagamento</option><option>Agendado para Vídeo</option><option>Emitido</option>
-            </select>
-            <div class="column-selector-dropdown" style="position:relative">
+            <div class="column-selector-dropdown" style="position:relative;margin-left:auto">
               <button type="button" class="btn btn-sm" id="column-selector-toggle"><i class="ti ti-columns" aria-hidden="true"></i>Colunas <i class="ti ti-chevron-down chevron" style="margin-left:4px;font-size:11px" aria-hidden="true"></i></button>
               <div class="column-selector-panel" id="column-selector-panel">
+                <div class="column-preset-row">
+                  <button type="button" class="column-preset-chip" data-preset="essencial" onclick="aplicarPresetColunas('essencial')">Essencial</button>
+                  <button type="button" class="column-preset-chip" data-preset="financeiro" onclick="aplicarPresetColunas('financeiro')">Financeiro</button>
+                  <button type="button" class="column-preset-chip" data-preset="tudo" onclick="aplicarPresetColunas('tudo')">Tudo</button>
+                </div>
+                <div class="column-selector-divider"></div>
                 <label class="column-toggle-label"><input type="checkbox" id="column-toggle-all"> <strong>Selecionar todas</strong></label>
                 <div class="column-selector-divider"></div>
                 {% for col in google_columns %}
@@ -203,10 +249,10 @@
       <!-- FUNIL KANBAN -->
       <div id="view-funil" class="view">
         <div class="section-actions">
-          <button class="btn btn-secondary" onclick="openModal('novoCliente', null, this)"><i class="ti ti-plus"></i>Novo Lead</button>
-          <span style="font-size:12px;color:var(--muted);margin-left:4px">Arraste os cards entre as colunas ou use o seletor para mudar o status</span>
+          <div class="funil-filtros" id="funil-filtros"></div>
+          <span class="hint-icon" tabindex="0" title="Arraste os cards entre as colunas ou use o seletor para mudar o status" aria-label="Arraste os cards entre as colunas ou use o seletor para mudar o status">?</span>
+          <button class="btn btn-secondary-soft" style="margin-left:auto" onclick="openModal('novoCliente', null, this)"><i class="ti ti-plus"></i>Novo Lead</button>
         </div>
-        <div class="funil-filtros" id="funil-filtros"></div>
         <div class="kanban" id="kanban-board"></div>
       </div>
 
@@ -243,15 +289,8 @@
         <div class="section-actions">
           <button class="btn btn-tertiary" onclick="openModal('parceiro')"><i class="ti ti-plus"></i>Novo Parceiro</button>
         </div>
-        <div class="table-wrap">
-          <div class="table-scroll">
-            <table>
-              <thead><tr><th>Nome / Escritório</th><th>Tipo</th><th>Comissão</th><th>Contato</th><th>Clientes Indicados</th><th>Ações</th></tr></thead>
-              <tbody id="parceiros-tbody"></tbody>
-            </table>
-          </div>
-          <div id="parceiros-empty" class="empty-state" style="display:none"><i class="ti ti-building"></i><p>Nenhum parceiro cadastrado.</p></div>
-        </div>
+        <div class="parceiros-grid" id="parceiros-grid"></div>
+        <div id="parceiros-empty" class="empty-state" style="display:none"><i class="ti ti-building"></i><p>Nenhum parceiro cadastrado.</p></div>
       </div>
 
       <!-- TABELA DE PREÇOS -->
@@ -259,14 +298,8 @@
         <div class="section-actions">
           <button class="btn btn-quaternary" onclick="openModal('preco')"><i class="ti ti-plus"></i>Novo Item</button>
         </div>
-        <div class="table-wrap">
-          <div class="table-scroll">
-            <table>
-              <thead><tr><th>Tipo de Certificado</th><th>Validade</th><th>Preço</th><th>Ações</th></tr></thead>
-              <tbody id="tabela-tbody"></tbody>
-            </table>
-          </div>
-        </div>
+        <div class="precos-grid" id="precos-grid"></div>
+        <div id="precos-empty" class="empty-state" style="display:none"><i class="ti ti-currency-dollar"></i><p>Nenhum tipo de certificado cadastrado.</p></div>
       </div>
 
     </div><!-- /content -->
@@ -315,6 +348,14 @@
      ser cortado pelo overflow do board -- ver openKanbanStatusMenu). -->
 <div id="kanban-status-menu" class="action-menu-dropdown" role="menu"></div>
 
+<!-- MENU DE AÇÕES DO CARD DE PARCEIRO -- mesmo padrão dos dois acima (ver
+     openParceiroActionMenu em cert_manager.parceiros.js). -->
+<div id="parceiro-action-menu" class="action-menu-dropdown" role="menu"></div>
+
+<!-- MENU DE AÇÕES DO CARD DE PREÇO -- mesmo padrão dos acima (ver
+     openPrecoActionMenu em cert_manager.precos.js). -->
+<div id="preco-action-menu" class="action-menu-dropdown" role="menu"></div>
+
 <!-- OVERLAY EXPORTAÇÃO -->
 <div id="export-overlay">
   <div class="export-box">
@@ -344,6 +385,18 @@
 <script src="{% static 'js/cert_manager.init.js' %}"></script>
 <script>
   document.addEventListener('DOMContentLoaded', function() {
+    restoreNavSectionState();
+    var sidebarEl = document.getElementById('sidebar');
+    if (sidebarEl) {
+      sidebarEl.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        var el = e.target.closest('.nav-item, .nav-section[data-group]');
+        if (!el) return;
+        e.preventDefault();
+        el.click();
+      });
+    }
+
     var columnToggles = document.querySelectorAll('.column-toggle');
     var toggleAll = document.getElementById('column-toggle-all');
 
@@ -360,6 +413,15 @@
             cell.style.display = show ? '' : 'none';
           });
         }
+      });
+    }
+
+    // Só realca visualmente o chip do preset salvo -- os checkboxes acima
+    // ja refletem colunas_visiveis, essa marcacao nao dispara mudanca nenhuma.
+    var savedPreset = DB.get('planilha_preset');
+    if (savedPreset) {
+      document.querySelectorAll('.column-preset-chip').forEach(function(chip) {
+        chip.classList.toggle('active', chip.dataset.preset === savedPreset);
       });
     }
 
@@ -409,13 +471,63 @@
         // nunca enxerga o listener global de fechamento dos outros.
         if (typeof closeActionMenu === 'function') closeActionMenu();
         if (typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
+        if (typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
         document.getElementById('save-menu')?.classList.remove('open');
         document.getElementById('user-menu-panel')?.classList.remove('open');
+        document.getElementById('filtrar-planilha-panel')?.classList.remove('open');
         columnPanel.classList.toggle('open');
       });
       document.addEventListener('click', function(e) {
         if (!columnPanel.contains(e.target) && e.target !== columnToggleBtn) {
           columnPanel.classList.remove('open');
+        }
+      });
+    }
+
+    var filtrarClientesPanel = document.getElementById('filtrar-clientes-panel');
+    var filtrarClientesToggle = document.getElementById('filtrar-clientes-toggle');
+    if (filtrarClientesToggle && filtrarClientesPanel) {
+      filtrarClientesToggle.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (typeof closeActionMenu === 'function') closeActionMenu();
+        if (typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
+        if (typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
+        document.getElementById('save-menu')?.classList.remove('open');
+        document.getElementById('column-selector-panel')?.classList.remove('open');
+        document.getElementById('user-menu-panel')?.classList.remove('open');
+        document.getElementById('filtrar-planilha-panel')?.classList.remove('open');
+        var willOpen = !filtrarClientesPanel.classList.contains('open');
+        filtrarClientesPanel.classList.toggle('open', willOpen);
+        filtrarClientesToggle.setAttribute('aria-expanded', String(willOpen));
+      });
+      document.addEventListener('click', function(e) {
+        if (!filtrarClientesPanel.contains(e.target) && e.target !== filtrarClientesToggle && !filtrarClientesToggle.contains(e.target)) {
+          filtrarClientesPanel.classList.remove('open');
+          filtrarClientesToggle.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+
+    var filtrarPlanilhaPanel = document.getElementById('filtrar-planilha-panel');
+    var filtrarPlanilhaToggle = document.getElementById('filtrar-planilha-toggle');
+    if (filtrarPlanilhaToggle && filtrarPlanilhaPanel) {
+      filtrarPlanilhaToggle.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (typeof closeActionMenu === 'function') closeActionMenu();
+        if (typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
+        if (typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
+        document.getElementById('save-menu')?.classList.remove('open');
+        document.getElementById('column-selector-panel')?.classList.remove('open');
+        document.getElementById('user-menu-panel')?.classList.remove('open');
+        document.getElementById('filtrar-clientes-panel')?.classList.remove('open');
+        var willOpen = !filtrarPlanilhaPanel.classList.contains('open');
+        filtrarPlanilhaPanel.classList.toggle('open', willOpen);
+        filtrarPlanilhaToggle.setAttribute('aria-expanded', String(willOpen));
+      });
+      document.addEventListener('click', function(e) {
+        if (!filtrarPlanilhaPanel.contains(e.target) && e.target !== filtrarPlanilhaToggle && !filtrarPlanilhaToggle.contains(e.target)) {
+          filtrarPlanilhaPanel.classList.remove('open');
+          filtrarPlanilhaToggle.setAttribute('aria-expanded', 'false');
         }
       });
     }
@@ -427,8 +539,11 @@
         e.stopPropagation();
         if (typeof closeActionMenu === 'function') closeActionMenu();
         if (typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
+        if (typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
         document.getElementById('save-menu')?.classList.remove('open');
         document.getElementById('column-selector-panel')?.classList.remove('open');
+        document.getElementById('filtrar-clientes-panel')?.classList.remove('open');
+        document.getElementById('filtrar-planilha-panel')?.classList.remove('open');
         var willOpen = !userMenuPanel.classList.contains('open');
         userMenuPanel.classList.toggle('open', willOpen);
         userMenuToggle.setAttribute('aria-expanded', String(willOpen));
@@ -446,11 +561,32 @@
     var searchInput = document.getElementById('search-cliente');
     var debouncedFilterClientes = debounce(function(){ clientesPage = 1; renderClientesSimples(); }, 200);
     if (searchInput) searchInput.addEventListener('input', debouncedFilterClientes);
-    var statusFilterClientes = document.getElementById('filter-status-clientes');
-    if (statusFilterClientes) statusFilterClientes.addEventListener('change', function(){ clientesPage = 1; renderClientesSimples(); });
 
-    var statusFilter = document.getElementById('filter-status');
-    if (statusFilter) statusFilter.addEventListener('change', function(){ planilhaPage = 1; filterPlanilhaImportada(); });
+    var searchPlanilha = document.getElementById('search-planilha');
+    var debouncedFilterPlanilha = debounce(function(){ planilhaPage = 1; filterPlanilhaImportada(); }, 200);
+    if (searchPlanilha) searchPlanilha.addEventListener('input', debouncedFilterPlanilha);
+
+    // Mostra/some o botão de limpar (".clear-btn") conforme o campo tem
+    // texto ou não, e faz o clique nele zerar a busca e focar de volta --
+    // compartilhado pelos dois campos de busca (Clientes e Planilha).
+    function wireSearchClear(input, onClear) {
+      if (!input) return;
+      var box = input.closest('.search-box');
+      var clearBtn = box ? box.querySelector('.clear-btn') : null;
+      function syncHasValue() { if (box) box.classList.toggle('has-value', input.value.length > 0); }
+      input.addEventListener('input', syncHasValue);
+      syncHasValue();
+      if (clearBtn) {
+        clearBtn.addEventListener('click', function() {
+          input.value = '';
+          syncHasValue();
+          input.focus();
+          onClear();
+        });
+      }
+    }
+    wireSearchClear(searchInput, function(){ clientesPage = 1; renderClientesSimples(); });
+    wireSearchClear(searchPlanilha, function(){ planilhaPage = 1; filterPlanilhaImportada(); });
 
     var initialTab = (location.hash || '').replace('#', '');
     if (initialTab && document.getElementById('view-' + initialTab)) {

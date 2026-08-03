@@ -9,6 +9,27 @@ const PAGE_CONFIG = {
   tabela:{title:'Tabela de Preços', render:renderTabela},
 }
 
+// ==================== PLANILHA: PRESETS DE COLUNAS ====================
+const PLANILHA_COLUMN_PRESETS = {
+  essencial: ['col-cliente','col-telefone1','col-status','col-data-vencimento'],
+  financeiro: ['col-cliente','col-telefone1','col-status','col-data-vencimento',
+    'col-valor-venda','col-percentual','col-valor-comissao','col-pago-venda','col-pago-comissao'],
+};
+function aplicarPresetColunas(nome){
+  const alvo = PLANILHA_COLUMN_PRESETS[nome] || null; // null = 'tudo', mostra todas
+  document.querySelectorAll('.column-toggle').forEach(toggle=>{
+    const show = alvo ? alvo.includes(toggle.dataset.col) : true;
+    if(toggle.checked !== show){
+      toggle.checked = show;
+      toggle.dispatchEvent(new Event('change'));
+    }
+  });
+  document.querySelectorAll('.column-preset-chip').forEach(chip=>{
+    chip.classList.toggle('active', chip.dataset.preset === nome);
+  });
+  DB.set('planilha_preset', nome);
+}
+
 // ==================== NAVIGATION ====================
 function nav(page){
   document.querySelectorAll('.nav-item').forEach(el=>{
@@ -22,6 +43,29 @@ function nav(page){
   config.render();
   // renderiza os controles de salvar novamente e re-bind dos eventos
   try{ renderSaveActions(); initSaveMenu(); }catch(e){}
+}
+
+function toggleNavSection(header){
+  const key = header.dataset.group;
+  const group = document.getElementById('nav-group-'+key);
+  if(!group) return;
+  const collapsed = group.classList.toggle('collapsed');
+  header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  const state = DB.get('nav_collapsed') || {};
+  if(collapsed) state[key]=true; else delete state[key];
+  DB.set('nav_collapsed', state);
+}
+
+function restoreNavSectionState(){
+  const state = DB.get('nav_collapsed') || {};
+  Object.keys(state).forEach(key=>{
+    const group = document.getElementById('nav-group-'+key);
+    const header = document.querySelector(`.nav-section[data-group="${key}"]`);
+    if(group && header){
+      group.classList.add('collapsed');
+      header.setAttribute('aria-expanded','false');
+    }
+  });
 }
 
 function renderSaveActions(){
@@ -45,20 +89,52 @@ function renderSaveActions(){
 function updateBadges(){
   const alertData = getAlertData();
   const counts = alertData.counts || {};
-  const totalAlerts = Number(counts.alertas_totais || 0);
-  const renovacoesTotal = Number(counts.renovacoes_urgentes || 0) + Number(counts.renovacoes_normais || 0);
-  const pagamentosTotal = Number(counts.pagamentos_urgentes || 0) + Number(counts.pagamentos_normais || 0);
-  const b=document.getElementById('alert-badge');
-  if(b){b.style.display=totalAlerts?'':'none';b.textContent=totalAlerts}
+  // Badge de Renovações só conta o que já venceu ou vence em até 7 dias --
+  // o "urgentes" do backend (<=30 dias) avisava cedo demais e deixava o
+  // badge sempre vermelho, o que fazia a cor deixar de significar algo.
+  const renovacoesProximas = [...alertData.renovacoes.urgentes, ...alertData.renovacoes.normais]
+    .filter(item => Number(item.dias) <= 7).length;
+  // Pagamentos já tem um limiar rigoroso pronto no backend (dias_restantes<=0,
+  // ou seja, vencido de verdade) -- usa ele em vez de somar com "normais".
+  const pagamentosVencidos = Number(counts.pagamentos_urgentes || 0);
   const rb=document.getElementById('ren-badge');
-  if(rb){rb.style.display=renovacoesTotal?'':'none';rb.textContent=renovacoesTotal}
+  if(rb){rb.style.display=renovacoesProximas?'':'none';rb.textContent=renovacoesProximas}
   const pb=document.getElementById('pag-badge');
-  if(pb){pb.style.display=pagamentosTotal?'':'none';pb.textContent=pagamentosTotal}
+  if(pb){pb.style.display=pagamentosVencidos?'':'none';pb.textContent=pagamentosVencidos}
   const totalCount=document.getElementById('total-count');
   if(totalCount) totalCount.textContent=Number(counts.total_registros || clientes.length);
 }
 
 // ==================== DASHBOARD ====================
+// Soma o valorCobrado dos pagamentos de venda ainda não pagos (mesma lista
+// que já alimenta os badges de Pagamentos no sidebar) -- não é um dado novo,
+// só a metade que faltava mostrar ao lado do que já foi recebido.
+function faturamentoPendenteInfo(alertData){
+  const itens = [...alertData.pagamentos.urgentes, ...alertData.pagamentos.normais]
+    .filter(p => p.tipoPagamento === 'Venda');
+  const total = itens.reduce((s,p) => s + (Number(p.valorCobrado) || 0), 0);
+  return { total, count: itens.length };
+}
+
+function renderFaturamentoCard(faturamento, alertData){
+  const pendente = faturamentoPendenteInfo(alertData);
+  const totalEsperado = faturamento + pendente.total;
+  const pctRecebido = totalEsperado ? Math.round(faturamento / totalEsperado * 100) : 0;
+  const pctPendente = totalEsperado ? 100 - pctRecebido : 0;
+  return `
+    <div class="metric-card">
+      <div class="metric-label">Faturamento Recebido</div>
+      <div class="metric-val">${fmtMoney(faturamento)}</div>
+      <div class="metric-spacer"></div>
+      <div class="fat-legend">
+        <div class="fat-leg-item fat-leg-rec"><span class="dot"></span>Recebido<div class="fat-tip">${fmtMoney(faturamento)} · ${pctRecebido}%</div></div>
+        <div class="fat-leg-item fat-leg-pend"><span class="dot"></span>Pendente<div class="fat-tip">${fmtMoney(pendente.total)}${pendente.count ? ` · ${pendente.count} cliente${pendente.count>1?'s':''}` : ''}</div></div>
+      </div>
+      <div class="fat-bar"><div class="fat-bar-rec" style="width:${pctRecebido}%"></div><div class="fat-bar-pend" style="width:${pctPendente}%"></div></div>
+    </div>
+  `;
+}
+
 function renderDashboard(){
   // Total/Emitidos/Renovações vêm da planilha real (Clientes), não do funil de leads local
   const alertData = getAlertData();
@@ -76,8 +152,8 @@ function renderDashboard(){
   // é só a forma de comunicar isso na tela, não a proteção em si.
   const podeVerFaturamento = window.IS_ADMIN || window.PERMS.pagamentos;
   const faturamentoCard = podeVerFaturamento
-    ? `<div class="metric-card"><div class="metric-label">Faturamento Recebido</div><div class="metric-val" style="font-size:18px">${fmtMoney(faturamento)}</div><div class="metric-sub">pagamentos confirmados</div></div>`
-    : `<div class="metric-card locked-feature"><div class="metric-label">Faturamento Recebido</div><div class="metric-val" style="font-size:18px">R$ ••••</div><div class="metric-sub">pagamentos confirmados</div><div class="lock-note"><i class="ti ti-lock"></i>Requer permissão de administrador</div></div>`;
+    ? renderFaturamentoCard(faturamento, alertData)
+    : `<div class="metric-card locked-feature"><div class="metric-label">Faturamento Recebido</div><div class="metric-val">R$ ••••</div><div class="metric-sub">pagamentos confirmados</div><div class="lock-note"><i class="ti ti-lock"></i>Requer permissão de administrador</div></div>`;
 
   const pctEmitidos = total ? Math.round(emitidos/total*100) : 0;
   const pctVencendo = total ? Math.round(vencendo/total*100) : 0;

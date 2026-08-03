@@ -1,18 +1,113 @@
 // ==================== PARCEIROS ====================
+const PARCEIRO_TIPO_COLOR={
+  'Contador':'var(--accent)',
+  'Advogado':'var(--secondary)',
+  'Escritório':'var(--tertiary)',
+  'Correspondente':'var(--quaternary)',
+};
+function parceiroTipoColor(tipo){return PARCEIRO_TIPO_COLOR[tipo]||'var(--muted-strong)'}
+function parceiroIniciais(nome){
+  const palavras=(nome||'').trim().split(/\s+/).filter(Boolean);
+  if(!palavras.length) return '?';
+  if(palavras.length===1) return palavras[0].slice(0,2).toUpperCase();
+  return (palavras[0][0]+palavras[1][0]).toUpperCase();
+}
 function renderParceiros(){
-  const tbody=document.getElementById('parceiros-tbody');
+  const grid=document.getElementById('parceiros-grid');
   const empty=document.getElementById('parceiros-empty');
-  if(!parceiros.length){tbody.innerHTML='';empty.style.display='';return}
+  if(!parceiros.length){grid.innerHTML='';empty.style.display='';return}
   empty.style.display='none';
-  tbody.innerHTML=parceiros.map(p=>{
+  grid.innerHTML=parceiros.map(p=>{
     // Clientes vinculam parceiro pelo nome (contador_parceiro, vindo da
     // planilha) em `leads`, não por um parceiroId no array local legado
     // `clientes` (que não é mais populado desde a migração para o Sheets).
-    const count=leads.filter(l=>l.parceiro===p.nome).length;
-    return`<tr><td><strong>${escapeHtml(p.nome)}</strong></td><td>${escapeHtml(p.tipo)||'—'}</td><td>${p.comissao!=null?fmtPercent(p.comissao):'—'}</td><td>${escapeHtml(p.contato)||'—'}</td><td><span style="font-size:13px;font-weight:700;color:var(--accent)">${count}</span></td>
-    <td><button class="btn btn-sm" onclick="editParceiro('${p.id}')" aria-label="Editar"><i class="ti ti-edit" aria-hidden="true"></i></button> <button class="btn btn-sm btn-danger" onclick="deleteParceiro('${p.id}')" aria-label="Excluir"><i class="ti ti-trash" aria-hidden="true"></i></button></td></tr>`;
+    const indicados=leads.filter(l=>l.parceiro===p.nome);
+    const count=indicados.length;
+    const cor=parceiroTipoColor(p.tipo);
+    const porStatus=STATUS_LIST.map((s,i)=>({
+      status:s, cor:KANBAN_COLORS[i],
+      n:indicados.filter(l=>l.status===s).length,
+    })).filter(x=>x.n>0);
+    const emitidoPct=count?Math.round((indicados.filter(l=>l.status==='Emitido').length/count)*100):0;
+
+    const barra = count ? `
+      <div class="parceiro-bar-label"><span>${count} indicaç${count===1?'ão':'ões'}</span><span class="val">${emitidoPct}% emitido</span></div>
+      <div class="parceiro-compbar">${porStatus.map(x=>`<span style="width:${(x.n/count*100)}%;background:${x.cor}"></span>`).join('')}</div>
+      <div class="parceiro-legend">${porStatus.map(x=>`<span class="parceiro-legend-item"><span class="dot" style="background:${x.cor}"></span>${escapeHtml(x.status)} <b>${x.n}</b></span>`).join('')}</div>
+    ` : `<p class="parceiro-sem-indicacao">Nenhuma indicação ainda</p>`;
+
+    return`<div class="parceiro-card">
+      <div class="parceiro-card-head">
+        <span class="parceiro-eyebrow">Parceiro</span>
+        ${p.contato?`<span class="parceiro-contato-pill">Contato: ${escapeHtml(p.contato)}</span>`:''}
+      </div>
+      <div class="parceiro-card-body">
+        <div class="parceiro-card-top">
+          <span class="parceiro-avatar" style="background:${cor}">${parceiroIniciais(p.nome)}</span>
+          <div>
+            <div class="parceiro-nome">${escapeHtml(p.nome)}</div>
+            <div class="parceiro-tipo">${escapeHtml(p.tipo)||'—'}${p.comissao!=null?` · ${fmtPercent(p.comissao)} comissão`:''}</div>
+          </div>
+        </div>
+        ${barra}
+      </div>
+      <div class="parceiro-card-foot">
+        <span class="parceiro-meta">Atualizado em ${fmtDate(p.atualizadoEm)}</span>
+        <button type="button" class="btn btn-sm action-menu-trigger" onclick="openParceiroActionMenu(event, '${p.id}')" aria-haspopup="true" aria-label="Mais ações"><i class="ti ti-dots-vertical" aria-hidden="true"></i></button>
+      </div>
+    </div>`;
   }).join('');
 }
+
+// Menu "⋮" do card de Parceiro (Editar/Excluir) -- mesmo padrão do
+// #action-menu-dropdown de Clientes e do #kanban-status-menu: elemento
+// único reaproveitado por todos os cards, position:fixed calculado em JS.
+function closeParceiroActionMenu(){
+  const menu = document.getElementById('parceiro-action-menu');
+  if(!menu) return;
+  menu.classList.remove('open');
+  menu.dataset.forId = '';
+}
+
+function openParceiroActionMenu(e, id){
+  e.stopPropagation();
+  const menu = document.getElementById('parceiro-action-menu');
+  if(!menu) return;
+  const wasOpenForThisCard = menu.classList.contains('open') && menu.dataset.forId === id;
+  closeParceiroActionMenu();
+  if(typeof closeActionMenu === 'function') closeActionMenu();
+  if(typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
+  if(typeof closePrecoActionMenu === 'function') closePrecoActionMenu();
+  document.getElementById('column-selector-panel')?.classList.remove('open');
+  document.getElementById('save-menu')?.classList.remove('open');
+  document.getElementById('user-menu-panel')?.classList.remove('open');
+  document.getElementById('filtrar-clientes-panel')?.classList.remove('open');
+  document.getElementById('filtrar-planilha-panel')?.classList.remove('open');
+  if(wasOpenForThisCard) return;
+
+  menu.dataset.forId = id;
+  menu.innerHTML = `
+    <button type="button" class="action-menu-item" role="menuitem" onclick="closeParceiroActionMenu(); editParceiro('${id}')"><i class="ti ti-edit"></i>Editar</button>
+    <div class="action-menu-divider"></div>
+    <button type="button" class="action-menu-item action-menu-item-danger" role="menuitem" onclick="closeParceiroActionMenu(); deleteParceiro('${id}')"><i class="ti ti-trash"></i>Excluir</button>
+  `;
+
+  const btn = e.currentTarget;
+  const rect = btn.getBoundingClientRect();
+  menu.classList.add('open');
+  const menuRect = menu.getBoundingClientRect();
+  let top = rect.bottom + 6;
+  let left = rect.right - menuRect.width;
+  if(left < 8) left = 8;
+  if(top + menuRect.height > window.innerHeight - 8){ top = rect.top - menuRect.height - 6; }
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+}
+
+document.addEventListener('click', closeParceiroActionMenu);
+document.addEventListener('scroll', closeParceiroActionMenu, true);
+window.addEventListener('resize', closeParceiroActionMenu);
+
 function editParceiro(id){editingId=id;openModal('parceiro')}
 async function deleteParceiro(id){
   await crudDelete({

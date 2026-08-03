@@ -41,22 +41,39 @@ function _ensureToastContainer(){
   return c;
 }
 const TOAST_ICONS = {success:'ti-circle-check', error:'ti-alert-circle', warning:'ti-alert-triangle', info:'ti-info-circle'};
+const TOAST_TITLES = {success:'Sucesso', error:'Erro', warning:'Aviso', info:'Info'};
 function showToast(message, type='info', timeout=3500){
   try{
     const container = _ensureToastContainer();
+    const kind = TOAST_ICONS[type] ? type : 'info';
     const t = document.createElement('div');
-    t.className = 'toast '+(type||'info');
-    const icon = document.createElement('i');
-    icon.className = 'toast-icon ti '+(TOAST_ICONS[type]||TOAST_ICONS.info);
-    const text = document.createElement('span');
-    text.className = 'toast-text';
-    text.textContent = message;
-    t.appendChild(icon);
-    t.appendChild(text);
+    t.className = 'toast '+kind;
+    t.innerHTML = `
+      <div class="toast-icon"><i class="ti ${TOAST_ICONS[kind]}" aria-hidden="true"></i></div>
+      <div class="toast-body">
+        <div class="toast-title">${TOAST_TITLES[kind]}</div>
+        <div class="toast-text">${escapeHtml(message)}</div>
+      </div>
+      <button type="button" class="toast-close" aria-label="Fechar"><i class="ti ti-x" aria-hidden="true"></i></button>
+      <span class="toast-progress"></span>
+    `;
     container.appendChild(t);
-    requestAnimationFrame(()=>requestAnimationFrame(()=>t.classList.add('toast-visible')));
-    setTimeout(()=>{t.classList.remove('toast-visible');}, timeout-200);
-    setTimeout(()=>{try{container.removeChild(t)}catch(e){}}, timeout);
+
+    let hideTimer;
+    const hide = () => {
+      clearTimeout(hideTimer);
+      t.classList.remove('toast-visible');
+      setTimeout(()=>{try{container.removeChild(t)}catch(e){}}, 200);
+    };
+    t.querySelector('.toast-close').addEventListener('click', hide);
+    hideTimer = setTimeout(hide, timeout-200);
+
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      t.classList.add('toast-visible');
+      const bar = t.querySelector('.toast-progress');
+      bar.style.transitionDuration = (timeout-200)+'ms';
+      bar.style.width = '0%';
+    }));
   }catch(e){console.warn('Toast failed',e)}
 }
 
@@ -81,8 +98,11 @@ function initSaveMenu(){
     const wasOpen = menu.classList.contains('open');
     closeActionMenu();
     if(typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
+    if(typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
     document.getElementById('column-selector-panel')?.classList.remove('open');
     document.getElementById('user-menu-panel')?.classList.remove('open');
+    document.getElementById('filtrar-clientes-panel')?.classList.remove('open');
+    document.getElementById('filtrar-planilha-panel')?.classList.remove('open');
     menu.classList.toggle('open', !wasOpen);
   });
   document.addEventListener('click', function(){ menu.classList.remove('open'); });
@@ -569,9 +589,13 @@ function openRowActionMenu(e, id){
   // e o menu "Salvar" também usam stopPropagation() no próprio botão, então
   // nunca veem o clique que abriria este menu -- fecha os dois aqui.
   if(typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
+  if(typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
+  if(typeof closePrecoActionMenu === 'function') closePrecoActionMenu();
   document.getElementById('column-selector-panel')?.classList.remove('open');
   document.getElementById('save-menu')?.classList.remove('open');
   document.getElementById('user-menu-panel')?.classList.remove('open');
+  document.getElementById('filtrar-clientes-panel')?.classList.remove('open');
+  document.getElementById('filtrar-planilha-panel')?.classList.remove('open');
   if(wasOpenForThisRow) return;
 
   menu.dataset.forId = id;

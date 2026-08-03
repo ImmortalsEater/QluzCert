@@ -1,10 +1,70 @@
 // ==================== TABELA PREÇOS ====================
 function renderTabela(){
-  document.getElementById('tabela-tbody').innerHTML=precos.map(p=>`<tr>
-    <td><strong>${escapeHtml(p.tipo)}</strong></td><td>${escapeHtml(p.validade)}</td><td style="font-weight:700;color:var(--success)">${fmtMoney(p.preco)}</td>
-    <td><button class="btn btn-sm" onclick="editPreco('${p.id}')" aria-label="Editar"><i class="ti ti-edit" aria-hidden="true"></i></button> <button class="btn btn-sm btn-danger" onclick="deletePreco('${p.id}')" aria-label="Excluir"><i class="ti ti-trash" aria-hidden="true"></i></button></td>
-  </tr>`).join('');
+  const grid=document.getElementById('precos-grid');
+  const empty=document.getElementById('precos-empty');
+  if(!precos.length){grid.innerHTML='';empty.style.display='';return}
+  empty.style.display='none';
+  grid.innerHTML=precos.map(p=>`<div class="preco-card">
+    <div class="preco-tipo">${escapeHtml(p.tipo)}</div>
+    <div>
+      <div class="preco-price-label">Preço</div>
+      <span class="preco-price-wrap"><span class="preco-price">${fmtMoney(p.preco)}</span><span class="preco-underline"></span></span>
+    </div>
+    <span class="preco-validade"><i class="ti ti-calendar" aria-hidden="true"></i>Validade <b>${escapeHtml(p.validade)}</b></span>
+    <div class="preco-card-foot">
+      <span class="preco-meta">Atualizado em ${fmtDate(p.atualizadoEm)}</span>
+      <button type="button" class="btn btn-sm action-menu-trigger" onclick="openPrecoActionMenu(event, '${p.id}')" aria-haspopup="true" aria-label="Mais ações"><i class="ti ti-dots-vertical" aria-hidden="true"></i></button>
+    </div>
+  </div>`).join('');
 }
+
+// Menu "⋮" do card de Preço -- mesmo padrão do #parceiro-action-menu.
+function closePrecoActionMenu(){
+  const menu = document.getElementById('preco-action-menu');
+  if(!menu) return;
+  menu.classList.remove('open');
+  menu.dataset.forId = '';
+}
+
+function openPrecoActionMenu(e, id){
+  e.stopPropagation();
+  const menu = document.getElementById('preco-action-menu');
+  if(!menu) return;
+  const wasOpenForThisCard = menu.classList.contains('open') && menu.dataset.forId === id;
+  closePrecoActionMenu();
+  if(typeof closeActionMenu === 'function') closeActionMenu();
+  if(typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
+  if(typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
+  document.getElementById('column-selector-panel')?.classList.remove('open');
+  document.getElementById('save-menu')?.classList.remove('open');
+  document.getElementById('user-menu-panel')?.classList.remove('open');
+  document.getElementById('filtrar-clientes-panel')?.classList.remove('open');
+  document.getElementById('filtrar-planilha-panel')?.classList.remove('open');
+  if(wasOpenForThisCard) return;
+
+  menu.dataset.forId = id;
+  menu.innerHTML = `
+    <button type="button" class="action-menu-item" role="menuitem" onclick="closePrecoActionMenu(); editPreco('${id}')"><i class="ti ti-edit"></i>Editar</button>
+    <div class="action-menu-divider"></div>
+    <button type="button" class="action-menu-item action-menu-item-danger" role="menuitem" onclick="closePrecoActionMenu(); deletePreco('${id}')"><i class="ti ti-trash"></i>Excluir</button>
+  `;
+
+  const btn = e.currentTarget;
+  const rect = btn.getBoundingClientRect();
+  menu.classList.add('open');
+  const menuRect = menu.getBoundingClientRect();
+  let top = rect.bottom + 6;
+  let left = rect.right - menuRect.width;
+  if(left < 8) left = 8;
+  if(top + menuRect.height > window.innerHeight - 8){ top = rect.top - menuRect.height - 6; }
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+}
+
+document.addEventListener('click', closePrecoActionMenu);
+document.addEventListener('scroll', closePrecoActionMenu, true);
+window.addEventListener('resize', closePrecoActionMenu);
+
 function editPreco(id){editingId=id;openModal('preco')}
 async function deletePreco(id){
   await crudDelete({

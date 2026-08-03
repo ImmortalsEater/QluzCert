@@ -98,9 +98,13 @@ function openKanbanStatusMenu(e, id){
   const wasOpenForThisLead = menu.classList.contains('open') && menu.dataset.forId === id;
   closeKanbanStatusMenu();
   if(typeof closeActionMenu === 'function') closeActionMenu();
+  if(typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
+  if(typeof closePrecoActionMenu === 'function') closePrecoActionMenu();
   document.getElementById('column-selector-panel')?.classList.remove('open');
   document.getElementById('save-menu')?.classList.remove('open');
   document.getElementById('user-menu-panel')?.classList.remove('open');
+  document.getElementById('filtrar-clientes-panel')?.classList.remove('open');
+  document.getElementById('filtrar-planilha-panel')?.classList.remove('open');
   if(wasOpenForThisLead) return;
 
   const lead = leads.find(l=>l.id===id);
