@@ -77,6 +77,7 @@ function openParceiroActionMenu(e, id){
   closeParceiroActionMenu();
   if(typeof closeActionMenu === 'function') closeActionMenu();
   if(typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
+  if(typeof closePrecoActionMenu === 'function') closePrecoActionMenu();
   document.getElementById('column-selector-panel')?.classList.remove('open');
   document.getElementById('save-menu')?.classList.remove('open');
   document.getElementById('user-menu-panel')?.classList.remove('open');

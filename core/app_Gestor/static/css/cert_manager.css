@@ -347,6 +347,28 @@
     background:var(--surface-alt);border-top:1px solid var(--border)}
   .parceiro-meta{font-size:11px;color:var(--muted)}
 
+  /* TABELA DE PRECOS -- cards com preco em destaque (Bricolage Grotesque) e
+     sublinhado animado no hover; sem avatar pois "tipo" e texto livre. */
+  .precos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+  .preco-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;
+    display:flex;flex-direction:column;gap:13px;transition:border-color 180ms ease,box-shadow 180ms ease}
+  .preco-card:hover{border-color:var(--border-strong);box-shadow:0 6px 16px -10px rgba(22,21,19,.14)}
+  .preco-tipo{font-size:13.5px;font-weight:700}
+  .preco-price-label{font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+  .preco-price-wrap{position:relative;display:inline-block}
+  .preco-price{font-family:'Bricolage Grotesque',Inter,sans-serif;font-size:25px;font-weight:700;letter-spacing:-.02em;
+    font-variant-numeric:tabular-nums;line-height:1;color:var(--success)}
+  .preco-underline{position:absolute;left:0;bottom:-4px;height:2px;width:0;background:var(--success);border-radius:2px;
+    transition:width 320ms cubic-bezier(.2,.7,.3,1)}
+  .preco-card:hover .preco-underline{width:100%}
+  .preco-validade{display:inline-flex;align-items:center;gap:5px;width:fit-content;font-size:11px;font-weight:600;
+    color:var(--quaternary);background:var(--quaternary-bg);border:1px solid var(--quaternary);border-radius:20px;padding:3px 10px 3px 8px}
+  .preco-validade i{font-size:12px}
+  .preco-validade b{font-weight:700}
+  .preco-card-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    border-top:1px solid var(--border);padding-top:11px}
+  .preco-meta{font-size:11px;color:var(--muted)}
+
   @media (hover: hover) and (pointer: fine) {
     .kanban-card:hover{border-color:var(--border-strong);transform:translateY(-1px)}
   }

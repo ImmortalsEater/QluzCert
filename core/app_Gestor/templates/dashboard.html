@@ -298,14 +298,8 @@
         <div class="section-actions">
           <button class="btn btn-quaternary" onclick="openModal('preco')"><i class="ti ti-plus"></i>Novo Item</button>
         </div>
-        <div class="table-wrap">
-          <div class="table-scroll">
-            <table>
-              <thead><tr><th>Tipo de Certificado</th><th>Validade</th><th>Preço</th><th>Ações</th></tr></thead>
-              <tbody id="tabela-tbody"></tbody>
-            </table>
-          </div>
-        </div>
+        <div class="precos-grid" id="precos-grid"></div>
+        <div id="precos-empty" class="empty-state" style="display:none"><i class="ti ti-currency-dollar"></i><p>Nenhum tipo de certificado cadastrado.</p></div>
       </div>
 
     </div><!-- /content -->
@@ -357,6 +351,10 @@
 <!-- MENU DE AÇÕES DO CARD DE PARCEIRO -- mesmo padrão dos dois acima (ver
      openParceiroActionMenu em cert_manager.parceiros.js). -->
 <div id="parceiro-action-menu" class="action-menu-dropdown" role="menu"></div>
+
+<!-- MENU DE AÇÕES DO CARD DE PREÇO -- mesmo padrão dos acima (ver
+     openPrecoActionMenu em cert_manager.precos.js). -->
+<div id="preco-action-menu" class="action-menu-dropdown" role="menu"></div>
 
 <!-- OVERLAY EXPORTAÇÃO -->
 <div id="export-overlay">

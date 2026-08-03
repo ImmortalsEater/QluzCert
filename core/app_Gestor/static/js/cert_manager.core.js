@@ -590,6 +590,7 @@ function openRowActionMenu(e, id){
   // nunca veem o clique que abriria este menu -- fecha os dois aqui.
   if(typeof closeKanbanStatusMenu === 'function') closeKanbanStatusMenu();
   if(typeof closeParceiroActionMenu === 'function') closeParceiroActionMenu();
+  if(typeof closePrecoActionMenu === 'function') closePrecoActionMenu();
   document.getElementById('column-selector-panel')?.classList.remove('open');
   document.getElementById('save-menu')?.classList.remove('open');
   document.getElementById('user-menu-panel')?.classList.remove('open');
